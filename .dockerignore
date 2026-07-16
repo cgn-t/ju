@@ -1,0 +1,13 @@
+# Repo kökünden yapılan docker build'lerde geçerli. İmaja bayat/gizli/ağır dosyalar sızmasın.
+backend/.venv
+backend/jumbo.db
+backend/jumbo.db-journal
+backend/jumbo.db-wal
+backend/jumbo.db-shm
+backend/.env
+backend/.pytest_cache
+**/__pycache__
+**/*.pyc
+frontend/node_modules
+frontend/dist
+.git

@@ -1,0 +1,42 @@
+# HashiCorp Vault — JUMBO için PKI CA zinciri + KV v2 kasa kaynağı.
+# JUMBO Vault'a YALNIZ OKUMA (read-only) bağlanır; sertifika üretimi/yenilemesi JUMBO'da yapılmaz.
+#
+# Çalıştır:   docker compose up -d        (bu dizinden: vault/)
+# Kur:        README.md'deki adımları izleyin (init → unseal → PKI → KV → jumbo-ro token)
+#
+# PROD notları: TLS açın (config.hcl + ./tls), unseal key'leri bölüştürüp güvenli saklayın,
+# düzenli raft snapshot alın (README §7).
+
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    # Alternatif — config+policy GÖMÜLÜ özel imaj (README §1-B): üstteki 'image' satırını silip
+    # aşağıyı açın; o zaman config.hcl/policies MOUNT'una gerek kalmaz (aşağıdaki 2 satırı da silin).
+    # build: .
+    container_name: jumbo-vault
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK                    # mlock için (disable_mlock=true olsa da zararsız)
+    environment:
+      VAULT_ADDR: "http://127.0.0.1:8200"   # 'docker exec ... vault ...' CLI'si bunu kullanır
+    volumes:
+      - vault-data:/vault/file               # kalıcı raft verisi
+      - ./config.hcl:/vault/config/config.hcl:ro
+      - ./policies:/vault/policies:ro         # 'vault policy write' için (exec içinden erişilir)
+      # - ./tls:/vault/tls:ro                 # PROD TLS sertifika/anahtarı için
+    # NOT: imaj entrypoint'i otomatik '-config=/vault/config' ekler; config.hcl'i o dizine bağladık.
+    # Komut yalnız 'server' — '-config=...' TEKRAR VERMEYİN (config iki kez yüklenip aynı listener'ı
+    # 8200'e iki kez bağlar → "address already in use").
+    command: server
+    # JUMBO ile aynı Docker ağında konuşmak isterseniz (adres → http://jumbo-vault:8200):
+    # networks: [jumbo-net]
+
+volumes:
+  vault-data:
+
+# JUMBO 'jumbo-net' ağındaysa Vault'u da aynı ağa katmak için yukarıdaki 'networks'ü açıp:
+# networks:
+#   jumbo-net:
+#     external: true

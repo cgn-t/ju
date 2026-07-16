@@ -1,0 +1,66 @@
+# JUMBO — TEK CONTAINER dağıtımı (OpenShift / Kubernetes).
+# Tek imaj (repo kökündeki Dockerfile): nginx ön kapı :8080 (+ frontend :9080) + uvicorn 127.0.0.1:5000, supervisord.
+# MSSQL pod DIŞINDADIR (mevcut prod SQL Server); bağlantı Secret'tan gelir.
+# İmaj OpenShift arbitrary-UID uyumlu → securityContext'e özel UID gerekmez.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jumbo-secrets
+type: Opaque
+stringData:
+  # Sadece HASSAS değerler Secret'ta. MSSQL host/user/db/port aşağıda düz env.
+  # MSSQL hesabı DDL yetkili olmalı (create_all + ALTER + CREATE INDEX ilk açılışta çalışır).
+  mssql-password: "PAROLA"
+  jwt-secret: "uzun-rastgele-bir-anahtar-uret"
+  fernet-key: "fernet-anahtari-uret"   # python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jumbo
+  labels: { app: jumbo }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: jumbo } }
+  template:
+    metadata: { labels: { app: jumbo } }
+    spec:
+      containers:
+        - name: jumbo            # TEK container: web + api aynı imajda
+          image: jumbo:latest
+          ports: [{ containerPort: 8080 }]   # ön kapı (önyüz); 9080 frontend içseldir
+          env:
+            # MSSQL bağlantısı parça-parça (kod bunlardan pymssql URL kurar). Host/user/db/port
+            # ortam-özel düz değerler; yalnız şifre Secret'tan.
+            - { name: MSSQL_HOST,     value: "sql-prod-host" }
+            - { name: MSSQL_PORT,     value: "1433" }
+            - { name: MSSQL_USER,     value: "jumbo" }
+            - { name: MSSQL_DB,       value: "JUMBO2" }
+            - { name: MSSQL_PASSWORD, valueFrom: { secretKeyRef: { name: jumbo-secrets, key: mssql-password } } }
+            - { name: JWT_SECRET,     valueFrom: { secretKeyRef: { name: jumbo-secrets, key: jwt-secret } } }
+            - { name: FERNET_KEY,     valueFrom: { secretKeyRef: { name: jumbo-secrets, key: fernet-key } } }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 8080 }   # ön kapı → uvicorn üzerinden
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /api/health, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "640Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jumbo
+spec:
+  selector: { app: jumbo }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080          # ön kapı (nginx :8080); API dahil her şey buradan geçer
+  # OpenShift: `oc expose svc/jumbo` ile Route oluştur (TLS Route'ta sonlanır).
+  # Kubernetes: type: ClusterIP + Ingress ya da ihtiyaca göre LoadBalancer/NodePort.

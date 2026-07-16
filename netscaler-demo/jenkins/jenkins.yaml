@@ -1,0 +1,57 @@
+# Jenkins Configuration-as-Code (JCasC) — demo için hazır kurulum (setup sihirbazı yok).
+# Kullanıcılar: admin/admin123, jumbo/jumbo123 (JUMBO bu kimlikle tetikler).
+# Kimlik bilgisi: vault-token (dev Vault kök token). Job: netscaler-deploy (parametreli).
+jenkins:
+  systemMessage: "JUMBO demo — NetScaler deploy orkestrasyonu (Vault → NITRO)"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin123"
+        - id: "jumbo"
+          password: "jumbo123"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://jumbo-jenkins:8080/"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "vault-token"
+              secret: "demo-root"
+              description: "Dev Vault kök token (demo)"
+
+jobs:
+  - script: |
+      pipelineJob('netscaler-deploy') {
+        description('JUMBO tetikler: Vault -> NITRO yerinde cert degisimi. CERTKEY = domain basina cert-key adi (genel).')
+        parameters {
+          stringParam('CERTKEY', 'demo_ck', 'NetScaler cert-key adi (her domain icin farkli)')
+          stringParam('NS_MGMT', 'jumbo-cpx:9080', 'NITRO yonetim host:port')
+          stringParam('VAULT_ADDR', 'http://jumbo-vault-demo:8200', 'Vault adresi')
+          stringParam('VAULT_PATH', 'secret/data/certs/demo', 'Vault KV v2 yolu (domain basina)')
+        }
+        definition {
+          cps {
+            sandbox(true)
+            script('''
+              node {
+                stage('deploy') {
+                  withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
+                    sh 'ns-deploy.sh'
+                  }
+                }
+              }
+            '''.stripIndent())
+          }
+        }
+      }

@@ -1,0 +1,3 @@
+# Üretilen demo sertifikaları + ÖZEL ANAHTARLAR — public repo'ya girmez.
+# gen-demo-certs.sh ile yerelde yeniden üretilir (script `mkdir -p certs` yapar).
+certs/

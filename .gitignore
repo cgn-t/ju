@@ -1,0 +1,49 @@
+# ============ JUMBO .gitignore ============
+
+# --- Sırlar / kimlik bilgileri (ASLA commit edilmez) ---
+.env
+.env.local
+.env.*.local
+# NOT: .env.example ŞABLONLARI commit EDİLİR (gerçek sır içermez)
+*.key
+*.pfx
+*.p12
+*.token
+.jumbo-token
+
+# --- Demo/lab ortamı (üretim için gerekli değil; Vault token + özel anahtarlar içerir) ---
+lab/
+
+# --- Python / backend ---
+backend/.venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Yerel geliştirme veritabanı (SQLite) — prod MSSQL kullanır
+backend/jumbo.db
+backend/tests/test_jumbo.db
+*.sqlite
+*.sqlite3
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+dist/
+dist-ssr/
+*.local
+
+# --- OS / editör ---
+.DS_Store
+*.log
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Yerel geliştirme MSSQL kurulumu — repoya dahil değil (prod harici MSSQL kullanır)
+docker-compose.yml
+backend/DEV-MSSQL.md
