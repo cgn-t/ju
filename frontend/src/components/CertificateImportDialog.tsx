@@ -143,7 +143,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
   // Oluşturan alanı: SY ekip adlarından dinamik seçim (her iki sekmede aynı)
   const creatorSelect = (
-    <TextField select required label="Oluşturan (SY Ekip)" size="small" fullWidth
+    <TextField select required label="Oluşturan Ekip" size="small" fullWidth
                value={creator} onChange={(e) => setCreator(e.target.value)} error={!creator}
                helperText={!creator ? 'Zorunlu — sertifikayı oluşturan SY ekibini seçin'
                            : (syTeams.length ? 'Sertifikayı oluşturan SY ekibi'

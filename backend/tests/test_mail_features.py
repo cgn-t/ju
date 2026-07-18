@@ -85,6 +85,40 @@ def test_mail_fallback_on_failure(client, auth_headers, monkeypatch):
     assert any("yedek@test" in to for to in calls), "yedek adrese ikinci deneme yapılmadı"
 
 
+def test_mail_creator_team_no_domain(client, auth_headers, monkeypatch):
+    """Oluşturan Ekip = SY ekip adı, sertifika HİÇBİR domaine bağlı değil.
+    Yine de aktif + süresi yaklaşan sertifika için o ekibe mail gitmeli."""
+    from app.db.models import Certificate
+    h = auth_headers
+    tid = _sy_team(client, h, "SY-Sahip-D", "sahip-d@test")  # domaini YOK
+    # domaine bağlı OLMAYAN, ~10 gün sonra dolacak leaf
+    ca_cert, ca_key = certgen.make_ca("CA sahip-d")
+    nb = datetime.utcnow() - timedelta(days=20)
+    leaf, _ = certgen.make_leaf(ca_cert, ca_key, "sahipd.test", not_before=nb, days=30, san=["sahipd.test"])
+    pem = certgen.pem(leaf) + certgen.pem(ca_cert)
+    r = client.post("/api/certificates/import", headers=h,
+                    files={"file": ("c.pem", pem.encode(), "application/x-pem-file")})
+    assert r.status_code == 200, r.text
+    leaf_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+    _set_smtp(client, h)
+    # "Oluşturan Ekip" seçimi: creator kolonuna SY ekip ADI yazılır
+    db = SessionLocal()
+    try:
+        db.get(Certificate, leaf_id).creator = "SY-Sahip-D"
+        db.commit()
+    finally:
+        db.close()
+    sent = []
+    monkeypatch.setattr(notifier, "_send_mail",
+                        lambda cfg, to, subject, body, html=None: sent.append(list(to)))
+    db = SessionLocal()
+    try:
+        notifier.send_expiry_notifications(db, force=True)
+    finally:
+        db.close()
+    assert any("sahip-d@test" in to for to in sent), f"oluşturan ekibe mail gitmedi: {sent}"
+
+
 def test_mail_queue_enqueue_then_drain(client, auth_headers, monkeypatch):
     h = auth_headers
     tid = _sy_team(client, h, "SY-Mail-C", "team-c@test")

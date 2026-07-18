@@ -385,7 +385,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               <Stack spacing={2}>
                 <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by}
                            onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
-                <TextField select size="small" fullWidth label="Oluşturan (SY Ekip)" value={form.creator}
+                <TextField select size="small" fullWidth label="Oluşturan Ekip" value={form.creator}
                            onChange={(e) => setForm({ ...form, creator: e.target.value })}
                            helperText={syTeams.length ? 'Sertifikayı oluşturan SY ekibini seçin' : 'Tanımlı SY ekibi yok'}>
                   <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
@@ -420,7 +420,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               <>
                 <Stack direction="row" spacing={4}>
                   <Field label="Satın Alım Yapan" value={cert.purchased_by} />
-                  <Field label="Oluşturan" value={cert.creator} />
+                  <Field label="Oluşturan Ekip" value={cert.creator} />
                 </Stack>
                 <Field label="Notlar" value={cert.notes} />
               </>

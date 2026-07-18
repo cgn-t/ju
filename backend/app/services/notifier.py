@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import AppDependency, Certificate, MailQueue, Notification, User
+from app.db.models import AppDependency, Certificate, MailQueue, Notification, Team, User
 from app.db.session import SessionLocal
 from app.services.settings_service import get_category
 
@@ -128,7 +128,7 @@ def _cert_rows(cert: Certificate) -> list[tuple]:
         ("NAME", cert.name),
         ("SerialNumber", cert.serial_number),
         ("Issuer", cert.issuer),
-        ("Sertifika Oluşturan", cert.creator),
+        ("Oluşturan Ekip", cert.creator),
         ("Subject", cert.subject),
         ("SubjectKeyIdentifier", cert.subject_key_identifier),
         ("ValidFrom", cert.valid_from),
@@ -305,13 +305,23 @@ def _expiry_stakeholders(db: Session, cert: Certificate) -> list[dict]:
         if reason not in s["reasons"]:
             s["reasons"].append(reason)
 
-    # 1) sahip (oluşturan kullanıcı)
+    # 1) sahip: OLUŞTURAN EKİP (SY). creator alanı SSL Sertifikalar sayfasındaki
+    #    "Oluşturan Ekip" seçiminden SY ekip ADI olarak gelir → o ekip HER ZAMAN
+    #    paydaştır (domaine/uygulamaya bağlı olmasa bile mail alır). Geriye dönük:
+    #    eşleşen SY ekip yoksa creator bir kullanıcı adı olarak denenir
+    #    (Vault/oto-import yollarında creator=user.username'e düşebiliyor).
     if cert.creator:
-        owner = db.query(User).filter(User.username == cert.creator,
-                                      User.is_active == True).first()
-        if owner is not None and owner.email:
-            add(f"user:{owner.id}", f"sahip ({owner.username})", [owner.email],
-                "Bu sertifikayı siz oluşturdunuz (sahip)")
+        owner_team = (db.query(Team)
+                      .filter(Team.name == cert.creator, Team.type == "SY").first())
+        if owner_team is not None and _team_emails(owner_team):
+            add(f"team:{owner_team.id}", owner_team.name, _team_emails(owner_team),
+                "Sertifikayı oluşturan (sahibi) SY ekibisiniz")
+        else:
+            owner = db.query(User).filter(User.username == cert.creator,
+                                          User.is_active == True).first()
+            if owner is not None and owner.email:
+                add(f"user:{owner.id}", f"sahip ({owner.username})", [owner.email],
+                    "Bu sertifikayı siz oluşturdunuz (sahip)")
 
     # 2) bağlı domainlerin SY ekipleri
     for m in cert.domain_mappings:
