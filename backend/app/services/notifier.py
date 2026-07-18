@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import AppDependency, Certificate, Notification, User
+from app.db.models import AppDependency, Certificate, MailQueue, Notification, User
 from app.db.session import SessionLocal
 from app.services.settings_service import get_category
 
@@ -157,7 +157,8 @@ def _related_domains_table(mappings) -> str:
             f"<tr>{head}</tr>{body}</table>")
 
 
-def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expired: bool) -> str:
+def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expired: bool,
+                           doc_links: str = "") -> str:
     """Tek paydaşa giden tablolu HTML gövde. Düzen, bağlı domain sayısına göre eski
     sistemdeki iki mail tipini karşılar: tek domain → 'Domain Detay Bilgileri' +
     Bağlantı Tipi şeridi + 'SSL Sertifika Detayı'; çok domain → 'SSL Sertifika
@@ -207,11 +208,15 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
                      '<ol style="font-size:14px;margin:4px 0">'
                      "<li>Yenilenen sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).</li>"
                      "<li>'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.</li>"
-                     "<li>Sertifika artık kullanılmıyorsa kaydın pasife alınmasını sağlayın (admin).</li></ol>")
+                     "<li>Sertifika artık kullanılmıyorsa kaydı pasife alın; yetkiniz yoksa "
+                     "ilgili ekiplerle iletişime geçerek pasife alınmasını sağlayın.</li></ol>")
     else:
         parts.append('<p style="font-size:14px">Yenileme sürecini başlatmanız ve yeni sertifikayı '
                      "JUMBO'ya eklemeniz önerilir. Yerine geçecek sertifika 'Devir Önerileri' "
                      "üzerinden onayınızla devreye girer.</p>")
+
+    if doc_links:
+        parts.append(_doc_links_html(doc_links))
 
     parts.append('<p style="color:#888;font-size:12px;margin-top:20px">İyi çalışmalar,<br>'
                  "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir.</p></div>")
@@ -329,20 +334,77 @@ def _expiry_stakeholders(db: Session, cert: Certificate) -> list[dict]:
     return list(stakeholders.values())
 
 
+def _doc_links_html(doc_links: str) -> str:
+    """Ayarlardaki doküman bağlantılarını mailin altına HTML bölümü olarak render eder."""
+    lines = [ln.strip() for ln in (doc_links or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    items = "".join(
+        (f'<li><a href="{_esc(ln)}">{_esc(ln)}</a></li>' if ln.startswith(("http://", "https://"))
+         else f"<li>{_esc(ln)}</li>")
+        for ln in lines)
+    return _section("Sertifika Yönetimi Dokümanları") + f"<ul style='font-size:14px;margin:4px 0'>{items}</ul>"
+
+
+def _doc_links_text(doc_links: str) -> str:
+    """Doküman bağlantılarının düz metin karşılığı."""
+    lines = [ln.strip() for ln in (doc_links or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    return "\nSertifika Yönetimi Dokümanları:\n" + "".join(f"  - {ln}\n" for ln in lines)
+
+
+def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: str,
+                        html_body: str | None) -> tuple[bool, str]:
+    """Birincil alıcılara gönderir; SMTP hatası olursa `fallback_address`'e İKİNCİ deneme yapar.
+    (ok, açıklama) döner. Kuyruk boşaltma da bu çekirdeği kullanır."""
+    try:
+        _send_mail(cfg, to_addresses, subject, body, html_body)
+        return True, "gönderildi"
+    except Exception as exc:
+        logger.warning("Birincil mail gönderilemedi (%s): %s", ", ".join(to_addresses), exc)
+        fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",") if a.strip()]
+        primary_lc = {a.lower() for a in to_addresses}
+        if fb and {a.lower() for a in fb} != primary_lc:
+            try:
+                _send_mail(cfg, fb, f"[YEDEK] {subject}",
+                           f"Bu bildirim asıl alıcıya ({', '.join(to_addresses)}) gönderilemedi; "
+                           f"yedek adrese iletildi.\n\n{body}", html_body)
+                return True, f"birincil başarısız → yedek adrese gönderildi ({', '.join(fb)})"
+            except Exception as exc2:
+                logger.exception("Yedek mail de gönderilemedi")
+                return False, f"birincil ve yedek başarısız: {exc2}"
+        return False, f"gönderilemedi: {exc}"
+
+
+def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body: str,
+             html_body: str | None, *, certificate_id, stakeholder, days_left) -> tuple[bool, str]:
+    """queue_enabled ise mail'i mail_queue'ya YAZAR (drain job gönderir); değilse doğrudan
+    (fallback'li) gönderir. (ok, açıklama) döner — ok=True 'işlendi' (gönderildi veya kuyruğa alındı)."""
+    if cfg.get("queue_enabled"):
+        db.add(MailQueue(to_addresses=", ".join(to_addresses), subject=subject,
+                         body_text=body, body_html=html_body, certificate_id=certificate_id,
+                         stakeholder=stakeholder, days_left=days_left))
+        return True, "kuyruğa alındı"
+    return _send_with_fallback(cfg, to_addresses, subject, body, html_body)
+
+
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                          make_subject, make_body, make_html=None) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
-    kendi nedenleriyle AYRI mail atar. force=False → son 7 günde bildirim gönderilen
-    sertifika atlanır (cron spam önleme); force=True → mutlaka gönderilir (API).
-    make_html verilirse mail multipart gider: HTML (tablolu görünüm) + düz metin yedek."""
+    kendi nedenleriyle AYRI mail atar. force=False → son `resend_interval_days` günde
+    (varsayılan 1 = HER GÜN) bildirim gönderilen sertifika atlanır (cron tekrar-önleme);
+    force=True → mutlaka gönderilir (API). queue_enabled ise mailler doğrudan gönderilmez,
+    mail_queue'ya yazılır. make_html verilirse multipart: HTML + düz metin yedek."""
     sent = skipped = 0
     details: list[dict] = []
+    interval_days = max(1, int(cfg.get("resend_interval_days") or 1))
     for cert in certs:
         if not force:
             recent = (db.query(Notification)
                       .filter(Notification.certificate_id == cert.id,
                               Notification.channel == "email",  # kanal bildirimleri maili engellemesin
-                              Notification.sent_at >= utcnow() - timedelta(days=7))
+                              Notification.sent_at >= utcnow() - timedelta(days=interval_days))
                       .first())
             if recent:
                 skipped += 1
@@ -359,17 +421,19 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
         for p in parties:  # HER paydaşa AYRI mail — kendi nedenleriyle
             body = make_body(cert, days_left, p)
             html_body = make_html(cert, days_left, p) if make_html else None
-            try:
-                _send_mail(cfg, p["emails"], subject, body, html_body)
+            ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                                certificate_id=cert.id, stakeholder=p["label"], days_left=days_left)
+            if ok:
+                # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı
                 db.add(Notification(certificate_id=cert.id, recipient=", ".join(p["emails"]),
                                     subject=f"{subject} → {p['label']}", days_left=days_left,
                                     channel="email"))
                 db.commit()
                 sent += 1
-                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True})
-            except Exception:
-                logger.exception("Bildirim maili gönderilemedi: %s → %s", cert.name, p["label"])
-                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False})
+                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
+            else:
+                logger.warning("Bildirim işlenemedi: %s → %s (%s)", cert.name, p["label"], note)
+                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
         details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
 
     return {"enabled": True, "checked": len(certs), "sent": sent, "skipped": skipped,
@@ -417,12 +481,14 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
             f"Bitiş: {cert.valid_to:%Y-%m-%d %H:%M} UTC\nKalan: {days_left} gün\n\n"
             + _reason_block(p)
             + "\nYenileme sürecini başlatmanız ve yeni sertifikayı JUMBO'ya eklemeniz önerilir.\n"
-              "Yerine geçecek sertifika 'Devir Önerileri' üzerinden onayınızla devreye girer.\n\n"
-              "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+              "Yerine geçecek sertifika 'Devir Önerileri' üzerinden onayınızla devreye girer.\n"
+            + _doc_links_text(cfg.get("doc_links") or "")
+            + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
         )
 
     def html(cert, days_left, p):
-        return _render_cert_mail_html(cert, days_left, p, expired=False)
+        return _render_cert_mail_html(cert, days_left, p, expired=False,
+                                      doc_links=cfg.get("doc_links") or "")
 
     return _dispatch_cert_mails(db, cfg, expiring, force=force,
                                 make_subject=subject, make_body=body, make_html=html)
@@ -461,12 +527,15 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
             + "\nLütfen JUMBO envanterini güncelleyin:\n"
               "  1) Yenilenen sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).\n"
               "  2) 'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
-              "  3) Sertifika artık kullanılmıyorsa kaydın pasife alınmasını sağlayın (admin).\n\n"
-              "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+              "  3) Sertifika artık kullanılmıyorsa kaydı pasife alın; yetkiniz yoksa ilgili\n"
+              "     ekiplerle iletişime geçerek pasife alınmasını sağlayın.\n"
+            + _doc_links_text(cfg.get("doc_links") or "")
+            + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
         )
 
     def html(cert, days_left, p):
-        return _render_cert_mail_html(cert, days_left, p, expired=True)
+        return _render_cert_mail_html(cert, days_left, p, expired=True,
+                                      doc_links=cfg.get("doc_links") or "")
 
     return _dispatch_cert_mails(db, cfg, expired, force=force,
                                 make_subject=subject, make_body=body, make_html=html)
@@ -511,6 +580,61 @@ def _schedule_hour(category: str, default: int) -> int:
         db.close()
 
 
+def drain_mail_queue(db: Session) -> dict:
+    """mail_queue'daki bekleyen mailleri hız-limitine (queue_batch_size) uyarak gönderir.
+    'mail-queue-drain' job'ı her queue_interval_minutes'te çağırır. Fallback adres burada da
+    geçerli. 5 başarısız denemeden sonra öğe 'failed' işaretlenir."""
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    if not cfg.get("enabled") or not cfg.get("host"):
+        return {"drained": 0, "sent": 0, "failed": 0, "message": "SMTP kapalı — kuyruk boşaltılmadı."}
+    batch = max(1, int(cfg.get("queue_batch_size") or 50))
+    pending = (db.query(MailQueue)
+               .filter(MailQueue.status == "pending")
+               .order_by(MailQueue.created_at.asc())
+               .limit(batch).all())
+    sent = failed = 0
+    for item in pending:
+        to = [a.strip() for a in (item.to_addresses or "").split(",") if a.strip()]
+        ok, note = _send_with_fallback(cfg, to, item.subject or "", item.body_text or "", item.body_html)
+        item.attempts = (item.attempts or 0) + 1
+        if ok:
+            item.status, item.sent_at = "sent", utcnow()
+            sent += 1
+        else:
+            item.last_error = note[:1000]
+            if item.attempts >= 5:
+                item.status = "failed"
+            failed += 1
+        db.commit()
+    return {"drained": len(pending), "sent": sent, "failed": failed,
+            "message": f"{len(pending)} kuyruk öğesi işlendi ({sent} gönderildi, {failed} başarısız)."}
+
+
+def run_mail_queue_drain() -> None:
+    """Zamanlanmış kuyruk boşaltma job'ı (her queue_interval_minutes)."""
+    db: Session = SessionLocal()
+    try:
+        result = drain_mail_queue(db)
+        if result.get("sent"):
+            logger.info("Mail kuyruğu: %s", result["message"])
+    except Exception:
+        logger.exception("Mail kuyruğu boşaltma hatası")
+    finally:
+        db.close()
+
+
+def _queue_interval() -> int:
+    """Kuyruk boşaltma sıklığını (dakika) ayarlardan okur (>=1, varsayılan 5)."""
+    db = SessionLocal()
+    try:
+        m = int(get_category(db, "smtp", mask_secrets=False).get("queue_interval_minutes") or 5)
+        return m if m >= 1 else 5
+    except Exception:
+        return 5
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     from app.services.ct_monitor import run_ct_scan_job
     from app.services.discovery import run_scan_job
@@ -531,4 +655,7 @@ def start_scheduler() -> None:
         # İptal (OCSP/CRL) gece denetimi — iş içinde 'revocation.enabled' kontrol edilir
         scheduler.add_job(check_all_certificates, "cron", hour=_schedule_hour("revocation", 5), minute=0,
                           id="revocation-check", replace_existing=True)
+        # Mail gönderim kuyruğunu periyodik boşalt (SMTP provider gönderim limitine uyum)
+        scheduler.add_job(run_mail_queue_drain, "interval", minutes=_queue_interval(),
+                          id="mail-queue-drain", replace_existing=True)
         scheduler.start()

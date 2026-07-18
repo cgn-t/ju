@@ -58,6 +58,22 @@ DEFAULTS: dict[str, dict] = {
         "password": "",
         "from_address": "jumbo@localhost",
         "expiry_warning_days": 30,
+        # Tekrar aralığı: uyarı penceresine giren sertifika için mailin kaç günde bir yeniden
+        # gönderileceği. 1 = HER GÜN (cron 08:00, 30 gün boyunca). Dış API tetikleri
+        # (/notifications/expiry-run, force) bu frenden ETKİLENMEZ — her zaman gönderir.
+        "resend_interval_days": 1,
+        # Yedek/varsayılan adres: birincil gönderim SMTP hatası verirse ikinci deneme buraya
+        # yapılır (virgülle çoklu olabilir). Boşsa yedek deneme yok.
+        "fallback_address": "",
+        # Süre-uyarı maillerinin EN ALTINA eklenecek doküman/rehber bağlantıları. Her satır bir
+        # link/metin; http(s) ile başlayanlar tıklanabilir yapılır.
+        "doc_links": "",
+        # --- SMTP gönderim kuyruğu (provider gönderim limiti için) ---
+        # Açıksa mailler doğrudan gönderilmez; mail_queue tablosuna yazılır ve 'mail-queue-drain'
+        # job'ı her queue_interval_minutes'te en fazla queue_batch_size mail gönderir.
+        "queue_enabled": False,
+        "queue_batch_size": 50,        # boşaltma turu başına azami mail
+        "queue_interval_minutes": 5,   # boşaltma sıklığı (dakika, >=1)
         # Dış otomasyonun (cron/zamanlayıcı) süre-uyarısı taramasını tetikleme anahtarı:
         # POST /api/notifications/expiry-run + "X-API-Key: <bu değer>". BOŞSA dış tetikleme
         # KAPALI (yalnız admin JWT çalışır). Düşük yetkili: yalnız bildirim gönderimini başlatır,

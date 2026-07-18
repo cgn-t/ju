@@ -215,10 +215,35 @@ function SmtpTab() {
               helper="Maillerin hangi adresten gideceği" />
         <Text form={form} setForm={setForm} field="expiry_warning_days" label="Uyarı Eşiği (gün)" type="number"
               helper="Bitişe bu kadar gün kalınca bilgilendirme gönderilir" />
+        <Text form={form} setForm={setForm} field="resend_interval_days" label="Tekrar Aralığı (gün)" type="number"
+              helper="Pencereye giren sertifika için mailin kaç günde bir tekrarlanacağı. 1 = her gün (30 gün boyunca)."
+              width={{ xs: 6, sm: 4 }} />
+        <Text form={form} setForm={setForm} field="fallback_address" label="Yedek/Varsayılan Adres"
+              helper="Birincil gönderim başarısızsa ikinci deneme bu adrese yapılır (virgülle çoklu)."
+              width={{ xs: 12, sm: 8 }} />
+        <Text form={form} setForm={setForm} field="doc_links" label="Doküman Bağlantıları" multiline rows={3}
+              helper="Maillerin en altına eklenir. Her satıra bir link/metin; http(s) linkleri tıklanabilir olur."
+              width={{ xs: 12, sm: 12 }} />
         <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
               helper='Dış araç: POST /api/notifications/expiry-run + "X-API-Key: <anahtar>" başlığı. Boşsa dış tetikleme kapalı.'
               width={{ xs: 12, sm: 12 }} />
       </Grid>
+
+      <Alert severity="info" sx={{ mt: 1 }}>
+        <b>Gönderim Kuyruğu:</b> SMTP sağlayıcınızın gönderim limiti varsa mailler doğrudan gönderilmek
+        yerine kuyruğa alınır ve <b>her boşaltma aralığında en fazla "tur başına mail"</b> kadarı gönderilir.
+      </Alert>
+      <FormControlLabel
+        control={<Switch checked={!!form.queue_enabled}
+                         onChange={(e) => setForm((f) => ({ ...f, queue_enabled: e.target.checked }))} />}
+        label="Gönderim Kuyruğu Etkin" />
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="queue_batch_size" label="Tur Başına Azami Mail" type="number"
+              helper="Her boşaltmada gönderilecek en fazla mail" width={{ xs: 6, sm: 4 }} />
+        <Text form={form} setForm={setForm} field="queue_interval_minutes" label="Boşaltma Aralığı (dk)" type="number"
+              helper="Kuyruğun kaç dakikada bir boşaltılacağı (>=1)" width={{ xs: 6, sm: 4 }} />
+      </Grid>
+
       <Stack direction="row" spacing={2}>
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => runNow.mutate()} disabled={runNow.isPending}>

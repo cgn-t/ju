@@ -355,6 +355,30 @@ class Notification(Base):
     channel: Mapped[str] = mapped_column(Unicode(20), default="email", server_default=text("'email'"), index=True)
 
 
+class MailQueue(Base):
+    """SMTP gönderim kuyruğu (outbox). smtp.queue_enabled iken mailler doğrudan gönderilmek
+    yerine buraya yazılır; 'mail-queue-drain' job'ı hız-limitine (queue_batch_size /
+    queue_interval_minutes) uyarak batch batch gönderir. YENİ tablo (prod'da yok).
+    certificate_id FK'siz tutulur (discovered_certificates deseni — MSSQL çoklu-yol cascade'inden kaçınma)."""
+
+    __tablename__ = "mail_queue"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    to_addresses: Mapped[str] = mapped_column(Unicode(1000))              # virgülle çoklu alıcı
+    subject: Mapped[str] = mapped_column(Unicode(500))
+    body_text: Mapped[str] = mapped_column(UnicodeText)
+    body_html: Mapped[str | None] = mapped_column(UnicodeText)            # yoksa düz metin gider
+    certificate_id: Mapped[int | None] = mapped_column(Integer, index=True)  # kayıt-bağı; FK yok
+    stakeholder: Mapped[str | None] = mapped_column(Unicode(255))         # alıcı paydaş etiketi (izleme)
+    days_left: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Unicode(20), default="pending",
+                                        server_default=text("'pending'"), index=True)  # pending|sent|failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_error: Mapped[str | None] = mapped_column(Unicode(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class UserTeam(Base):
     """Kullanıcı ↔ SY ekip üyeliği (çoktan-çoğa). YENİ tablo (prod'da yok)."""
 
