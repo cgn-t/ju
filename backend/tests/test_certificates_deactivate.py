@@ -131,14 +131,16 @@ def test_deactivate_sends_mail_when_smtp_enabled(client, auth_headers, monkeypat
 
     sent = {}
 
-    def fake_send(cfg, to_addresses, subject, body):
+    def fake_send(cfg, to_addresses, subject, body, html_body=None):
         sent["to"] = list(to_addresses)
         sent["subject"] = subject
+        sent["html"] = html_body
 
     monkeypatch.setattr(notifier, "_send_mail", fake_send)
     monkeypatch.setattr(notifier, "get_category",
                         lambda db, category, mask_secrets=False: {
-                            "enabled": True, "host": "smtp.test", "from_address": "jumbo@test"})
+                            "enabled": True, "host": "smtp.test", "from_address": "jumbo@test",
+                            "queue_enabled": False, "fallback_address": ""})
 
     team_id = _sy_team(client, auth_headers, "MailTakim", email="mailtakim@banka.local")
     dom_id = _domain(client, auth_headers, "mail-demo.local", sy_team_id=team_id)
@@ -150,6 +152,7 @@ def test_deactivate_sends_mail_when_smtp_enabled(client, auth_headers, monkeypat
     assert r.json()["mail_sent"] is True
     assert sent["to"] == ["mailtakim@banka.local"]
     assert "mail-demo.local" in sent["subject"] or "pasife alındı" in sent["subject"]
+    assert sent["html"] is not None, "artık HTML gövde de gitmeli (şablon birleştirme, Faz 2)"
 
 
 def test_team_email_update_admin_only(client, auth_headers):

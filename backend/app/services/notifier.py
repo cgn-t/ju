@@ -160,6 +160,40 @@ def _related_domains_table(mappings) -> str:
             f"<tr>{head}</tr>{body}</table>")
 
 
+# ---------------------------------------------------------------------------
+# Ortak mail iskeleti — TÜM mail türleri (süre-uyarı/süresi-geçmiş/devir-hatırlatma/
+# pasife-alma) aynı font/renk/genişlik/selamlama/footer'ı paylaşır. Yalnız gövde içeriği
+# (tablo/liste/paragraf) senaryoya özgü kalır.
+# ---------------------------------------------------------------------------
+_MAIL_FONT = "Arial,Helvetica,sans-serif"
+_MAIL_COLOR = "#222"
+_MAIL_MAX_WIDTH = "860px"
+_MAIL_FOOTER = ('<p style="color:#888;font-size:12px;margin-top:20px">İyi çalışmalar,<br>'
+                "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir.</p>")
+_MAIL_FOOTER_TEXT = "\nİyi çalışmalar,\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+
+
+def _mail_html_wrap(greeting: str, body_html: str, *, doc_links: str = "") -> str:
+    """4 mail türünün ORTAK dış iskeleti: font/renk/genişlik + selamlama + [gövde] +
+    [doc_links varsa] + footer. Gövde HTML'i senaryoya özgü (tablo/liste/paragraf) kalır."""
+    parts = [f'<div style="font-family:{_MAIL_FONT};color:{_MAIL_COLOR};max-width:{_MAIL_MAX_WIDTH}">',
+             f"<p>{_esc(greeting)}</p>", body_html]
+    if doc_links:
+        parts.append(_doc_links_html(doc_links))
+    parts.append(_MAIL_FOOTER + "</div>")
+    return "".join(parts)
+
+
+def _mail_text_wrap(greeting: str, body_text: str, *, doc_links: str = "") -> str:
+    """Düz-metin karşılığı — aynı iskelet mantığı (selamlama + gövde + doc_links + footer)."""
+    parts = [greeting, "", body_text]
+    dl = _doc_links_text(doc_links) if doc_links else ""
+    if dl:
+        parts.append(dl)
+    parts.append(_MAIL_FOOTER_TEXT)
+    return "\n".join(p for p in parts if p is not None)
+
+
 def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expired: bool,
                            doc_links: str = "") -> str:
     """Tek paydaşa giden tablolu HTML gövde. Düzen, bağlı domain sayısına göre eski
@@ -167,8 +201,7 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
     Bağlantı Tipi şeridi + 'SSL Sertifika Detayı'; çok domain → 'SSL Sertifika
     Detayı' + 'İlişkili Domainler' özeti; domain'siz → yalnız sertifika detayı."""
     mappings = [m for m in cert.domain_mappings if m.domain is not None]
-    parts = ['<div style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:860px">',
-             "<p>Merhabalar,</p>"]
+    parts: list[str] = []
     if expired:
         parts.append("<p>Aşağıdaki sertifikanın süresi DOLMUŞ ancak JUMBO envanterinde hâlâ "
                      "AKTİF görünüyor. Lütfen envanteri güncelleyin.</p>")
@@ -218,20 +251,40 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
                      "JUMBO'ya eklemeniz önerilir. Yerine geçecek sertifika 'Devir Önerileri' "
                      "üzerinden onayınızla devreye girer.</p>")
 
-    if doc_links:
-        parts.append(_doc_links_html(doc_links))
+    return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=doc_links)
 
-    parts.append('<p style="color:#888;font-size:12px;margin-top:20px">İyi çalışmalar,<br>'
-                 "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir.</p></div>")
-    return "".join(parts)
+
+def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], team_list: list[str]) -> str:
+    return (
+        f"'{cert.name}' sertifikası {actor} tarafından pasife alındı.\n\n"
+        f"Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:\n"
+        + "".join(f"  - {d}\n" for d in bound)
+        + "\nİlgili SY ekipleri: " + (", ".join(team_list) if team_list else "—") + "\n\n"
+        "Domaininizin yerine geçecek sertifikayı JUMBO'da 'Devir Önerileri' üzerinden\n"
+        "onaylamanız gerekir — JUMBO kendiliğinden bir değişiklik yapmaz."
+    )
+
+
+def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], team_list: list[str]) -> str:
+    body = (
+        f"<p><b>'{_esc(cert.name)}'</b> sertifikası <b>{_esc(actor)}</b> tarafından pasife alındı.</p>"
+        "<p>Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:</p>"
+        "<ul style='font-size:14px'>" + "".join(f"<li>{_esc(d)}</li>" for d in bound) + "</ul>"
+        f"<p>İlgili SY ekipleri: {_esc(', '.join(team_list) if team_list else '—')}</p>"
+        "<p>Domaininizin yerine geçecek sertifikayı JUMBO'da <b>'Devir Önerileri'</b> üzerinden "
+        "onaylamanız gerekir — JUMBO kendiliğinden bir değişiklik yapmaz.</p>"
+    )
+    return _mail_html_wrap("Merhabalar,", body)
 
 
 def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -> dict:
     """Pasife alınan sertifikaya bağlı domain varsa, o domainlerin SAHİBİ SY ekibine
     bilgilendirme gönderir. Alıcılar TEK KAYNAKTAN gelir: domainin SY ekibinin e-postası
-    (Team.email, virgülle çoklu). SMTP açıksa mail atılır (best-effort); alıcı olsun
-    olmasın in-app Notification kaydı tutulur (iz kalsın). JUMBO devir yapmaz — bu yalnız
-    bilgilendirmedir; ekip yerine geçecek sertifikayı kendi onaylar.
+    (Team.email, virgülle çoklu). SMTP açıksa mail atılır (queue-farkında + fallback'li,
+    diğer 3 mail türüyle aynı `_deliver` çekirdeği üzerinden — bkz. Faz 2 şablon birleştirme);
+    alıcı olsun olmasın in-app Notification kaydı tutulur (iz kalsın). JUMBO devir yapmaz —
+    bu yalnız bilgilendirmedir; ekip yerine geçecek sertifikayı kendi onaylar. Dedup YOKTUR
+    (event-tetiklemeli, süre-uyarısı gibi tekrarlanan bir tarama değildir).
 
     Döner: {bound_domains, recipients, teams, mail_sent, message}
     """
@@ -257,24 +310,14 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
                 "mail_sent": False, "message": "Sertifika pasife alındı."}
 
     subject = f"[JUMBO] Sertifika pasife alındı: {cert.name} — {len(bound)} domain etkilendi"
-    body = (
-        f"'{cert.name}' sertifikası {actor} tarafından pasife alındı.\n\n"
-        f"Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:\n"
-        + "".join(f"  - {d}\n" for d in bound)
-        + "\nİlgili SY ekipleri: " + (", ".join(team_list) if team_list else "—") + "\n\n"
-        "Domaininizin yerine geçecek sertifikayı JUMBO'da 'Devir Önerileri' üzerinden\n"
-        "onaylamanız gerekir — JUMBO kendiliğinden bir değişiklik yapmaz.\n\n"
-        "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
-    )
+    body = _mail_text_wrap("Merhabalar,", _deactivation_body_text(cert, actor, bound, team_list))
+    html_body = _render_deactivation_html(cert, actor, bound, team_list)
 
     mail_sent = False
     cfg = get_category(db, "smtp", mask_secrets=False)
     if to_addr and cfg.get("enabled") and cfg.get("host"):
-        try:
-            _send_mail(cfg, to_addr, subject, body)
-            mail_sent = True
-        except Exception:
-            logger.exception("Pasife alma bilgilendirme maili gönderilemedi: %s", cert.name)
+        mail_sent, _note = _deliver(db, cfg, to_addr, subject, body, html_body,
+                                    certificate_id=cert.id, stakeholder="deactivation", days_left=None)
 
     db.add(Notification(certificate_id=cert.id,
                         recipient=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
@@ -284,9 +327,9 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
     if not to_addr:
         note = "bağlı domainlerde tanımlı alıcı yok — kayıt tutuldu"
     elif mail_sent:
-        note = f"{len(to_addr)} alıcı bilgilendirildi (mail gönderildi)"
+        note = f"{len(to_addr)} alıcı bilgilendirildi (mail gönderildi/kuyruğa alındı)"
     else:
-        note = f"{len(to_addr)} alıcı belirlendi (SMTP kapalı — kayıt tutuldu)"
+        note = f"{len(to_addr)} alıcı belirlendi (SMTP kapalı veya gönderim başarısız — kayıt tutuldu)"
     message = f"Sertifika pasife alındı — {len(bound)} domain etkilendi; {note}."
     return {"bound_domains": bound, "recipients": to_addr, "teams": team_list,
             "mail_sent": mail_sent, "message": message}
@@ -424,26 +467,19 @@ def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                          make_subject, make_body, make_html=None, global_days: int = 30) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
-    kendi nedenleriyle AYRI mail atar. force=False + resend_dedup_enabled AÇIK → son
-    `resend_interval_hours` saatte (varsayılan 3) bildirim gönderilen sertifika atlanır
-    (cron tekrar-önleme); dedup KAPALIYSA her tarama gönderir; force=True → dedup'tan bağımsız
-    mutlaka gönderilir (API). queue_enabled ise mailler doğrudan gönderilmez, mail_queue'ya
-    yazılır. make_html verilirse multipart: HTML + düz metin yedek."""
+    kendi nedenleriyle AYRI mail atar. force=False + resend_dedup_enabled AÇIK → o paydaşa
+    (alıcıya) son `resend_interval_hours` saatte (varsayılan 3) bildirim gönderilmişse O PAYDAŞ
+    atlanır (cron tekrar-önleme) — dedup PAYDAŞ BAZINDA yapılır ki bir paydaşın gönderim hatası
+    diğer paydaşların (başarılı olup Notification kaydı yazılmış) retry hakkını gasp etmesin
+    (bkz. test_scn_partial_failure_retries_only_failed_stakeholder). dedup KAPALIYSA her tarama
+    gönderir; force=True → dedup'tan bağımsız mutlaka gönderilir (API). queue_enabled ise
+    mailler doğrudan gönderilmez, mail_queue'ya yazılır. make_html verilirse multipart:
+    HTML + düz metin yedek."""
     sent = skipped = 0
     details: list[dict] = []
     interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
     dedup_enabled = cfg.get("resend_dedup_enabled", True)  # kapalıysa her tarama gönderir
     for cert in certs:
-        if not force and dedup_enabled:
-            recent = (db.query(Notification)
-                      .filter(Notification.certificate_id == cert.id,
-                              Notification.channel == "email",  # kanal bildirimleri maili engellemesin
-                              Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
-                      .first())
-            if recent:
-                skipped += 1
-                continue
-
         parties = _expiry_stakeholders(db, cert, global_days)
         if not parties:
             skipped += 1
@@ -457,13 +493,24 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
             # mail almaz. Süresi-geçmiş akışında days_left negatif → geçit hep geçer.
             if days_left > p.get("effective_days", global_days):
                 continue
+            recipient_str = ", ".join(p["emails"])
+            if not force and dedup_enabled:
+                recent = (db.query(Notification)
+                          .filter(Notification.certificate_id == cert.id,
+                                  Notification.channel == "email",  # kanal bildirimleri maili engellemesin
+                                  Notification.recipient == recipient_str,  # paydaş bazlı dedup
+                                  Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
+                          .first())
+                if recent:
+                    skipped += 1
+                    continue
             body = make_body(cert, days_left, p)
             html_body = make_html(cert, days_left, p) if make_html else None
             ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
                                 certificate_id=cert.id, stakeholder=p["label"], days_left=days_left)
             if ok:
                 # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı
-                db.add(Notification(certificate_id=cert.id, recipient=", ".join(p["emails"]),
+                db.add(Notification(certificate_id=cert.id, recipient=recipient_str,
                                     subject=f"{subject} → {p['label']}", days_left=days_left,
                                     channel="email"))
                 db.commit()
@@ -616,39 +663,34 @@ def _proposal_label(p: TransferProposal) -> str:
     return f"{old} → {new}  [{where}]"
 
 
+def _proposal_reminder_greeting(team: Team | None) -> str:
+    return f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,"
+
+
 def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
-    head = f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,"
     lines = "".join(f"  - {_proposal_label(p)}\n" for p in props)
-    return (
-        f"{head}\n\n"
+    body = (
         f"JUMBO'da onayınızı bekleyen {len(props)} devir önerisi var:\n\n"
         f"{lines}\n"
         "Lütfen JUMBO 'Devir Önerileri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
         "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
-        "onay kuyruğu temizlenir.\n"
-        + _doc_links_text(cfg.get("doc_links") or "")
-        + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+        "onay kuyruğu temizlenir."
     )
+    return _mail_text_wrap(_proposal_reminder_greeting(team), body, doc_links=cfg.get("doc_links") or "")
 
 
 def _render_proposal_reminder_html(team: Team | None, props: list, cfg: dict) -> str:
-    head = html_mod.escape(f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,")
     rows = "".join(
-        f"<tr><td style='padding:8px 12px;border-bottom:1px solid #e5e7eb;"
-        f"font-family:monospace;font-size:13px'>{html_mod.escape(_proposal_label(p))}</td></tr>"
+        f"<tr><td style='{_TD};font-family:monospace'>{_esc(_proposal_label(p))}</td></tr>"
         for p in props)
-    return (
-        "<div style='font-family:Segoe UI,Arial,sans-serif;color:#1f2937;max-width:640px'>"
-        f"<p>{head}</p>"
+    body = (
         f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>"
-        "<table style='border-collapse:collapse;width:100%;border:1px solid #e5e7eb;border-radius:6px'>"
-        f"{rows}</table>"
+        f"<table cellspacing='0' style='border-collapse:collapse;width:100%'>{rows}</table>"
         "<p>Lütfen JUMBO <b>'Devir Önerileri'</b> ekranından bu önerileri gözden geçirip "
         "<b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni sertifikayı devreye alır; "
         "reddedilenler kapanır ve onay kuyruğu temizlenir.</p>"
-        "<p style='color:#6b7280;font-size:12px'>JUMBO Sertifika Yönetimi tarafından otomatik "
-        "gönderilmiştir.</p></div>"
     )
+    return _mail_html_wrap(_proposal_reminder_greeting(team), body, doc_links=cfg.get("doc_links") or "")
 
 
 def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> dict:
