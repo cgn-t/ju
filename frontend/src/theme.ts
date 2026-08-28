@@ -8,6 +8,10 @@ const FONT_STACK = '"IBM Plex Sans","Segoe UI","Roboto","Helvetica","Arial",sans
 // Monospace: seri no, fingerprint, PEM gibi alanlar
 export const MONO_FONT = '"JetBrains Mono","SFMono-Regular","Menlo","Consolas",monospace'
 
+// Devir/import sonrası "devir önerisi oluşturuldu" bildirimi — normal bilgiden uzun ama
+// eski 8000ms'den kısaltıldı (kullanıcı geri bildirimi: ekranda çok uzun kalıyordu).
+export const TRANSFER_TOAST_MS = 3000
+
 // JUMBO teması — koyu mod varsayılan (kurumsal koyu zemin + kırmızı vurgu), açık mod seçilebilir
 export function createAppTheme(mode: ThemeMode) {
   return createTheme({
@@ -25,6 +29,12 @@ export function createAppTheme(mode: ThemeMode) {
     shape: { borderRadius: 10 },
     typography: {
       fontFamily: FONT_STACK,
+      // body1'in letterSpacing'i MUI varsayılanında bırakılırsa outlined alanların notch'unu
+      // (görünür etiket transform:scale ile, gizli legend font-size ile küçülür — iki yol
+      // piksel-özdeş değil) hesaplayan gizli legend metniyle görünür etiket arasında kayma
+      // oluşuyor (çerçeve etiketin içinden geçiyor). 'normal' bu kaymanın letter-spacing
+      // bileşenini sıfırlar.
+      body1: { letterSpacing: 'normal' },
       h4: { fontWeight: 700, letterSpacing: '-0.02em' },
       h5: { fontWeight: 700, letterSpacing: '-0.01em' },
       h6: { fontWeight: 600 },
@@ -96,6 +106,28 @@ export function sourceLabel(source: string | null | undefined): string {
     case 'ct': return 'CT Log'
     default: return 'Manuel'
   }
+}
+
+/** Sertifika "Ortam" (environment) alanının kullanıcıya dönük adı. */
+export function environmentLabel(environment: string | null | undefined): string {
+  switch (environment) {
+    case 'prod': return 'Prod'
+    case 'test': return 'Test'
+    default: return '—'
+  }
+}
+
+/** Domain-sertifika eşleşme tipinin (mapping_type) kullanıcıya dönük adı — DB'de 'client' kalır, UX'te 'Trusted'. */
+export function mappingTypeLabel(mappingType: string | null | undefined): string {
+  switch (mappingType) {
+    case 'server': return 'Server'
+    case 'client': return 'Trusted'
+    default: return mappingType ?? '—'
+  }
+}
+
+export function environmentColor(environment: string | null | undefined): 'error' | 'default' {
+  return environment === 'prod' ? 'error' : 'default'
 }
 
 export const nodeColors: Record<string, string> = {

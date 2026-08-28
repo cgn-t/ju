@@ -16,7 +16,10 @@ import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificatePicker from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
-import { daysLeftColor, daysLeftLabel, MONO_FONT, nodeColors, sourceLabel } from '../theme'
+import {
+  daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, MONO_FONT, nodeColors,
+  sourceLabel, TRANSFER_TOAST_MS,
+} from '../theme'
 
 interface Props {
   certId: number | null
@@ -79,7 +82,7 @@ function ChainRow({ cert, current, indent, onClick }: {
   )
 }
 
-interface EditForm { name: string; purchased_by: string; creator: string; notes: string }
+interface EditForm { name: string; purchased_by: string; creator: string; environment: string; notes: string }
 
 export default function CertificateDetailDrawer({ certId, onClose, onSelectCert }: Props) {
   const { enqueueSnackbar } = useSnackbar()
@@ -88,7 +91,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const { canEdit } = useAuth()
   const [editing, setEditing] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
-  const [form, setForm] = useState<EditForm>({ name: '', purchased_by: '', creator: '', notes: '' })
+  const [form, setForm] = useState<EditForm>(
+    { name: '', purchased_by: '', creator: '', environment: '', notes: '' })
 
   const { data: cert, isLoading } = useQuery<Certificate>({
     queryKey: ['certificate', certId],
@@ -128,7 +132,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
       (await api.post(`/certificates/${successor!.id}/supersede/${certId}`)).data,
     onSuccess: (r: { proposed: number; message: string }) => {
       enqueueSnackbar(r.message, { variant: r.proposed ? 'success' : 'info',
-                                   autoHideDuration: 8000 })
+                                   autoHideDuration: TRANSFER_TOAST_MS })
       setSuccessor(null)
       queryClient.invalidateQueries({ queryKey: ['proposals'] })
       queryClient.invalidateQueries({ queryKey: ['certificate', certId] })
@@ -137,7 +141,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   })
 
   const save = useMutation({
-    mutationFn: async (payload: Partial<EditForm>) => api.put(`/certificates/${certId}`, payload),
+    mutationFn: async (payload: Partial<EditForm>) =>
+      // environment Literal["prod","test"]|None kabul eder, boş string DEĞİL — dönüştür
+      api.put(`/certificates/${certId}`, { ...payload, environment: payload.environment || null }),
     onSuccess: () => {
       enqueueSnackbar('Sertifika güncellendi', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['certificate', certId] })
@@ -164,7 +170,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
     if (!cert) return
     setForm({
       name: cert.name ?? '', purchased_by: cert.purchased_by ?? '',
-      creator: cert.creator ?? '', notes: cert.notes ?? '',
+      creator: cert.creator ?? '', environment: cert.environment ?? '', notes: cert.notes ?? '',
     })
     setEditing(true)
   }
@@ -224,6 +230,10 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               </Box>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
+                {cert.environment && (
+                  <Chip size="small" color={environmentColor(cert.environment)}
+                        variant="outlined" label={environmentLabel(cert.environment)} />
+                )}
                 {cert.is_internal && <Chip size="small" variant="outlined" label="Internal" />}
                 {!cert.is_active && <Chip size="small" color="default" label="Pasif" />}
                 <Chip size="small" variant="outlined"
@@ -394,6 +404,14 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   )}
                   {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
                 </TextField>
+                <TextField select required size="small" fullWidth label="Ortam" value={form.environment}
+                           onChange={(e) => setForm({ ...form, environment: e.target.value })}
+                           error={!form.environment}
+                           helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
+                  <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
+                  <MenuItem value="prod">Prod</MenuItem>
+                  <MenuItem value="test">Test</MenuItem>
+                </TextField>
                 <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes}
                            placeholder="Bu sertifikayla ilgili notlar…"
                            onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -401,7 +419,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <Button onClick={() => setEditing(false)} disabled={save.isPending}>Vazgeç</Button>
                   {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
                   <Button variant="contained" onClick={() => setConfirmOpen(true)}
-                          disabled={save.isPending}>
+                          disabled={save.isPending || !form.environment}>
                     Kaydet
                   </Button>
                 </Box>
@@ -422,6 +440,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <Field label="Satın Alım Yapan" value={cert.purchased_by} />
                   <Field label="Oluşturan Ekip" value={cert.creator} />
                 </Stack>
+                <Field label="Ortam" value={environmentLabel(cert.environment)} />
                 <Field label="Notlar" value={cert.notes} />
               </>
             )}

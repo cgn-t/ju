@@ -19,7 +19,7 @@ from app.api.schemas import (
     ScanTargetOut,
     ScanTargetUpdate,
 )
-from app.core.security import require_role
+from app.core.security import require_page_access, require_role
 from app.core.timeutil import utcnow
 from app.db.models import (
     Certificate,
@@ -102,7 +102,8 @@ def _target_out(t: ScanTarget) -> ScanTargetOut:
 @router.get("/findings", response_model=list[DiscoveredCertificateOut])
 def list_findings(status: str | None = Query(None), only_new: bool = False,
                   origin: str | None = Query(None),
-                  db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+                  db: Session = Depends(get_db),
+                  _: User = Depends(require_page_access("discovery"))):
     """Keşif bulguları. status ile süz (new|in_inventory|adopted|ignored); only_new=true → yalnız shadow;
     origin ile süz (network=aktif tarama | ct=crt.sh)."""
     q = db.query(DiscoveredCertificate)
@@ -120,7 +121,7 @@ def list_findings(status: str | None = Query(None), only_new: bool = False,
 
 @router.get("/findings/{finding_id}", response_model=DiscoveredCertificateDetail)
 def get_finding(finding_id: int, db: Session = Depends(get_db),
-                _: User = Depends(require_role("admin"))):
+                _: User = Depends(require_page_access("discovery"))):
     finding = db.get(DiscoveredCertificate, finding_id)
     if finding is None:
         raise HTTPException(status_code=404, detail="Bulgu bulunamadı")
@@ -129,7 +130,7 @@ def get_finding(finding_id: int, db: Session = Depends(get_db),
 
 @router.post("/findings/{finding_id}/adopt")
 def adopt_finding(request: Request, finding_id: int, db: Session = Depends(get_db),
-                  user: User = Depends(require_role("admin"))):
+                  user: User = Depends(require_page_access("discovery", minimum="editor"))):
     """Bulguyu envantere alır ve zinciri SKI/AKI ile hiyerarşiye bağlar.
 
     Ağ bulgusunda (canlı endpoint) benimseme anında sunulan TÜM zincir canlı çekilir → leaf
@@ -206,7 +207,7 @@ def adopt_finding(request: Request, finding_id: int, db: Session = Depends(get_d
 
 @router.post("/findings/{finding_id}/ignore")
 def ignore_finding(request: Request, finding_id: int, db: Session = Depends(get_db),
-                   user: User = Depends(require_role("admin"))):
+                   user: User = Depends(require_page_access("discovery", minimum="editor"))):
     """Bulguyu 'yok sayıldı' işaretler — yeniden taramada status'u DEĞİŞMEZ (bilinçli göz ardı)."""
     finding = db.get(DiscoveredCertificate, finding_id)
     if finding is None:
@@ -348,7 +349,8 @@ def trigger_ct_scan(request: Request, db: Session = Depends(get_db),
 
 @router.get("/runs", response_model=list[ScanRunOut])
 def list_runs(limit: int = Query(10, ge=1, le=100), kind: str | None = Query(None),
-              db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+              db: Session = Depends(get_db),
+              _: User = Depends(require_page_access("discovery"))):
     q = db.query(ScanRun)
     if kind:
         q = q.filter(ScanRun.kind == kind)

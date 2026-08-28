@@ -52,7 +52,9 @@ class Team(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(Unicode(255))
     # 'SY' (kapsamlı sahiplik) | 'UG' (yalnız etiket) | 'ADMIN' (global full) | 'VIEWER' (global salt-okur).
-    # ADMIN/VIEWER singleton takımlardır (startup'ta seed); üyelik yetkiyi belirler (bkz. security.effective_role).
+    # ADMIN/VIEWER singleton takımlardır (startup'ta seed). Rol TEK KAYNAK users.role kolonudur
+    # (bkz. security.effective_role) — hiçbir takım üyeliği tek başına rol/yetki VERMEZ; SY üyeliği
+    # yalnız KAPSAM belirler (bkz. security.user_team_ids/domain_scope_team_ids).
     type: Mapped[str] = mapped_column(Unicode(10))
     email: Mapped[str | None] = mapped_column(Unicode(255))
 
@@ -117,6 +119,9 @@ class Certificate(Base):
     source: Mapped[str] = mapped_column(Unicode(20), default="manual", server_default=text("'manual'"))  # manual|vault|live
     vault_path: Mapped[str | None] = mapped_column(Unicode(255))  # Vault KV yolu; anahtar JUMBO'da tutulmaz
     auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # prod|test ortam etiketi. Nullable, varsayılan YOK — otomatik yollar (vault-sync/keşif/backfill)
+    # bunu bilemez; yalnız manuel formda UI zorunlu kılar, DB/şema seviyesinde zorunlu DEĞİL.
+    environment: Mapped[str | None] = mapped_column(Unicode(20))
 
     parent: Mapped["Certificate | None"] = relationship(
         remote_side=[id], backref="children", foreign_keys=[parent_id])
@@ -152,6 +157,7 @@ class Domain(Base):
     sy_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), index=True)
     ug_team_name: Mapped[str | None] = mapped_column(Unicode(255))  # UG ekip etiketi (serbest metin)
     servers_to_update: Mapped[str | None] = mapped_column(Unicode(500))  # Güncellenecek sunucular
+    notify_days: Mapped[int | None] = mapped_column(Integer)  # Süre-uyarı penceresi (gün); NULL = global smtp.expiry_warning_days
     # Canlı doğrulama (drift detection)
     live_check_status: Mapped[str | None] = mapped_column(Unicode(20))  # match|mismatch|unreachable|no_mapping|not_checkable
     live_check_detail: Mapped[str | None] = mapped_column(UnicodeText)
@@ -215,6 +221,9 @@ class Application(Base):
     dependencies: Mapped[list["AppDependency"]] = relationship(
         back_populates="app", cascade="all, delete-orphan", foreign_keys="AppDependency.app_id"
     )
+    trusted_certs: Mapped[list["ApplicationTrustedCert"]] = relationship(
+        back_populates="app", cascade="all, delete-orphan", foreign_keys="ApplicationTrustedCert.app_id"
+    )
     tag_links: Mapped[list["ApplicationTag"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
@@ -258,6 +267,42 @@ class AppDependency(Base):
     @property
     def client_cert_ski(self) -> str | None:
         return self.client_cert.subject_key_identifier if self.client_cert else None
+
+
+class ApplicationTrustedCert(Base):
+    """Bir uygulamanın TRUST STORE'una eklenen (güvenilen) sertifika — CA/peer doğrulama çıpası.
+    Uygulamanın SUNDUĞU (server) veya karşıya kimlik kanıtladığı (client) değil, KABUL ettiği
+    sertifikadır. Trust store doğası gereği ÇOKLU olabilir → bir uygulamaya birden çok trusted
+    sertifika bağlanır; devir/yenileme YOKTUR (eski trusted korunur, yeni onayla eklenir).
+    YENİ tablo (prod'da yok). AppDependency desenini izler (app_id CASCADE, cert_id SET NULL)."""
+
+    __tablename__ = "app_trusted_certs"
+    __table_args__ = (
+        UniqueConstraint("app_id", "cert_id", name="uq_app_trusted"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"))  # uq_app_trusted lider kolon
+    cert_id: Mapped[int | None] = mapped_column(
+        ForeignKey("SSLCertificates.ID", ondelete="SET NULL"), index=True
+    )
+    note: Mapped[str | None] = mapped_column(Unicode(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    app: Mapped[Application] = relationship(back_populates="trusted_certs", foreign_keys=[app_id])
+    cert: Mapped[Certificate | None] = relationship(foreign_keys=[cert_id])
+
+    @property
+    def cert_name(self) -> str | None:
+        return self.cert.name if self.cert else None
+
+    @property
+    def cert_ski(self) -> str | None:
+        return self.cert.subject_key_identifier if self.cert else None
+
+    @property
+    def cert_valid_to(self) -> datetime | None:
+        return self.cert.valid_to if self.cert else None
 
 
 class Tag(Base):
@@ -407,7 +452,7 @@ class TransferProposal(Base):
         # MSSQL IntegrityError verirdi (SQLite NULL'ları ayrı sayıp vermezdi → dev/prod ayrışması).
         # Kapsam _open_proposal (renewal.py) ile birebir aynı.
         Index("uq_proposal_grain_open", "old_cert_id", "new_cert_id", "domain_id", "mapping_type",
-              "app_dependency_id", unique=True,
+              "app_dependency_id", "app_id", unique=True,
               sqlite_where=text("status IN ('pending','approved')"),
               mssql_where=text("status IN ('pending','approved')")),
     )
@@ -420,6 +465,10 @@ class TransferProposal(Base):
     domain_id: Mapped[int | None] = mapped_column(ForeignKey("domain_certificates.id"), index=True)
     mapping_type: Mapped[str | None] = mapped_column(LowerStr(10))  # server|client
     app_dependency_id: Mapped[int | None] = mapped_column(ForeignKey("app_dependencies.id"), index=True)
+    # trusted_add önerisi: hedef uygulamanın trust store'u (domain_id/mapping_type/app_dependency_id NULL).
+    app_id: Mapped[int | None] = mapped_column(ForeignKey("applications.id"), index=True)
+    kind: Mapped[str] = mapped_column(Unicode(20), default="transfer", server_default=text("'transfer'"),
+                                      index=True)  # transfer | trusted_add
     sy_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), index=True)
     status: Mapped[str] = mapped_column(Unicode(12), default="pending", index=True)
     # pending | approved | applied | rejected | cancelled
@@ -438,6 +487,7 @@ class TransferProposal(Base):
     new_cert: Mapped["Certificate"] = relationship(foreign_keys=[new_cert_id])
     domain: Mapped["Domain | None"] = relationship(foreign_keys=[domain_id])
     sy_team: Mapped["Team | None"] = relationship(foreign_keys=[sy_team_id])
+    app: Mapped["Application | None"] = relationship(foreign_keys=[app_id])
 
 
 class ScanTarget(Base):

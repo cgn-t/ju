@@ -151,6 +151,35 @@ def test_relink_orphan_deterministic(client, auth_headers):
     assert _import_pem(client, auth_headers, certgen.pem(leaf2)).json()[0]["parent_id"] == new_ca_id
 
 
+def test_automatic_supersede_never_crosses_cert_type(client, auth_headers):
+    """Otomatik devir önerisi üretimi (renewal.find_predecessors) yapısal olarak yalnız
+    leaf<->leaf eşleştirir. Aynı anahtarı (dolayısıyla aynı SKI'yi) paylaşan bir root
+    sertifikası, mevcut bir leaf'in halefi olarak OTOMATİK ASLA önerilmemeli — SKI eşleşmesi
+    en güçlü sinyal olsa bile tip kontrolü (yeni sertifika leaf değilse aday listesi boş
+    döner) bunu engeller."""
+    key = certgen.make_key()
+    ca, ca_key = certgen.make_ca("Xtype Root CA")
+    leaf, _ = certgen.make_leaf(ca, ca_key, "xtype-leaf.example.com", key=key,
+                                not_before=datetime(2026, 1, 1))
+    r1 = _import_pem(client, auth_headers, certgen.pem(leaf) + certgen.pem(ca))
+    assert r1.status_code == 200, r1.text
+    leaf_id = next(c["id"] for c in r1.json() if c["cert_type"] == "leaf")
+
+    # Aynı anahtarı (aynı SKI) yeniden kullanan kendinden-imzalı bir root — leaf ile en güçlü
+    # eşleşme sinyalini (SKI) paylaşıyor, ama bir root'un halefi bir leaf OLAMAZ.
+    rogue_root, _ = certgen.make_ca("Xtype Rogue Root", key=key, not_before=datetime(2026, 6, 1))
+    r2 = _import_pem(client, auth_headers, certgen.pem(rogue_root), name="rogue.pem",
+                     extra={"supersede": "true"})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()[0]["cert_type"] == "root"
+    rogue_id = r2.json()[0]["id"]
+
+    # Hiçbir devir önerisi bu root'u leaf'in halefi olarak göstermemeli
+    props = _proposals(client, auth_headers)
+    assert not any(p["new_cert_id"] == rogue_id for p in props)
+    assert not any(p["old_cert_id"] == leaf_id for p in props)
+
+
 def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_headers):
     """Önizleme yenilemeyi işaretler; supersede=true import eşlemeyi devredip eskiyi pasifler."""
     ca, ca_key = certgen.make_ca("Renew Root CA 2")
@@ -331,6 +360,44 @@ def test_manual_create_without_pem_dedup(client, auth_headers):
     # yalnız isimli placeholder serbest (kimliksiz — dedup edilemez)
     assert client.post("/api/certificates", headers=auth_headers,
                        json={"name": "Sadece İsim"}).status_code == 200
+
+
+def test_superseded_by_not_clobbered_on_branched_partial_transfer(client, auth_headers):
+    """Bug #7 regresyonu: v1 A ve B'de eşli. v1→v2 YALNIZ A'da onaylanır (v1.superseded_by=v2,
+    v1 aktif kalır). Sonra v3 gelir; v1→v3 B'de onaylanır. v1.superseded_by v2'den v3'e EZİLMEMELİ
+    — ilk halef stabil kalır (tek FK dallanmayı temsil edemez; tam zincir audit'te)."""
+    from app.db.models import Certificate
+    from app.db.session import SessionLocal
+    h = auth_headers
+    ca, ca_key = certgen.make_ca("Lineage7 CA")
+    key = certgen.make_key()                                   # ortak anahtar → hepsi halef
+    v1, _ = certgen.make_leaf(ca, ca_key, "lin7.example.com", key=key, not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "lin7.example.com", key=key, not_before=datetime(2026, 6, 1))
+    v3, _ = certgen.make_leaf(ca, ca_key, "lin7.example.com", key=key, not_before=datetime(2026, 9, 1))
+    v1_id = next(c["id"] for c in _import_pem(client, h, certgen.pem(v1) + certgen.pem(ca)).json()
+                 if c["cert_type"] == "leaf")
+    da = _make_domain(client, h, "lin7a.example.com")
+    dbb = _make_domain(client, h, "lin7b.example.com")
+    assert _attach(client, h, da, v1_id).status_code == 200
+    assert _attach(client, h, dbb, v1_id).status_code == 200
+
+    # v2 gelir → (v1→v2, A) ve (v1→v2, B); YALNIZ A onaylanır
+    v2_id = _import_pem(client, h, certgen.pem(v2), extra={"supersede": "true"}).json()[0]["id"]
+    pa = next(p for p in _proposals(client, h) if p["new_cert_id"] == v2_id and p["domain_id"] == da)
+    assert client.post(f"/api/proposals/{pa['id']}/approve", headers=h).status_code == 200
+
+    # v3 gelir → (v1→v3, B) ve (v2→v3, A); B'nin v1→v3'ünü onayla
+    v3_id = _import_pem(client, h, certgen.pem(v3), extra={"supersede": "true"}).json()[0]["id"]
+    pb = next(p for p in _proposals(client, h)
+              if p["new_cert_id"] == v3_id and p["old_cert_id"] == v1_id and p["domain_id"] == dbb)
+    assert client.post(f"/api/proposals/{pb['id']}/approve", headers=h).status_code == 200
+
+    db = SessionLocal()
+    try:
+        assert db.get(Certificate, v1_id).superseded_by_id == v2_id, \
+            "v1.superseded_by ilk halef (v2) kalmalı, v3'e EZİLMEMELİ"
+    finally:
+        db.close()
 
 
 def test_import_chain_supersede_creates_proposal_then_approve(client, auth_headers):

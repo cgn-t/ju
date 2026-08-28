@@ -1,12 +1,13 @@
-"""Sertifika uyum (politika) API. Uyum raporu tüm rollere (viewer+) görünür — envanter gibi
-GLOBAL. Politika yapılandırması (allowlist, asgari anahtar boyu vb.) /api/settings/policy'de admin'de.
+"""Sertifika uyum (politika) API. Uyum raporu varsayılan admin+allviewer'a açık; Ayarlar >
+Erişim'den (access.policy_all_roles) tüm rollere açılabilir (bkz. security.page_visible).
+Politika yapılandırması (allowlist, asgari anahtar boyu vb.) /api/settings/policy'de admin'de.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.schemas import PolicyCertResult, PolicyReportOut, PolicyViolationOut
-from app.core.security import require_role
+from app.core.security import require_page_access
 from app.core.timeutil import utcnow
 from app.db.models import Certificate, User
 from app.db.session import get_db
@@ -20,7 +21,7 @@ def _days_left(valid_to) -> int | None:
 
 
 @router.get("/report", response_model=PolicyReportOut)
-def policy_report(db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
+def policy_report(db: Session = Depends(get_db), _: User = Depends(require_page_access("policy"))):
     """Aktif envanterin uyum raporu: toplam/uyumlu/uyumsuz + kural bazında sayı + ihlal listesi."""
     config = policy.get_config(db)
     result = policy.evaluate_inventory(db)
@@ -41,7 +42,7 @@ def policy_report(db: Session = Depends(get_db), _: User = Depends(require_role(
 
 @router.get("/certificates/{cert_id}", response_model=PolicyCertResult)
 def certificate_policy(cert_id: int, db: Session = Depends(get_db),
-                       _: User = Depends(require_role("viewer"))):
+                       _: User = Depends(require_page_access("policy"))):
     """Tek bir sertifikanın uyum durumu ve ihlalleri."""
     cert = db.get(Certificate, cert_id)
     if cert is None:

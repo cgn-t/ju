@@ -231,9 +231,6 @@ def add_team_member(request: Request, team_id: int, body: MemberAdd,
     team = db.get(Team, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Ekip bulunamadı")
-    # RBAC: SY/ADMIN/VIEWER takımlarına üyelik yetki verir; UG yalnız etikettir → üyelik tanımlanmaz.
-    if team.type == "UG":
-        raise HTTPException(status_code=400, detail="UG ekiplerine üyelik tanımlanmaz (yalnız etiket)")
     if db.get(User, body.user_id) is None:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     exists = db.query(UserTeam).filter_by(user_id=body.user_id, team_id=team_id).first()

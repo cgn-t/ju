@@ -189,6 +189,34 @@ def test_explicit_null_role_and_active_are_noop(client, auth_headers):
                 if u["id"] == uid)["is_active"] is True
 
 
+# --- Madde E: üyelik ekranı tüm takım tiplerine açıldı — ADMIN/VIEWER roster rol vermez, UG artık üyelik alır ---
+def test_admin_viewer_team_membership_does_not_change_role(client, auth_headers):
+    """ADMIN/VIEWER takım rosterına eklenmek TEK BAŞINA rol vermez/değiştirmez — rol yalnız
+    users.role'den gelir."""
+    admin_team = next(t for t in client.get("/api/teams", headers=auth_headers).json()
+                      if t["type"] == "ADMIN")
+    uid = _mk_user(client, auth_headers, "rbac_admin_roster", role="viewer")
+    _add_member(client, auth_headers, admin_team["id"], uid)
+    h, body = _login(client, "rbac_admin_roster")
+    assert body["role"] == "viewer"  # ADMIN roster'ında olmak rolü YÜKSELTMEDİ
+    assert client.get("/api/users", headers=h).status_code == 403  # hâlâ admin-only'e erişemez
+    # Roster'dan çıkarmak da serbest (son aktif ADMIN-ROLLÜ kullanıcı değil → break-glass tetiklenmez)
+    assert client.delete(f"/api/teams/{admin_team['id']}/members/{uid}",
+                         headers=auth_headers).status_code == 200
+
+
+def test_ug_team_membership_now_allowed(client, auth_headers):
+    """UG takımına üyelik artık serbest (eski 400 engeli kaldırıldı) — tıpkı ADMIN/VIEWER gibi
+    yalnız roster/bilgi amaçlı, rol vermez."""
+    ug_team = _team(client, auth_headers, "UG-RosterTest", "UG")
+    uid = _mk_user(client, auth_headers, "rbac_ug_roster", role="viewer")
+    r = client.post(f"/api/teams/{ug_team['id']}/members", headers=auth_headers,
+                    json={"user_id": uid})
+    assert r.status_code == 200, r.text
+    _, body = _login(client, "rbac_ug_roster")
+    assert body["role"] == "viewer"  # UG üyeliği de rol vermez
+
+
 # --- Break-glass: son aktif admin'in rolü/erişimi düşürülemez (EN SONDA çalışmalı) ---
 def test_zzz_break_glass_last_admin(client, auth_headers):
     # seed 'admin' dışındaki admin rolündeki kullanıcıları viewer'a düşür (her biri son değilken 200)

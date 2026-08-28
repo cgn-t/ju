@@ -10,6 +10,7 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
@@ -31,6 +32,7 @@ function BuildStatus({ b }: { b: Build }) {
 
 export default function Deployments() {
   useDocumentTitle('Dağıtım')
+  const { isAdmin } = useAuth()
   const { enqueueSnackbar } = useSnackbar()
   const qc = useQueryClient()
 
@@ -94,50 +96,52 @@ export default function Deployments() {
       <PageHeader title="Dağıtım"
         subtitle="Jenkins job'unu tetikleyerek sertifikayı dağıt (NetScaler vb.). Anahtar Vault→Jenkins→NITRO yolunu izler; JUMBO'ya girmez." />
       <Grid container spacing={2}>
-        {/* Yeni Dağıtım */}
-        <Grid size={{ xs: 12, md: 5 }}>
-          <Paper sx={{ p: 2.5 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>Yeni Dağıtım</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Aynı job'u farklı domainler için farklı <code>CERTKEY</code>/<code>VAULT_PATH</code> ile
-              tetikleyebilirsiniz.
-            </Typography>
-            <Stack spacing={2}>
-              <Autocomplete
-                freeSolo options={jobs.data?.jobs ?? []} value={job}
-                onInputChange={(_, v) => setJob(v)}
-                renderInput={(p) => <TextField {...p} size="small" label="Job" placeholder="netscaler-deploy" />}
-              />
-              <Stack spacing={1}>
-                {rows.map((row, i) => (
-                  <Stack key={i} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <TextField size="small" label="Parametre" value={row.key}
-                               onChange={(e) => setRow(i, { key: e.target.value })} sx={{ flex: 1 }} />
-                    <TextField size="small" label="Değer" value={row.value}
-                               onChange={(e) => setRow(i, { value: e.target.value })} sx={{ flex: 2 }} />
-                    <IconButton size="small" aria-label="Sil"
-                                onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
-                ))}
+        {/* Yeni Dağıtım — tetikleme HER DURUMDA admin-only (bkz. jenkins.py trigger) */}
+        {isAdmin && (
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Paper sx={{ p: 2.5 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>Yeni Dağıtım</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Aynı job'u farklı domainler için farklı <code>CERTKEY</code>/<code>VAULT_PATH</code> ile
+                tetikleyebilirsiniz.
+              </Typography>
+              <Stack spacing={2}>
+                <Autocomplete
+                  freeSolo options={jobs.data?.jobs ?? []} value={job}
+                  onInputChange={(_, v) => setJob(v)}
+                  renderInput={(p) => <TextField {...p} size="small" label="Job" placeholder="netscaler-deploy" />}
+                />
+                <Stack spacing={1}>
+                  {rows.map((row, i) => (
+                    <Stack key={i} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <TextField size="small" label="Parametre" value={row.key}
+                                 onChange={(e) => setRow(i, { key: e.target.value })} sx={{ flex: 1 }} />
+                      <TextField size="small" label="Değer" value={row.value}
+                                 onChange={(e) => setRow(i, { value: e.target.value })} sx={{ flex: 2 }} />
+                      <IconButton size="small" aria-label="Sil"
+                                  onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                  <Box>
+                    <Button size="small" startIcon={<AddIcon />}
+                            onClick={() => setRows((rs) => [...rs, { key: '', value: '' }])}>Parametre ekle</Button>
+                  </Box>
+                </Stack>
                 <Box>
-                  <Button size="small" startIcon={<AddIcon />}
-                          onClick={() => setRows((rs) => [...rs, { key: '', value: '' }])}>Parametre ekle</Button>
+                  <Button variant="contained" startIcon={<RocketLaunchIcon />}
+                          disabled={!job.trim() || trigger.isPending} onClick={() => trigger.mutate()}>
+                    {trigger.isPending ? 'Tetikleniyor…' : 'Dağıt'}
+                  </Button>
                 </Box>
               </Stack>
-              <Box>
-                <Button variant="contained" startIcon={<RocketLaunchIcon />}
-                        disabled={!job.trim() || trigger.isPending} onClick={() => trigger.mutate()}>
-                  {trigger.isPending ? 'Tetikleniyor…' : 'Dağıt'}
-                </Button>
-              </Box>
-            </Stack>
-          </Paper>
-        </Grid>
+            </Paper>
+          </Grid>
+        )}
 
         {/* Son Dağıtımlar */}
-        <Grid size={{ xs: 12, md: 7 }}>
+        <Grid size={{ xs: 12, md: isAdmin ? 7 : 12 }}>
           <Paper sx={{ p: 2.5 }}>
             <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Son Dağıtımlar</Typography>

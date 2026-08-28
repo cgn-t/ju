@@ -1,5 +1,6 @@
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import CloseIcon from '@mui/icons-material/Close'
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import {
   Box, Chip, Divider, Drawer, IconButton, Paper, Skeleton, Stack, Tooltip, Typography,
 } from '@mui/material'
@@ -95,7 +96,7 @@ export default function ApplicationDetailDrawer({ appId, onClose }: Props) {
             <Divider />
 
             <Typography variant="overline" color="text.secondary">
-              Dış Bağımlılıklar (client)
+              Dış Bağımlılıklar (trusted)
             </Typography>
             {(app.dependencies ?? []).length === 0 && (
               <Typography variant="body2" color="text.secondary">Dış bağımlılık tanımlı değil.</Typography>
@@ -118,6 +119,30 @@ export default function ApplicationDetailDrawer({ appId, onClose }: Props) {
                   {d.note && (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                       {d.note}
+                    </Typography>
+                  )}
+                </Box>
+              </Paper>
+            ))}
+            <Divider />
+
+            <Typography variant="overline" color="text.secondary">
+              Trusted Sertifikalar (trust store)
+            </Typography>
+            {(app.trusted_certs ?? []).length === 0 && (
+              <Typography variant="body2" color="text.secondary">Trusted sertifika tanımlı değil.</Typography>
+            )}
+            {(app.trusted_certs ?? []).map((t) => (
+              <Paper key={t.id} variant="outlined" sx={{ p: 1, display: 'flex', gap: 1 }}>
+                <VerifiedUserIcon fontSize="small" sx={{ color: '#ab47bc', mt: 0.25 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                    {t.cert_name ?? `#${t.cert_id}`}
+                  </Typography>
+                  <SkiText value={t.cert_ski} />
+                  {t.note && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      {t.note}
                     </Typography>
                   )}
                 </Box>

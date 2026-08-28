@@ -22,6 +22,7 @@ import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { usePageAccess } from '../hooks/usePageAccess'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
 
 const STATUS_META: Record<DiscoveryStatus, { label: string; color: 'warning' | 'success' | 'info' | 'default' }> = {
@@ -302,13 +303,13 @@ function IconAction({ color, onClick, disabled, children }: {
   )
 }
 
-// Nav rozeti: envanterde olmayan (shadow) bulgu sayısı — Keşif admin-only olduğundan yalnız admin sorgular
+// Nav rozeti: envanterde olmayan (shadow) bulgu sayısı — yalnız Keşif'i görebilenler sorgular
 export function useDiscoveredCount() {
-  const { isAdmin } = useAuth()
+  const { discovery: canSee } = usePageAccess()
   const { data } = useQuery<DiscoveredCertificate[]>({
     queryKey: ['discovery', 'findings'],
     queryFn: async () => (await api.get('/discovery/findings')).data,
-    enabled: isAdmin,
+    enabled: canSee,
     refetchInterval: 60_000,
   })
   return (data ?? []).filter((f) => f.status === 'new').length

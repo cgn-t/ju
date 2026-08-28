@@ -30,14 +30,17 @@ class UserOut(ORMModel):
     username: str
     email: str | None
     full_name: str | None
-    role: str                        # TÜRETİLMİŞ tier: admin|editor|viewer|none (üyelikten, bkz. effective_role)
+    role: str                        # TEK KAYNAK: users.role kolonu (bkz. security.effective_role)
     auth_source: str
     is_active: bool
     last_login: datetime | None
     sy_team_ids: list[int] = []      # üye olduğu SY ekiplerinin id'leri
     sy_team_names: list[str] = []
-    team_ids: list[int] = []         # üye olduğu TÜM takımların (SY/ADMIN/VIEWER) id'leri
+    team_ids: list[int] = []         # üye olduğu TÜM takımların (SY/ADMIN/VIEWER/UG) id'leri
     team_names: list[str] = []
+    # Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü — yalnız /auth/me doldurur
+    # (bkz. security.page_visible). {"policy":bool,"proposals":bool,"discovery":bool,"deployments":bool}
+    page_access: dict[str, bool] = {}
 
 
 # Doğrudan atanabilen roller: admin(global tam), editor(takım-kapsamlı düzenle), viewer(takım-kapsamlı
@@ -101,6 +104,7 @@ class CertificateBase(BaseModel):
     parent_id: int | None = None
     is_active: bool = True
     is_internal: bool = False
+    environment: Literal["prod", "test"] | None = None
     purchased_by: str | None = Field(default=None, max_length=255)
     creator: str | None = Field(default=None, max_length=255)
     notes: str | None = None
@@ -123,6 +127,7 @@ class CertificateUpdate(BaseModel):
     parent_id: int | None = None
     is_active: bool | None = None
     is_internal: bool | None = None
+    environment: Literal["prod", "test"] | None = None
     purchased_by: str | None = Field(default=None, max_length=255)
     creator: str | None = Field(default=None, max_length=255)
     notes: str | None = None
@@ -240,6 +245,7 @@ class DomainBase(BaseModel):
     ssl_pinning: str | None = Field(default=None, max_length=255)
     keystore: str | None = Field(default=None, max_length=500)
     servers_to_update: str | None = Field(default=None, max_length=500)
+    notify_days: int | None = Field(default=None, ge=1, le=3650)  # süre-uyarı penceresi (gün); boş = global
 
 
 class DomainCreate(DomainBase):
@@ -324,6 +330,9 @@ class TransferProposalOut(ORMModel):
     domain_name: str | None = None
     mapping_type: str | None = None
     app_dependency_id: int | None = None
+    app_id: int | None = None
+    app_name: str | None = None            # trusted_add: hedef uygulama
+    kind: str = "transfer"                 # transfer | trusted_add
     sy_team_id: int | None = None
     sy_team_name: str | None = None
     status: str
@@ -540,12 +549,28 @@ class AppDependencyOut(ORMModel):
     note: str | None = None
 
 
+class AppTrustedCertCreate(BaseModel):
+    certificate_id: int
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AppTrustedCertOut(ORMModel):
+    id: int
+    app_id: int
+    cert_id: int | None = None
+    cert_name: str | None = None       # trusted (güvenilen) sertifika adı
+    cert_ski: str | None = None        # SubjectKeyIdentifier
+    cert_valid_to: datetime | None = None
+    note: str | None = None
+
+
 class ApplicationOut(ApplicationBase, ORMModel):
     id: int
     sy_team: TeamOut | None = None
     ug_team: TeamOut | None = None
     domain: DomainOut | None = None
     dependencies: list[AppDependencyOut] = []
+    trusted_certs: list[AppTrustedCertOut] = []
     tags: list[TagOut] = []
 
 
@@ -619,3 +644,22 @@ class AuditOut(ORMModel):
     details: str | None
     ip_address: str | None
     created_at: datetime
+
+
+# ---- Mail gönderim geçmişi (notifications + mail_queue birleşik) ----
+class MailHistoryOut(BaseModel):
+    """Admin mail geçmişi satırı. İki kaynaktan gelir: 'notification' (gönderilen bildirimler,
+    status='sent') ve 'queue' (mail_queue'daki teslim edilmemişler, status=pending|failed).
+    id iki tablo arasında çakışabildiğinden benzersiz anahtar (source, id) çiftidir."""
+    id: int
+    source: str                        # notification | queue
+    certificate_id: int | None
+    certificate_name: str | None
+    recipient: str | None
+    subject: str | None
+    days_left: int | None
+    channel: str
+    status: str                        # sent | pending | failed
+    error: str | None
+    attempts: int | None
+    sent_at: datetime | None

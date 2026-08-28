@@ -14,12 +14,12 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ProposalDecision, TransferProposalOut
 from app.core.security import (
     ROLE_LEVELS,
-    get_current_user,
+    require_page_access,
     require_role,
     require_team_or_admin,
     user_team_ids,
 )
-from app.db.models import Certificate, Domain, TransferProposal, User
+from app.db.models import Application, Certificate, Domain, TransferProposal, User
 from app.db.session import get_db
 from app.services import renewal
 from app.services.audit import log_action
@@ -38,6 +38,7 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
     old = db.get(Certificate, p.old_cert_id)
     new = db.get(Certificate, p.new_cert_id)
     dom = db.get(Domain, p.domain_id) if p.domain_id else None
+    app_row = db.get(Application, p.app_id) if p.app_id else None
     # Karar yetkisi = admin VEYA (editor-tier VE öneri SY ekibinin üyesi). viewer/allviewer
     # SY üyesi olsa bile onaylayamaz (require_team_or_admin ile birebir aynı kural).
     can = is_admin or (is_editor and p.sy_team_id is not None and p.sy_team_id in team_ids)
@@ -46,6 +47,7 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
         new_cert_id=p.new_cert_id, new_cert_name=new.name if new else None,
         domain_id=p.domain_id, domain_name=dom.domain if dom else None,
         mapping_type=p.mapping_type, app_dependency_id=p.app_dependency_id,
+        app_id=p.app_id, app_name=app_row.app_name if app_row else None, kind=p.kind or "transfer",
         sy_team_id=p.sy_team_id, sy_team_name=p.sy_team.name if p.sy_team else None,
         status=p.status, signal=p.signal, via=p.via, live_seen=p.live_seen,
         created_by=p.created_by, created_at=p.created_at, decided_by=p.decided_by,
@@ -54,9 +56,12 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
 
 @router.get("", response_model=list[TransferProposalOut])
 def list_proposals(status: str | None = "pending", mine: bool = False,
-                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+                   db: Session = Depends(get_db),
+                   user: User = Depends(require_page_access("proposals"))):
     """Devir önerileri. Admin hepsini görür; diğerleri yalnız üye oldukları SY ekibinin
-    (sy_team_id) önerilerini. mine=true admin için de yalnız kendi ekiplerini süzer."""
+    (sy_team_id) önerilerini. mine=true admin için de yalnız kendi ekiplerini süzer.
+    Görünürlük: require_page_access('proposals') — SY üyeleri kendi tekliflerini her zaman
+    görür, alakasız kullanıcılar yalnız Ayarlar>Erişim açıksa (bkz. security.page_visible)."""
     is_admin = user.role == "admin"
     team_ids = user_team_ids(db, user)
     q = db.query(TransferProposal)
@@ -73,7 +78,7 @@ def list_proposals(status: str | None = "pending", mine: bool = False,
 
 @router.get("/{proposal_id}/group", response_model=list[TransferProposalOut])
 def proposal_group(proposal_id: int, db: Session = Depends(get_db),
-                   user: User = Depends(require_role("viewer"))):
+                   user: User = Depends(require_page_access("proposals"))):
     """Bu önerinin ait olduğu devrin (aynı old→new cert) TÜM bekleyen domain önerileri.
     Tek sertifika çok domaine bağlıysa her domain kendi SY'since ayrı onaylanır; bu uç,
     kullanıcının KARAR VEREMEYECEĞİ kardeş domainleri de listeler (yalnız farkındalık —
@@ -151,17 +156,27 @@ def cancel_proposal(request: Request, proposal_id: int, db: Session = Depends(ge
     if prop is None:
         raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
     # YETKİ (broken-access-control önleme): iptal de bir durum mutasyonudur; sahibi olmayan bir SY
-    # ekibinin editörü, başka ekibin bekleyen kararını kapatmamalı. Yalnız admin, öneriyi OLUŞTURAN
-    # veya sahibi SY ekibinin üyesi iptal edebilir (kendi hatalı önerini oluşturanın iptali korunur).
-    if not (user.role == "admin" or prop.created_by == user.username
+    # ekibinin editörü, başka ekibin bekleyen kararını kapatmamalı. Yalnız admin, MANUEL önerinin
+    # OLUŞTURANI veya sahibi SY ekibinin üyesi iptal edebilir.
+    # created_by istisnası YALNIZ via='manual' önerilerde geçerli: manuel supersede zaten tetikleyenin
+    # eski cert'in bağlı olduğu bir SY ekibine üye olmasını şart koşar (certificates.py:287-297).
+    # OTOMATİK yollar (import/vault-sync) created_by'ı kapsamsız tetikleyene yazar — o istisnayla
+    # kapsam-dışı bir editör başka ekibin (SKI/subject eşleşmesiyle üretilmiş) önerisini kapatabilirdi.
+    if not (user.role == "admin"
+            or (prop.via == "manual" and prop.created_by == user.username)
             or (prop.sy_team_id is not None and prop.sy_team_id in user_team_ids(db, user))):
         raise HTTPException(status_code=403,
                             detail="Bu öneriyi yalnız oluşturan, sahibi SY ekibi üyesi veya admin iptal edebilir")
-    if prop.status not in ("pending", "approved"):
+    # ATOMİK durum geçişi (approve/reject ile aynı desen): yalnız hâlâ AÇIK (pending/approved)
+    # ise iptal et. Eşzamanlı approve/reject ile yarışta lost-update'i önler — aksi halde
+    # blind UPDATE ... WHERE id=? bir 'applied'/'rejected' kaydı 'cancelled'a ezerdi.
+    updated = (db.query(TransferProposal)
+               .filter(TransferProposal.id == proposal_id,
+                       TransferProposal.status.in_(("pending", "approved")))
+               .update({"status": "cancelled", "decided_by": user.username,
+                        "decided_at": utcnow()}))
+    if not updated:
         raise HTTPException(status_code=409, detail="Yalnız açık öneriler iptal edilebilir")
-    prop.status = "cancelled"
-    prop.decided_by = user.username
-    prop.decided_at = utcnow()
     log_action(db, user.username, "propose_cancel", "transfer_proposals", proposal_id,
                {"old_id": prop.old_cert_id, "new_id": prop.new_cert_id}, request)
     db.commit()

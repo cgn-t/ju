@@ -18,7 +18,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Certificate, TransferProposal } from '../api/types'
-import { daysLeftColor, daysLeftLabel, MONO_FONT, nodeColors } from '../theme'
+import { daysLeftColor, daysLeftLabel, mappingTypeLabel, MONO_FONT, nodeColors } from '../theme'
 
 interface Props {
   proposal: TransferProposal | null
@@ -192,7 +192,7 @@ function ScopeRow({ p, current }: { p: TransferProposal; current: boolean }) {
         {p.domain_name ?? (p.app_dependency_id ? 'mTLS bağımlılığı' : '—')}
         {p.mapping_type && (
           <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
-            ({p.mapping_type})
+            ({mappingTypeLabel(p.mapping_type)})
           </Typography>
         )}
       </Typography>
@@ -275,15 +275,21 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
           <Box sx={{ px: 3, pt: 2.5, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>Devir İncelemesi</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  {proposal.kind === 'trusted_add' ? 'Trust Store İncelemesi' : 'Devir İncelemesi'}
+                </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
-                    {proposal.domain_name ?? (proposal.app_dependency_id ? 'mTLS bağımlılığı' : 'hedef yok')}
+                    {proposal.kind === 'trusted_add'
+                      ? `${proposal.app_name ?? 'uygulama'} (trust store)`
+                      : (proposal.domain_name ?? (proposal.app_dependency_id ? 'mTLS bağımlılığı' : 'hedef yok'))}
                   </Typography>
-                  {proposal.mapping_type && (
-                    <Chip size="small" variant="outlined" label={proposal.mapping_type}
-                          color={proposal.mapping_type === 'server' ? 'error' : 'info'} sx={{ height: 20 }} />
-                  )}
+                  {proposal.kind === 'trusted_add'
+                    ? <Chip size="small" variant="outlined" color="secondary" label="trusted (ekle)" sx={{ height: 20 }} />
+                    : proposal.mapping_type && (
+                        <Chip size="small" variant="outlined" label={mappingTypeLabel(proposal.mapping_type)}
+                              color={proposal.mapping_type === 'server' ? 'error' : 'info'} sx={{ height: 20 }} />
+                      )}
                   {proposal.sy_team_name
                     ? <Chip size="small" label={proposal.sy_team_name} sx={{ height: 20 }} />
                     : <Chip size="small" variant="outlined" color="warning" label="sahipsiz" sx={{ height: 20 }} />}
@@ -418,8 +424,9 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
               <>
                 <Typography variant="caption" color="text.secondary"
                             sx={{ flex: '1 1 220px', minWidth: 0 }}>
-                  Onaylandığında eşleme yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir
-                  değişiklik olmaz.
+                  {proposal.kind === 'trusted_add'
+                    ? 'Onaylandığında yeni sertifika uygulamanın trust store\'una eklenir; eski trusted sertifika KALIR (devir/pasife alma yok). Reddederseniz hiçbir değişiklik olmaz.'
+                    : 'Onaylandığında eşleme yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir değişiklik olmaz.'}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0, ml: 'auto' }}>
                   <Button variant="outlined" color="error" startIcon={<CancelIcon />} disabled={deciding}

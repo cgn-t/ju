@@ -37,6 +37,7 @@ export interface Certificate {
   parent_id?: number | null
   is_active: boolean
   is_internal: boolean
+  environment?: 'prod' | 'test' | null
   purchased_by?: string | null
   creator?: string | null
   source: string
@@ -103,6 +104,9 @@ export interface TransferProposal {
   domain_name?: string | null
   mapping_type?: 'server' | 'client' | null
   app_dependency_id?: number | null
+  app_id?: number | null
+  app_name?: string | null
+  kind?: 'transfer' | 'trusted_add'
   sy_team_id?: number | null
   sy_team_name?: string | null
   status: 'pending' | 'approved' | 'applied' | 'rejected' | 'cancelled'
@@ -205,6 +209,7 @@ export interface Domain {
   ssl_pinning?: string | null
   keystore?: string | null
   servers_to_update?: string | null
+  notify_days?: number | null
   ug_team?: Team | null
   sy_team?: Team | null
   server_days_left?: number | null
@@ -224,6 +229,16 @@ export interface AppDependency {
   client_cert_id?: number | null
   client_cert_name?: string | null
   client_cert_ski?: string | null
+  note?: string | null
+}
+
+export interface AppTrustedCert {
+  id: number
+  app_id: number
+  cert_id?: number | null
+  cert_name?: string | null
+  cert_ski?: string | null
+  cert_valid_to?: string | null
   note?: string | null
 }
 
@@ -250,6 +265,7 @@ export interface Application {
   ug_team?: Team | null
   domain?: Domain | null
   dependencies?: AppDependency[]
+  trusted_certs?: AppTrustedCert[]
   tags?: Tag[]
 }
 
@@ -298,8 +314,10 @@ export interface AppUser {
   last_login?: string | null
   sy_team_ids?: number[]        // yalnız SY tipi (domain formu auto-fill)
   sy_team_names?: string[]
-  team_ids?: number[]           // TÜM takımlar (SY/ADMIN/VIEWER) — UsersTab rozetleri
+  team_ids?: number[]           // TÜM takımlar (SY/ADMIN/VIEWER/UG) — UsersTab rozetleri
   team_names?: string[]
+  // Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü (bkz. usePageAccess)
+  page_access?: Record<string, boolean>
 }
 
 export interface TeamMember {
@@ -318,6 +336,22 @@ export interface AuditEntry {
   details?: string | null
   ip_address?: string | null
   created_at: string
+}
+
+// ---- Mail gönderim geçmişi (notifications + mail_queue birleşik) ----
+export interface MailHistoryEntry {
+  id: number
+  source: 'notification' | 'queue'
+  certificate_id?: number | null
+  certificate_name?: string | null
+  recipient?: string | null
+  subject?: string | null
+  days_left?: number | null
+  channel: string
+  status: 'sent' | 'pending' | 'failed'
+  error?: string | null
+  attempts?: number | null
+  sent_at?: string | null
 }
 
 // ---- Ağ keşfi (discovery) ----

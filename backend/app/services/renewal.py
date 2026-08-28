@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.core.certtype import cert_type_filter, normalize_cert_type
 from app.db.models import (
     AppDependency,
+    ApplicationTrustedCert,
     Certificate,
     CertificateDomainMap,
     Domain,
@@ -91,8 +92,9 @@ def _dep_sy_team_id(db: Session, dep: AppDependency) -> int | None:
 
 
 def _granule_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_id,
-                      statuses: tuple[str, ...]):
-    """Aynı granül için verilen durumlardaki ilk öneriyi döndürür."""
+                      app_id=None, statuses: tuple[str, ...]):
+    """Aynı granül için verilen durumlardaki ilk öneriyi döndürür. app_id yalnız
+    trusted_add önerilerinde doludur (grain'in bir boyutu)."""
     return (db.query(TransferProposal)
             .filter(TransferProposal.old_cert_id == old_id,
                     TransferProposal.new_cert_id == new_id,
@@ -102,14 +104,16 @@ def _granule_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, d
                     else TransferProposal.mapping_type == mapping_type,
                     TransferProposal.app_dependency_id.is_(dep_id) if dep_id is None
                     else TransferProposal.app_dependency_id == dep_id,
+                    TransferProposal.app_id.is_(app_id) if app_id is None
+                    else TransferProposal.app_id == app_id,
                     TransferProposal.status.in_(statuses))
             .first())
 
 
-def _open_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_id):
+def _open_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_id, app_id=None):
     """Aynı granül için mevcut açık (pending/approved) öneriyi döndürür (idempotentlik)."""
     return _granule_proposal(db, old_id=old_id, new_id=new_id, domain_id=domain_id,
-                             mapping_type=mapping_type, dep_id=dep_id,
+                             mapping_type=mapping_type, dep_id=dep_id, app_id=app_id,
                              statuses=("pending", "approved"))
 
 
@@ -129,22 +133,33 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
     db.flush()  # autoflush=False: bekleyen kayıtlar aşağıdaki sorgularda görünsün
     created: list[TransferProposal] = []
 
-    def upsert(*, domain_id, mapping_type, dep_id, team_id):
+    def upsert(*, domain_id, mapping_type, dep_id, team_id, app_id=None, kind="transfer"):
         existing = _open_proposal(db, old_id=old_cert.id, new_id=new_cert.id,
-                                  domain_id=domain_id, mapping_type=mapping_type, dep_id=dep_id)
+                                  domain_id=domain_id, mapping_type=mapping_type, dep_id=dep_id,
+                                  app_id=app_id)
         if existing is not None:
             if live_seen and not existing.live_seen:
                 existing.live_seen = True
                 existing.live_seen_at = utcnow()
             return
+        # Zaten UYGULANMIŞ granül yeniden önerilmez. transfer/dep'te apply kaynağı kopardığından
+        # (eşleme taşınır, dep yeniye geçer) bu granül buraya hiç gelmez; ama trusted_add apply
+        # eskiyi KORUDUĞUNDAN, her startup backfill'i aynı grain'i yeniden üretirdi — kısmi
+        # uq_proposal_grain_open 'applied'ı saymaz, DB de engellemez → onay kuyruğunda phantom.
+        # reopen_rejected'tan bağımsızdır: manuel supersede yalnız REDDİ açar, uygulananı değil.
+        if _granule_proposal(db, old_id=old_cert.id, new_id=new_cert.id, domain_id=domain_id,
+                             mapping_type=mapping_type, dep_id=dep_id, app_id=app_id,
+                             statuses=("applied",)) is not None:
+            return
         if not reopen_rejected and _granule_proposal(
                 db, old_id=old_cert.id, new_id=new_cert.id, domain_id=domain_id,
-                mapping_type=mapping_type, dep_id=dep_id, statuses=("rejected",)) is not None:
+                mapping_type=mapping_type, dep_id=dep_id, app_id=app_id,
+                statuses=("rejected",)) is not None:
             return  # red kalıcı — otomatik yol bu granülü yeniden açamaz
         prop = TransferProposal(
             old_cert_id=old_cert.id, new_cert_id=new_cert.id, domain_id=domain_id,
-            mapping_type=mapping_type, app_dependency_id=dep_id, sy_team_id=team_id,
-            status="pending", signal=signal, via=via, live_seen=live_seen,
+            mapping_type=mapping_type, app_dependency_id=dep_id, app_id=app_id, kind=kind,
+            sy_team_id=team_id, status="pending", signal=signal, via=via, live_seen=live_seen,
             live_seen_at=utcnow() if live_seen else None, created_by=username)
         db.add(prop)
         created.append(prop)
@@ -156,6 +171,17 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
     for dep in db.query(AppDependency).filter(AppDependency.client_cert_id == old_cert.id).all():
         upsert(domain_id=None, mapping_type=None, dep_id=dep.id,
                team_id=_dep_sy_team_id(db, dep))
+
+    # TRUSTED: eski cert bir uygulamanın trust store'undaysa DEVİR değil — yeni cert'i de
+    # trust store'a EKLEME önerisi (kind=trusted_add). Onaylanınca eski trusted KALIR,
+    # yeni trusted olarak eklenir (kullanıcı kararı: eski+yeni birlikte).
+    for tr in (db.query(ApplicationTrustedCert)
+               .filter(ApplicationTrustedCert.cert_id == old_cert.id).all()):
+        app_row = tr.app
+        if app_row is None:
+            continue
+        upsert(domain_id=None, mapping_type=None, dep_id=None, app_id=app_row.id,
+               kind="trusted_add", team_id=app_row.sy_team_id)
 
     db.flush()
     if created:
@@ -209,6 +235,24 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
         prop.status = "cancelled"
         return
 
+    # TRUSTED EKLEME: devir DEĞİL — yeni cert'i uygulamanın trust store'una EKLE, eskiyi KORU
+    # (superseded_by yazma, eşleme taşıma, pasife alma YOK). Eski + yeni birlikte trusted kalır.
+    if prop.kind == "trusted_add":
+        if prop.app_id is not None:
+            exists = (db.query(ApplicationTrustedCert)
+                      .filter(ApplicationTrustedCert.app_id == prop.app_id,
+                              ApplicationTrustedCert.cert_id == new_cert.id).first())
+            if exists is None:
+                db.add(ApplicationTrustedCert(app_id=prop.app_id, cert_id=new_cert.id,
+                                              note="halef sertifika (devir önerisi onayı ile eklendi)"))
+        prop.status = "applied"
+        prop.applied_at = utcnow()
+        db.flush()
+        log_action(db, username, "trusted_add_apply", "app_trusted_certs", new_cert.id,
+                   {"proposal_id": prop.id, "app_id": prop.app_id, "old_id": old_cert.id,
+                    "new_name": new_cert.name}, request)
+        return  # eski trusted KORUNUR — _maybe_deactivate_old çağrılmaz
+
     if prop.app_dependency_id is not None:
         dep = db.get(AppDependency, prop.app_dependency_id)
         if dep is not None and dep.client_cert_id == old_cert.id:
@@ -226,19 +270,32 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
         elif old_map is not None:
             old_map.certificate_id = new_cert.id
         else:
-            # Eski eşleme yok (attach çakışması senaryosu): yeniyi doğrudan ekle
-            db.add(CertificateDomainMap(certificate_id=new_cert.id, domain_id=prop.domain_id,
-                                        mapping_type=prop.mapping_type))
+            # Eski eşleme yok. İki alt-durum: (a) attach-çakışması sonrası eski ELLE kaldırıldı
+            # ve yuva BOŞ → yeniyi doğrudan ekle; (b) RAKİP bir halef önerisi eskinin eşlemesini
+            # başka bir halefe ZATEN taşıdı ve yuva DOLU. (b)'de körlemesine eklemek domaine
+            # İKİNCİ bir aktif server cert yapıştırır (tek-aktif-server invariant'ı; DB yakalamaz,
+            # çünkü uq (cert,domain,tip) üzerinde). Yalnız yuva gerçekten boşsa ekle; doluysa bu
+            # devir amaçsızdır (rakip halef yuvayı çoktan doldurmuş) → no-op.
+            occupant = (db.query(CertificateDomainMap)
+                        .filter_by(domain_id=prop.domain_id, mapping_type=prop.mapping_type)
+                        .first())
+            if occupant is None:
+                db.add(CertificateDomainMap(certificate_id=new_cert.id, domain_id=prop.domain_id,
+                                            mapping_type=prop.mapping_type))
 
-    # Halef işareti ve vault_path devri ilk uygulamada bir kez
-    if old_cert.superseded_by_id != new_cert.id:
+    # Halef işareti: İLK halefi kaydet, sonraki (farklı domain → farklı halef) onaylar EZMESİN.
+    # Tek FK dallanmayı temsil edemez (bir cert farklı domainlerde farklı haleflere geçebilir);
+    # ilk kaydı stabil tut, gerçek/tam zincir supersede_apply audit kayıtlarında kalır.
+    if old_cert.superseded_by_id is None:
         old_cert.superseded_by_id = new_cert.id
-        if old_cert.vault_path:
-            if not new_cert.vault_path:
-                new_cert.vault_path = old_cert.vault_path
-                old_cert.vault_path = None
-            elif new_cert.vault_path == old_cert.vault_path:
-                old_cert.vault_path = None
+    # vault_path devri superseded_by'dan BAĞIMSIZ: yol, eski hangisinde hâlâ duruyorsa o onayda
+    # taşınır; taşındıktan sonra old.vault_path None olur → ikinci kez çalışmaz (davranış korunur).
+    if old_cert.vault_path:
+        if not new_cert.vault_path:
+            new_cert.vault_path = old_cert.vault_path
+            old_cert.vault_path = None
+        elif new_cert.vault_path == old_cert.vault_path:
+            old_cert.vault_path = None
 
     prop.status = "applied"
     prop.applied_at = utcnow()
@@ -264,5 +321,9 @@ def _maybe_deactivate_old(db: Session, old_cert: Certificate) -> None:
         certificate_id=old_cert.id).first() is not None
     has_deps = db.query(AppDependency).filter(
         AppDependency.client_cert_id == old_cert.id).first() is not None
-    if not has_mappings and not has_deps:
+    # Eski cert hâlâ bir uygulamanın trust store'undaysa PASİFE ALINMAZ — trusted sertifika
+    # devredilmez; eski + yeni birlikte güvenilir kalabilir (trusted_add akışı).
+    has_trusted = db.query(ApplicationTrustedCert).filter(
+        ApplicationTrustedCert.cert_id == old_cert.id).first() is not None
+    if not has_mappings and not has_deps and not has_trusted:
         old_cert.is_active = False

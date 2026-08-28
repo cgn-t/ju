@@ -13,6 +13,7 @@ import { Fragment, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
+import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
 import { usePendingProposalCount } from '../pages/Proposals'
@@ -38,8 +39,10 @@ const NAV: NavEntry[] = [
   ] },
 ]
 
-// Yalnız admin'e görünen rotalar (nav + rota + uçlar admin-only)
-const ADMIN_ONLY = new Set(['/discovery', '/deployments'])
+// Sayfa-görünürlük ayarına tabi rotalar → usePageAccess() anahtarı (bkz. security.page_visible)
+const PAGE_FOR_PATH: Record<string, 'policy' | 'proposals' | 'discovery' | 'deployments'> = {
+  '/policy': 'policy', '/proposals': 'proposals', '/discovery': 'discovery', '/deployments': 'deployments',
+}
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Yönetici', editor: 'SY Ekip', viewer: 'İzleyici', none: 'Yetkisiz',
@@ -53,6 +56,7 @@ export default function AppLayout() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)   // mobil (xs) navigasyon çekmecesi
   const [navMenu, setNavMenu] = useState<{ label: string; el: HTMLElement } | null>(null)  // masaüstü grup dropdown'u
+  const access = usePageAccess()
   const pendingCount = usePendingProposalCount()
   const shadowCount = useDiscoveredCount()
   const violationCount = usePolicyViolationCount()
@@ -64,8 +68,8 @@ export default function AppLayout() {
         : to === '/policy' ? violationCount : 0
   const groupBadge = (g: NavGroup) => g.items.reduce((n, i) => n + badgeFor(i.to), 0)
   const groupActive = (g: NavGroup) => g.items.some((i) => isActive(i.to))
-  // admin-only rotaları gizle; boşalan grupları düş
-  const canSee = (to: string) => !ADMIN_ONLY.has(to) || isAdmin
+  // Erişimi olmayan rotaları gizle (bkz. usePageAccess); boşalan grupları düş
+  const canSee = (to: string) => { const page = PAGE_FOR_PATH[to]; return !page || access[page] }
   const navEntries: NavEntry[] = NAV
     .map((e) => (isGroup(e) ? { ...e, items: e.items.filter((i) => canSee(i.to)) } : e))
     .filter((e) => (isGroup(e) ? e.items.length > 0 : canSee(e.to)))

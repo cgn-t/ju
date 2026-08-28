@@ -309,7 +309,7 @@ function CertMapInner() {
           <Box sx={{ mr: 'auto' }}>
             <Typography variant="h6" sx={{ lineHeight: 1.2 }}>Sertifika Haritası</Typography>
             <Typography variant="caption" color="text.secondary">
-              {view === 'certs' ? 'Sertifika – domain ilişki ağı' : 'Türetilmiş client ↔ server ilişkileri'}
+              {view === 'certs' ? 'Sertifika – domain ilişki ağı' : 'Türetilmiş trusted ↔ server ilişkileri'}
             </Typography>
           </Box>
           <ToggleButtonGroup size="small" exclusive value={view} sx={segGroupSx}
@@ -378,7 +378,7 @@ function CertMapInner() {
               <FilterField label="Bağlantı">
                 <ToggleButtonGroup size="small" value={connFilter} sx={segGroupSx} onChange={(_, v) => setConnFilter(v)}>
                   <ToggleButton value="server"><Dot c={EDGE_COLORS.server} />Server</ToggleButton>
-                  <ToggleButton value="client"><Dot c={EDGE_COLORS.client} />Client</ToggleButton>
+                  <ToggleButton value="client"><Dot c={EDGE_COLORS.client} />Trusted</ToggleButton>
                 </ToggleButtonGroup>
               </FilterField>
 

@@ -3,6 +3,10 @@
 Kural: bir sertifika pasife alınınca, hâlâ bağlı olduğu domainlerin SY ekiplerine
 (Team.email) ve domainin mail_addresses adreslerine bilgilendirme gider; SMTP açıksa
 mail atılır, her durumda Notification kaydı tutulur. JUMBO devir yapmaz — bilgilendirme.
+
+NOT: SERVER olarak domaine bağlı sertifika artık pasife ALINAMAZ (409 — bkz.
+test_deactivate_rule.py). Bu testler bilgilendirme akışını CLIENT bağıyla doğrular
+(bildirim tüm mapping tipleri için tetiklenir).
 """
 
 from datetime import datetime
@@ -61,7 +65,7 @@ def test_deactivate_bound_cert_notifies_domain_sy_teams(client, auth_headers):
     dom_id = _domain(client, auth_headers, "pasif-demo.local",
                      sy_team_id=team_id, mail="YOKSAYILMALI@banka.local")
     leaf_id = _import_leaf(client, auth_headers, "pasif-demo.local")
-    _attach(client, auth_headers, dom_id, leaf_id)
+    _attach(client, auth_headers, dom_id, leaf_id, "client")  # server-bağlı cert pasife alınamaz (yeni kural)
 
     r = client.post(f"/api/certificates/{leaf_id}/deactivate", headers=auth_headers)
     assert r.status_code == 200, r.text
@@ -104,7 +108,7 @@ def test_deactivate_is_idempotent(client, auth_headers):
     team_id = _sy_team(client, auth_headers, "TekrarTakim", email="tekrar@banka.local")
     dom_id = _domain(client, auth_headers, "tekrar-demo.local", sy_team_id=team_id)
     leaf_id = _import_leaf(client, auth_headers, "tekrar-demo.local")
-    _attach(client, auth_headers, dom_id, leaf_id)
+    _attach(client, auth_headers, dom_id, leaf_id, "client")  # server-bağlı cert pasife alınamaz (yeni kural)
 
     r1 = client.post(f"/api/certificates/{leaf_id}/deactivate", headers=auth_headers)
     assert r1.status_code == 200 and r1.json()["bound_domains"] == ["tekrar-demo.local"]
@@ -139,7 +143,7 @@ def test_deactivate_sends_mail_when_smtp_enabled(client, auth_headers, monkeypat
     team_id = _sy_team(client, auth_headers, "MailTakim", email="mailtakim@banka.local")
     dom_id = _domain(client, auth_headers, "mail-demo.local", sy_team_id=team_id)
     leaf_id = _import_leaf(client, auth_headers, "mail-demo.local")
-    _attach(client, auth_headers, dom_id, leaf_id)
+    _attach(client, auth_headers, dom_id, leaf_id, "client")  # server-bağlı cert pasife alınamaz (yeni kural)
 
     r = client.post(f"/api/certificates/{leaf_id}/deactivate", headers=auth_headers)
     assert r.status_code == 200, r.text

@@ -6,8 +6,9 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.schemas import LoginRequest, TokenResponse, UserOut
-from app.core.security import (create_access_token, effective_role, get_current_user,
-                                is_local_password, verify_password)
+from app.core.security import (PAGE_SETTING_KEY, create_access_token, effective_role,
+                                get_current_user, is_local_password, page_visible,
+                                verify_password)
 from app.db.models import Team, User, UserTeam
 from app.db.session import get_db
 from app.services import ldap_auth
@@ -85,4 +86,5 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     out.sy_team_names = [t.name for t in sy]
     out.team_ids = [t.id for t in memberships]
     out.team_names = [t.name for t in memberships]
+    out.page_access = {page: page_visible(db, user, page) for page in PAGE_SETTING_KEY}
     return out

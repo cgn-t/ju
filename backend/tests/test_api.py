@@ -72,6 +72,37 @@ def test_manual_certificate_with_existing_pem_rejected(client, auth_headers, fix
     assert "zaten kayıtlı" in r.json()["detail"]
 
 
+def test_certificate_environment_field(client, auth_headers):
+    # Create: environment opsiyonel, verilirse döner
+    r = client.post("/api/certificates", headers=auth_headers,
+                    json={"name": "env-test-cert", "environment": "prod"})
+    assert r.status_code == 200, r.text
+    cert_id = r.json()["id"]
+    assert r.json()["environment"] == "prod"
+
+    # Update: prod -> test
+    r = client.put(f"/api/certificates/{cert_id}", headers=auth_headers,
+                   json={"environment": "test"})
+    assert r.status_code == 200
+    assert r.json()["environment"] == "test"
+
+    # Update: null ile temizlenir
+    r = client.put(f"/api/certificates/{cert_id}", headers=auth_headers,
+                   json={"environment": None})
+    assert r.status_code == 200
+    assert r.json()["environment"] is None
+
+    # Geçersiz değer -> 422 (API/DB seviyesinde hâlâ opsiyonel, ama geçerli set dışına izin yok)
+    r = client.post("/api/certificates", headers=auth_headers,
+                    json={"name": "env-test-cert-2", "environment": "staging"})
+    assert r.status_code == 422
+
+    # environment hiç verilmeden create -> None (zorunluluk yalnız frontend formunda)
+    r = client.post("/api/certificates", headers=auth_headers, json={"name": "env-test-cert-3"})
+    assert r.status_code == 200
+    assert r.json()["environment"] is None
+
+
 def test_import_fills_san_and_fingerprint(client, auth_headers):
     leaf = next(c for c in client.get("/api/certificates", headers=auth_headers).json()
                 if c["cert_type"] == "leaf")
@@ -307,17 +338,17 @@ def test_domain_csv_import(client, auth_headers):
 
 
 def test_certificate_soft_delete_filter(client, auth_headers):
-    certs = client.get("/api/certificates", headers=auth_headers).json()
-    leaf = next(c for c in certs if c["cert_type"] == "leaf")
-    r = client.put(f"/api/certificates/{leaf['id']}", headers=auth_headers,
+    # Kendi BAĞSIZ sertifikasını yarat: server olarak domaine bağlı cert artık pasife
+    # alınamaz (409), o yüzden rastgele mevcut bir leaf yerine ayrılmış bir kayıt kullan.
+    cid = client.post("/api/certificates", headers=auth_headers,
+                      json={"name": "SoftDelete Filter Test"}).json()["id"]
+    r = client.put(f"/api/certificates/{cid}", headers=auth_headers,
                    json={"is_active": False})
     assert r.json()["is_active"] is False
     active_only = client.get("/api/certificates?is_active=true", headers=auth_headers).json()
-    assert leaf["id"] not in {c["id"] for c in active_only}
+    assert cid not in {c["id"] for c in active_only}
     everything = client.get("/api/certificates", headers=auth_headers).json()
-    assert leaf["id"] in {c["id"] for c in everything}
-    # Geri aktifleştir (diğer testler leaf'i kullanıyor)
-    client.put(f"/api/certificates/{leaf['id']}", headers=auth_headers, json={"is_active": True})
+    assert cid in {c["id"] for c in everything}
 
 
 def test_audit_populated(client, auth_headers):

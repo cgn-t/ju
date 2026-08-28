@@ -119,6 +119,41 @@ def test_mail_creator_team_no_domain(client, auth_headers, monkeypatch):
     assert any("sahip-d@test" in to for to in sent), f"oluşturan ekibe mail gitmedi: {sent}"
 
 
+def test_mail_per_domain_notify_days(client, auth_headers, monkeypatch):
+    """Domain.notify_days: kendi penceresine giren domain ekibi mail alır, girmeyen almaz.
+    ~40 gün sonra dolacak sertifika; domain A notify_days=60 (girer), domain B=15 (girmez),
+    global default=30. İki domain de aynı sertifikaya server bağlı."""
+    h = auth_headers
+    ta = _sy_team(client, h, "SY-Days-A", "days-a@test")
+    tb = _sy_team(client, h, "SY-Days-B", "days-b@test")
+    ca_cert, ca_key = certgen.make_ca("CA days")
+    nb = datetime.utcnow() - timedelta(days=325)         # valid_to ~ now + 40 gün
+    leaf, _ = certgen.make_leaf(ca_cert, ca_key, "days.test", not_before=nb, days=365, san=["days.test"])
+    pem = certgen.pem(leaf) + certgen.pem(ca_cert)
+    r = client.post("/api/certificates/import", headers=h,
+                    files={"file": ("c.pem", pem.encode(), "application/x-pem-file")})
+    assert r.status_code == 200, r.text
+    leaf_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+    for name, tid, days in (("da.days.test", ta, 60), ("db.days.test", tb, 15)):
+        dom_id = client.post("/api/domains", headers=h, json={"domain": name}).json()["id"]
+        client.put(f"/api/domains/{dom_id}", headers=h, json={"sy_team_id": tid, "notify_days": days})
+        r = client.post(f"/api/domains/{dom_id}/certificates", headers=h,
+                        json={"certificate_id": leaf_id, "mapping_type": "server"})
+        assert r.status_code == 200, r.text
+    _set_smtp(client, h, expiry_warning_days=30)          # global 30 < 40 → tek başına yakalamaz
+    sent = []
+    monkeypatch.setattr(notifier, "_send_mail",
+                        lambda cfg, to, subject, body, html=None: sent.append(list(to)))
+    db = SessionLocal()
+    try:
+        notifier.send_expiry_notifications(db, force=True)
+    finally:
+        db.close()
+    flat = [a for to in sent for a in to]
+    assert "days-a@test" in flat, f"60-günlük domain ekibi mail almalıydı: {sent}"
+    assert "days-b@test" not in flat, f"15-günlük domain ekibi mail ALMAMALIYDI: {sent}"
+
+
 def test_mail_queue_enqueue_then_drain(client, auth_headers, monkeypatch):
     h = auth_headers
     tid = _sy_team(client, h, "SY-Mail-C", "team-c@test")

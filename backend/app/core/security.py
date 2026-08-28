@@ -178,3 +178,40 @@ def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_use
         raise HTTPException(status_code=403,
                             detail="Bu öneriyi yalnız domain'in SY ekibi editörü veya admin onaylar")
     return user
+
+
+# 4 kısıtlı sayfa (Uyum/Devir Önerisi/Keşif/Dağıtım) → Ayarlar > Erişim kategorisindeki switch adı.
+PAGE_SETTING_KEY = {
+    "policy": "policy_all_roles",
+    "proposals": "proposals_all_roles",
+    "discovery": "discovery_all_roles",
+    "deployments": "deployments_all_roles",
+}
+
+
+def page_visible(db: Session, user: User, page: str) -> bool:
+    """Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü. admin VE allviewer HER ZAMAN görür
+    (allviewer zaten 'her şeyi görür, düzenleyemez' diye tasarlanmış — bu 4 sayfa istisna değil;
+    domain_scope_team_ids'in admin+allviewer'ı eş tuttuğu kuralla tutarlı). Devir Önerisi'nde
+    ayrıca SY üyeliği olan HER ZAMAN kendi ekibinin tekliflerini görür — onay mekanizması
+    (require_team_or_admin) bu fonksiyondan tamamen BAĞIMSIZ, burada dokunulmuyor; bu yalnız
+    LİSTEYİ görebilme kapısı. Bunların dışında yalnız Ayarlar > Erişim'deki ilgili switch açıksa
+    (settings_service 'access' kategorisi) görünür."""
+    if user.role in ("admin", "allviewer"):
+        return True
+    if page == "proposals" and user_team_ids(db, user):
+        return True
+    from app.services.settings_service import get_category
+    return bool(get_category(db, "access").get(PAGE_SETTING_KEY[page]))
+
+
+def require_page_access(page: str, minimum: str = "viewer"):
+    """require_role + page_visible birleşik dependency factory. `minimum`: sayfa içindeki belirli
+    bir MUTASYON ucu (ör. Keşif adopt/ignore) için görünürlükten AYRI ikinci bir rol tabanı."""
+    def checker(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        if not page_visible(db, user, page):
+            raise HTTPException(status_code=403, detail="Bu sayfa yalnız yöneticilere açık")
+        if ROLE_LEVELS.get(user.role, -1) < ROLE_LEVELS[minimum]:
+            raise HTTPException(status_code=403, detail="Bu işlem için yetkiniz yok")
+        return user
+    return checker

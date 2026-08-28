@@ -58,10 +58,17 @@ DEFAULTS: dict[str, dict] = {
         "password": "",
         "from_address": "jumbo@localhost",
         "expiry_warning_days": 30,
-        # Tekrar aralığı: uyarı penceresine giren sertifika için mailin kaç günde bir yeniden
-        # gönderileceği. 1 = HER GÜN (cron 08:00, 30 gün boyunca). Dış API tetikleri
-        # (/notifications/expiry-run, force) bu frenden ETKİLENMEZ — her zaman gönderir.
-        "resend_interval_days": 1,
+        # Günlük 08:00 otomatik tarama AÇIK mı? Kapalıyken zamanlanmış job mail ATMAZ; ancak
+        # dış API tetikleri (/notifications/expiry-run) yine de çalışır (istendiğinde gönderir).
+        "auto_expiry_enabled": True,
+        # Tekrar-önleme (dedup) AÇIK mı? Açıkken aynı sertifikaya son `resend_interval_hours`
+        # saat içinde zaten mail gittiyse zamanlanmış tarama TEKRAR göndermez. Kapatılırsa her
+        # tarama gönderir (günlük cron doğal olarak günde bir çalışır). Dış API/force zaten muaf.
+        "resend_dedup_enabled": True,
+        # Tekrar aralığı: uyarı penceresine giren sertifika için mailin kaç SAATTE bir yeniden
+        # gönderileceği. Varsayılan 3 saat. resend_dedup_enabled=false ise bu değer yok sayılır.
+        # Dış API tetikleri (force) bu frenden ETKİLENMEZ.
+        "resend_interval_hours": 3,
         # Yedek/varsayılan adres: birincil gönderim SMTP hatası verirse ikinci deneme buraya
         # yapılır (virgülle çoklu olabilir). Boşsa yedek deneme yok.
         "fallback_address": "",
@@ -77,8 +84,14 @@ DEFAULTS: dict[str, dict] = {
         # Dış otomasyonun (cron/zamanlayıcı) süre-uyarısı taramasını tetikleme anahtarı:
         # POST /api/notifications/expiry-run + "X-API-Key: <bu değer>". BOŞSA dış tetikleme
         # KAPALI (yalnız admin JWT çalışır). Düşük yetkili: yalnız bildirim gönderimini başlatır,
-        # veri okuyamaz/değiştiremez.
+        # veri okuyamaz/değiştiremez. Aynı anahtar /notifications/proposal-run için de geçerlidir.
         "trigger_api_key": "",
+        # --- Devir-onayı hatırlatması (onay kuyruğunda BEKLEYEN öneriler için) ---
+        # Açıksa her gün proposal_reminder_hour'da, bekleyen devir önerisi olan SY ekiplerine
+        # (ekip başına TEK mail, tüm bekleyen önerileri listeler) hatırlatma gönderilir. Kapalıysa
+        # zamanlanmış gönderim yok; ama dış API tetiği (POST /notifications/proposal-run) yine çalışır.
+        "auto_proposal_reminder_enabled": False,
+        "proposal_reminder_hour": 9,   # 0-23 (zamanlanmış hatırlatma saati)
     },
     "vault": {
         "enabled": False,
@@ -94,6 +107,16 @@ DEFAULTS: dict[str, dict] = {
     "general": {
         "expiring_soon_days": 30,
         "dashboard_cert_count": 20,
+    },
+    "access": {
+        # Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü. Varsayılan hepsi KAPALI = yalnız
+        # admin + allviewer görür (bkz. security.page_visible). Açılırsa herkes (viewer dahil)
+        # görüntüleyebilir. Devir Önerisi'nde SY ekip üyeleri bu ayardan BAĞIMSIZ kendi bekleyen
+        # tekliflerini her zaman görür/onaylar (require_team_or_admin hiç değişmez).
+        "policy_all_roles": False,
+        "proposals_all_roles": False,
+        "discovery_all_roles": False,
+        "deployments_all_roles": False,
     },
     "discovery": {
         "enabled": False,             # gece cron taramasını aç/kapa (varsayılan KAPALI)

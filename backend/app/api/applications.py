@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.api.schemas import (
     AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationUpdate,
+    AppTrustedCertCreate, AppTrustedCertOut,
 )
 from app.core.security import (
     can_manage_team_resource, domain_scope_team_ids, require_role, user_team_ids,
 )
-from app.db.models import (AppDependency, Application, ApplicationTag, Certificate,
-                            CertificateDomainMap, Domain, Tag, TransferProposal, User)
+from app.db.models import (AppDependency, Application, ApplicationTag, ApplicationTrustedCert,
+                            Certificate, CertificateDomainMap, Domain, Tag, TransferProposal, User)
 from app.db.session import get_db
 from app.services.audit import log_action
 
@@ -21,7 +22,8 @@ def _query(db: Session):
         joinedload(Application.domain),
         joinedload(Application.tag_links).joinedload(ApplicationTag.tag),
         joinedload(Application.dependencies).joinedload(AppDependency.target_domain),
-        joinedload(Application.dependencies).joinedload(AppDependency.client_cert))
+        joinedload(Application.dependencies).joinedload(AppDependency.client_cert),
+        joinedload(Application.trusted_certs).joinedload(ApplicationTrustedCert.cert))
 
 
 def _sync_app_tags(db: Session, app_id: int, tag_ids: list[int]) -> None:
@@ -145,6 +147,13 @@ def update_application(request: Request, app_id: int, body: ApplicationUpdate,
                 TransferProposal.app_dependency_id.in_(dep_ids),
                 TransferProposal.status.in_(("pending", "approved")),
             ).update({TransferProposal.sy_team_id: app_row.sy_team_id}, synchronize_session=False)
+        # trusted_add önerileri app_dependency_id=NULL / app_id ile bağlıdır (dep filtresine takılmaz)
+        # → onları da yeni sahibe taşı. Aksi halde öneri eski ekipte kalır: yeni sahip onaylayamaz
+        # (403), eski ekip ise ARTIK sahibi OLMADIĞI uygulamanın trust store'una cert ekleyebilirdi.
+        db.query(TransferProposal).filter(
+            TransferProposal.app_id == app_id,
+            TransferProposal.status.in_(("pending", "approved")),
+        ).update({TransferProposal.sy_team_id: app_row.sy_team_id}, synchronize_session=False)
     log_action(db, user.username, "update", "applications", app_row.id, changes, request)
     db.commit()
     return _query(db).filter(Application.id == app_id).first()
@@ -167,6 +176,10 @@ def delete_application(request: Request, app_id: int, db: Session = Depends(get_
     if dep_ids:
         db.query(TransferProposal).filter(
             TransferProposal.app_dependency_id.in_(dep_ids)).delete(synchronize_session=False)
+    # trusted_add önerileri app_id ile bu uygulamaya bağlı (NO ACTION FK) → önce sil.
+    # (app_trusted_certs satırları app_id CASCADE ile DB tarafından düşer.)
+    db.query(TransferProposal).filter(
+        TransferProposal.app_id == app_id).delete(synchronize_session=False)
     log_action(db, user.username, "delete", "applications", app_row.id,
                {"app_name": app_row.app_name}, request)
     db.delete(app_row)
@@ -260,5 +273,68 @@ def delete_dependency(request: Request, dep_id: int, db: Session = Depends(get_d
     log_action(db, user.username, "delete", "app_dependencies", dep.id,
                {"app_id": dep.app_id, "target_domain_id": dep.target_domain_id}, request)
     db.delete(dep)
+    db.commit()
+    return {"ok": True}
+
+
+# ---- Trust store (uygulamanın GÜVENDİĞİ / trusted sertifikaları) ----
+def _trusted_query(db: Session):
+    return db.query(ApplicationTrustedCert).options(joinedload(ApplicationTrustedCert.cert))
+
+
+@router.get("/{app_id}/trusted", response_model=list[AppTrustedCertOut])
+def list_trusted(app_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(require_role("viewer"))):
+    app_row = db.get(Application, app_id)
+    if app_row is None:
+        raise HTTPException(status_code=404, detail="Uygulama bulunamadı")
+    scope = domain_scope_team_ids(db, user)
+    if scope is not None and app_row.sy_team_id not in scope:
+        raise HTTPException(status_code=404, detail="Uygulama bulunamadı")
+    return _trusted_query(db).filter(ApplicationTrustedCert.app_id == app_id).all()
+
+
+@router.post("/{app_id}/trusted", response_model=AppTrustedCertOut)
+def add_trusted(request: Request, app_id: int, body: AppTrustedCertCreate,
+                db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
+    """Uygulamanın trust store'una sertifika ekler. Trust store ÇOKLU olabilir → aynı sertifika
+    tekilse eklenir (yoksa 409); farklı sertifikalar birikir (devir yok). SY sahibi/admin yönetir."""
+    app_row = db.get(Application, app_id)
+    if app_row is None:
+        raise HTTPException(status_code=404, detail="Uygulama bulunamadı")
+    # ONAY MODELİ (mTLS bağımlılığı ile aynı): yalnız sahibi SY ekibi üyesi veya admin yönetir.
+    if not can_manage_team_resource(db, user, app_row.sy_team_id):
+        raise HTTPException(status_code=403,
+                            detail="Bu uygulamanın trust store'unu yalnız sahibi SY ekibi veya admin yönetir")
+    cert = db.get(Certificate, body.certificate_id)
+    if cert is None:
+        raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
+    exists = (db.query(ApplicationTrustedCert)
+              .filter(ApplicationTrustedCert.app_id == app_id,
+                      ApplicationTrustedCert.cert_id == body.certificate_id).first())
+    if exists is not None:
+        raise HTTPException(status_code=409, detail="Bu sertifika zaten trust store'da")
+    row = ApplicationTrustedCert(app_id=app_id, cert_id=body.certificate_id, note=body.note)
+    db.add(row)
+    db.flush()
+    log_action(db, user.username, "create", "app_trusted_certs", row.id,
+               {"app_id": app_id, "cert_id": body.certificate_id}, request)
+    db.commit()
+    return _trusted_query(db).filter(ApplicationTrustedCert.id == row.id).first()
+
+
+@router.delete("/trusted/{trusted_id}")
+def delete_trusted(request: Request, trusted_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(require_role("editor"))):
+    row = db.get(ApplicationTrustedCert, trusted_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Trusted kaydı bulunamadı")
+    app_row = db.get(Application, row.app_id)
+    if not can_manage_team_resource(db, user, app_row.sy_team_id if app_row else None):
+        raise HTTPException(status_code=403,
+                            detail="Bu uygulamanın trust store'unu yalnız sahibi SY ekibi veya admin yönetir")
+    log_action(db, user.username, "delete", "app_trusted_certs", row.id,
+               {"app_id": row.app_id, "cert_id": row.cert_id}, request)
+    db.delete(row)
     db.commit()
     return {"ok": True}

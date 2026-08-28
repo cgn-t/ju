@@ -4,6 +4,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import SearchIcon from '@mui/icons-material/Search'
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import {
   Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid,
@@ -14,12 +15,33 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppDependency, Application, AppUser, Domain, Tag, Team } from '../api/types'
+import type {
+  AppDependency, Application, AppTrustedCert, AppUser, Certificate, Domain, Tag, Team,
+} from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import ApplicationDetailDrawer from '../components/ApplicationDetailDrawer'
+import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+
+// Uygulama tablosu kolon-başı (huni) filtreleri — metin kolonları + Durum (Aktif/Pasif) seçimi.
+const APP_STATUS_OPTS = [
+  { value: 'all', label: 'Tümü' },
+  { value: 'active', label: 'Aktif' },
+  { value: 'inactive', label: 'Pasif' },
+]
+const APP_COLS: ColDef<Application>[] = [
+  { key: 'app', label: 'Uygulama', kind: 'text', get: (a) => a.app_name },
+  { key: 'server', label: 'Sunucu', kind: 'text', get: (a) => a.server_name },
+  { key: 'ip', label: 'IP', kind: 'text', get: (a) => a.ip_address },
+  { key: 'dns', label: 'DNS', kind: 'text', get: (a) => a.dns },
+  { key: 'domain', label: 'Domain', kind: 'text', get: (a) => a.domain?.domain },
+  { key: 'sy', label: 'SY', kind: 'text', get: (a) => a.sy_team?.name },
+  { key: 'ug', label: 'UG', kind: 'text', get: (a) => a.ug_team?.name },
+  { key: 'tags', label: 'Etiketler', kind: 'text', get: (a) => (a.tags ?? []).map((t) => t.name).join(' ') },
+  { key: 'status', label: 'Durum', kind: 'status', options: APP_STATUS_OPTS, get: (a) => (a.status ? 'active' : 'inactive') },
+]
 
 const EMPTY = {
   app_name: '', app_user: '', server_name: '', ip_address: '', dns: '', domain_id: '',
@@ -55,6 +77,8 @@ export default function Applications() {
       params: { search: search || undefined },
     })).data,
   })
+  const cf = useColumnFilters(APP_COLS)  // kolon-başı (huni) filtreleri
+  const rows = useMemo(() => (apps ?? []).filter(cf.matches), [apps, cf.values])
   const { data: allTags } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: async () => (await api.get('/tags')).data,
@@ -120,6 +144,42 @@ export default function Applications() {
   const delDepMutation = useMutation({
     mutationFn: async (depId: number) => api.delete(`/applications/dependencies/${depId}`),
     onSuccess: () => { enqueueSnackbar('Bağımlılık silindi', { variant: 'success' }); invalidateDeps() },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+
+  // ---- Trust store (uygulamanın güvendiği/trusted sertifikaları) ----
+  const { data: trusted } = useQuery<AppTrustedCert[]>({
+    queryKey: ['app-trusted', editTarget?.id],
+    queryFn: async () => (await api.get(`/applications/${editTarget!.id}/trusted`)).data,
+    enabled: formOpen && !!editTarget,
+  })
+  // Trusted eklerken seçilecek sertifika kataloğu (kapsamlı liste).
+  const { data: certs } = useQuery<Certificate[]>({
+    queryKey: ['certificates', 'trusted-picker'],
+    queryFn: async () => (await api.get('/certificates')).data,
+    enabled: formOpen && !!editTarget,
+  })
+  const [trustedForm, setTrustedForm] = useState({ certificate_id: '', note: '' })
+  useEffect(() => { setTrustedForm({ certificate_id: '', note: '' }) }, [editTarget, formOpen])
+  const invalidateTrusted = () => {
+    queryClient.invalidateQueries({ queryKey: ['app-trusted', editTarget?.id] })
+    queryClient.invalidateQueries({ queryKey: ['applications'] })
+  }
+  const addTrustedMutation = useMutation({
+    mutationFn: async () => api.post(`/applications/${editTarget!.id}/trusted`, {
+      certificate_id: Number(trustedForm.certificate_id),
+      note: trustedForm.note || null,
+    }),
+    onSuccess: () => {
+      enqueueSnackbar('Trusted sertifika eklendi', { variant: 'success' })
+      setTrustedForm({ certificate_id: '', note: '' })
+      invalidateTrusted()
+    },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+  const delTrustedMutation = useMutation({
+    mutationFn: async (id: number) => api.delete(`/applications/trusted/${id}`),
+    onSuccess: () => { enqueueSnackbar('Trusted kaydı silindi', { variant: 'success' }); invalidateTrusted() },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
 
@@ -240,7 +300,7 @@ export default function Applications() {
   return (
     <Box>
       <PageHeader title="Uygulamalar" subtitle="Uygulama envanteri, sunucu ve domain ilişkileri" />
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         {canEdit && (
           <Button variant="contained" startIcon={<AddIcon />}
                   onClick={() => { setEditTarget(null); setFormOpen(true) }}>
@@ -248,6 +308,14 @@ export default function Applications() {
           </Button>
         )}
         <Box sx={{ flexGrow: 1 }} />
+        {cf.anyActive && (
+          <Typography variant="body2" color="text.secondary">
+            {rows.length} / {(apps ?? []).length}
+          </Typography>
+        )}
+        {cf.anyActive && (
+          <Chip label="Kolon filtreleri" color="primary" variant="outlined" onDelete={cf.clearAll} />
+        )}
         <TextField size="small" placeholder="Ara… (uygulama, sunucu, dns, etiket)" value={search}
                    onChange={(e) => setSearch(e.target.value)} sx={{ width: 320 }}
                    slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> } }} />
@@ -262,20 +330,12 @@ export default function Applications() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Uygulama</TableCell>
-                <TableCell>Sunucu</TableCell>
-                <TableCell>IP</TableCell>
-                <TableCell>DNS</TableCell>
-                <TableCell>Domain</TableCell>
-                <TableCell>SY</TableCell>
-                <TableCell>UG</TableCell>
-                <TableCell>Etiketler</TableCell>
-                <TableCell>Durum</TableCell>
+                {APP_COLS.map((c) => <ColHeaderCell key={c.key} def={c} cf={cf} />)}
                 <TableCell align="right">İşlemler</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {(apps ?? []).map((a) => (
+              {rows.map((a) => (
                 <TableRow key={a.id} hover>
                   <TableCell sx={{ fontWeight: 600 }}>{a.app_name}</TableCell>
                   <TableCell>{a.server_name ?? '—'}</TableCell>
@@ -323,15 +383,21 @@ export default function Applications() {
                   </TableCell>
                 </TableRow>
               ))}
-              {(apps ?? []).length === 0 && (
+              {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10} align="center" sx={{ py: 7, color: 'text.secondary' }}>
-                    <AppsOutlinedIcon sx={{ fontSize: 40, opacity: 0.35, mb: 1 }} />
-                    <Typography variant="body2">Henüz uygulama kaydı yok.</Typography>
-                    {canEdit && (
-                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                        “Yeni Ekle” ile ilk uygulamayı ekleyin.
-                      </Typography>
+                    {(apps ?? []).length > 0 ? (
+                      <Typography variant="body2">Filtreyle eşleşen uygulama yok.</Typography>
+                    ) : (
+                      <>
+                        <AppsOutlinedIcon sx={{ fontSize: 40, opacity: 0.35, mb: 1 }} />
+                        <Typography variant="body2">Henüz uygulama kaydı yok.</Typography>
+                        {canEdit && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                            “Yeni Ekle” ile ilk uygulamayı ekleyin.
+                          </Typography>
+                        )}
+                      </>
                     )}
                   </TableCell>
                 </TableRow>
@@ -340,6 +406,8 @@ export default function Applications() {
           </Table>
         )}
       </Paper>
+
+      <ColumnFilterMenu cf={cf} facetRows={apps ?? []} />
 
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editTarget ? `Uygulama Düzenle — ${editTarget.app_name}` : 'Yeni Uygulama'}</DialogTitle>
@@ -423,11 +491,11 @@ export default function Applications() {
           {editTarget ? (
             <Box sx={{ mt: 3 }}>
               <Divider sx={{ mb: 2 }} />
-              <Typography variant="subtitle2" gutterBottom>Dış Bağımlılıklar (client)</Typography>
+              <Typography variant="subtitle2" gutterBottom>Dış Bağımlılıklar (trusted)</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                Bu uygulamanın <b>client olarak bağlandığı</b> hedef domainler. İzlenen sertifika <b>otomatik</b>
+                Bu uygulamanın <b>trusted olarak bağlandığı</b> hedef domainler. İzlenen sertifika <b>otomatik</b>
                 olarak hedef domainin server sertifikasıdır (ayrıca seçmenize gerek yok). O sertifika yenilendiğinde
-                bu uygulamanın SY ekibine <b>client değişikliği</b> için devir önerisi gider. İlişki haritasında
+                bu uygulamanın SY ekibine <b>trusted bağlantı değişikliği</b> için devir önerisi gider. İlişki haritasında
                 turuncu kesikli okla görünür.
               </Typography>
 
@@ -483,13 +551,70 @@ export default function Applications() {
                   </Grid>
                 </Grid>
               )}
+
+              {/* Trust store (trusted sertifikalar) */}
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" gutterBottom>Trusted Sertifikalar (trust store)</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Bu uygulamanın <b>güvendiği</b> (trust store'una eklediği) sertifikalar — CA/peer doğrulama
+                çıpası; sunulan değil <b>kabul edilen</b> sertifika. Çoklu olabilir; <b>devir yoktur</b> —
+                yeni sertifika onayla eklenir, eski kalır. Süresi yaklaşınca uygulamanın SY ekibine mail gider.
+              </Typography>
+              <Stack spacing={1} sx={{ mb: 2 }}>
+                {(trusted ?? []).map((t) => (
+                  <Paper key={t.id} variant="outlined" sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <VerifiedUserIcon fontSize="small" sx={{ color: '#ab47bc' }} />
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{t.cert_name ?? `#${t.cert_id}`}</Typography>
+                      {(t.cert_ski || t.note) && (
+                        <Typography variant="caption" color="text.secondary" noWrap
+                                    title={t.cert_ski ? `SKI: ${t.cert_ski}` : undefined}>
+                          {t.cert_ski ? `[${t.cert_ski.slice(0, 23)}…]` : ''}
+                          {t.cert_ski && t.note ? ' — ' : ''}{t.note ?? ''}
+                        </Typography>
+                      )}
+                    </Box>
+                    {canEdit && (
+                      <Tooltip title="Trusted kaydını sil">
+                        <IconButton size="small" color="error" onClick={() => delTrustedMutation.mutate(t.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Paper>
+                ))}
+                {(trusted ?? []).length === 0 && (
+                  <Typography variant="body2" color="text.secondary">Trusted sertifika tanımlı değil.</Typography>
+                )}
+              </Stack>
+              {canEdit && (
+                <Grid container spacing={1} sx={{ alignItems: 'center' }}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete size="small" options={certs ?? []}
+                                  getOptionLabel={(c) => c.name}
+                                  value={(certs ?? []).find((c) => c.id.toString() === trustedForm.certificate_id) ?? null}
+                                  onChange={(_, v) => setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))}
+                                  isOptionEqualToValue={(o, v) => o.id === v.id}
+                                  renderInput={(params) => <TextField {...params} label="Sertifika *" />} />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField label="Not" fullWidth size="small" value={trustedForm.note}
+                               onChange={(e) => setTrustedForm((f) => ({ ...f, note: e.target.value }))} />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 2 }}>
+                    <Button fullWidth variant="outlined" startIcon={<AddIcon />}
+                            disabled={!trustedForm.certificate_id || addTrustedMutation.isPending}
+                            onClick={() => addTrustedMutation.mutate()}>Ekle</Button>
+                  </Grid>
+                </Grid>
+              )}
             </Box>
           ) : (
             <Box sx={{ mt: 3 }}>
               <Divider sx={{ mb: 2 }} />
-              <Typography variant="subtitle2" gutterBottom>Dış Bağımlılıklar (client)</Typography>
+              <Typography variant="subtitle2" gutterBottom>Dış Bağımlılıklar (trusted)</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-                Bu uygulamanın <b>client olarak bağlanacağı</b> hedef domainleri şimdiden ekleyebilirsiniz —
+                Bu uygulamanın <b>trusted olarak bağlanacağı</b> hedef domainleri şimdiden ekleyebilirsiniz —
                 uygulama kaydedilirken ilişkiler de oluşturulur. İzlenen sertifika otomatik olarak hedef
                 domainin server sertifikasıdır.
               </Typography>

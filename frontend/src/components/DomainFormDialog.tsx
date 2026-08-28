@@ -23,12 +23,17 @@ const EMPTY = {
   domain: '', external_address: '', ug_team_name: '', sy_team_id: '',
   lb_update: '', env_update: '', waf_update: '', external_company: '', expire_date: '',
   info: '', action_required: '', ssl_pinning: '', keystore: '',
-  servers_to_update: '',
+  servers_to_update: '', notify_days: '',
 }
 
 // Zorunlu alanlar (yeni ekleme + düzenleme)
 const REQUIRED = ['domain', 'lb_update', 'waf_update'] as const
 const YESNO = ['Evet', 'Hayır']
+
+// Outlined etiketi HER alanda kalıcı yukarıda tutar (notch mount'tan itibaren açık).
+// Aksi hâlde etiket yalnız odak/değer ile "shrink" olur; Retina'da odak geçişi sırasında
+// açılmamış çentik ile üst çizgi etiketin üstünden geçip binişme yapıyordu. Tek, tutarlı desen.
+const LABEL_SHRINK = { inputLabel: { shrink: true } }
 
 export default function DomainFormDialog({ open, onClose, domain }: Props) {
   const { enqueueSnackbar } = useSnackbar()
@@ -71,6 +76,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         ssl_pinning: domain.ssl_pinning ?? '',
         keystore: domain.keystore ?? '',
         servers_to_update: domain.servers_to_update ?? '',
+        notify_days: domain.notify_days?.toString() ?? '',
       })
     } else {
       setForm(EMPTY)
@@ -123,6 +129,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         ...form,
         sy_team_id: form.sy_team_id ? Number(form.sy_team_id) : null,
         expire_date: form.expire_date || null,
+        notify_days: form.notify_days ? Number(form.notify_days) : null,
       }
       // Boş stringleri null'a çevir
       const body = Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v === '' ? null : v]))
@@ -177,7 +184,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
     const err = required && !val
     return (
       <TextField select required={required} label={label} fullWidth size="small"
-                 value={val} onChange={set(key)} error={err}
+                 value={val} onChange={set(key)} error={err} slotProps={LABEL_SHRINK}
                  helperText={err ? 'Zorunlu alan' : undefined}>
         {required
           ? <MenuItem value="" disabled><em>Seçiniz…</em></MenuItem>
@@ -197,11 +204,13 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField required label="Domain" fullWidth size="small" value={form.domain}
                        onChange={set('domain')} onBlur={handleDomainBlur} error={!form.domain.trim()}
+                       slotProps={LABEL_SHRINK}
                        helperText={!form.domain.trim() ? 'Zorunlu alan'
                          : !domain ? 'Alan doldurulunca sunulan sertifika zinciri otomatik sorgulanır' : undefined} />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField label="Dış Adres" fullWidth size="small" value={form.external_address} onChange={set('external_address')} />
+            <TextField label="Dış Adres" fullWidth size="small" value={form.external_address}
+                       onChange={set('external_address')} slotProps={LABEL_SHRINK} />
           </Grid>
 
           {/* Canlı sertifika zinciri önizlemesi — yeni eklemede otomatik, düzenlemede
@@ -275,7 +284,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
             </Grid>
           )}
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField select label="SY Takımı *" fullWidth size="small"
+            <TextField select label="SY Takımı *" fullWidth size="small" slotProps={LABEL_SHRINK}
                        value={form.sy_team_id} onChange={set('sy_team_id')} error={syMissing}
                        helperText={syMissing ? 'Zorunlu alan — domainin sahibi SY takımını seçin'
                          : selectedSy
@@ -286,26 +295,31 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField label="UG Takımı" fullWidth size="small" value={form.ug_team_name}
-                       onChange={set('ug_team_name')} placeholder="UG ekip adı" />
+                       onChange={set('ug_team_name')} placeholder="UG ekip adı" slotProps={LABEL_SHRINK} />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField label="Dış Firma" fullWidth size="small" value={form.external_company} onChange={set('external_company')} />
+            <TextField label="Dış Firma" fullWidth size="small" value={form.external_company}
+                       onChange={set('external_company')} slotProps={LABEL_SHRINK} />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <TextField label="Manuel Bitiş Tarihi" type="date" fullWidth size="small" value={form.expire_date}
-                       onChange={set('expire_date')} slotProps={{ inputLabel: { shrink: true } }} />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 4 }}>
-            {yesNo('lb_update', 'LoadBalancer Güncelleme', true)}
-          </Grid>
-          <Grid size={{ xs: 12, sm: 4 }}>
-            {yesNo('waf_update', 'WAF Güncelleme', true)}
-          </Grid>
-          <Grid size={{ xs: 12, sm: 4 }}>
-            <TextField label="Ortam Güncelleme" fullWidth size="small" value={form.env_update} onChange={set('env_update')} />
+                       onChange={set('expire_date')} slotProps={LABEL_SHRINK} />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField label="Güncellenecek Sunucular" fullWidth size="small" value={form.servers_to_update} onChange={set('servers_to_update')} />
+            <TextField label="Bildirim Gün Sayısı" type="number" fullWidth size="small"
+                       value={form.notify_days} onChange={set('notify_days')}
+                       slotProps={{ ...LABEL_SHRINK, htmlInput: { min: 1, max: 3650 } }}
+                       helperText="Süre bitişine kaç gün kala mail? Boşsa Ayarlar'daki varsayılan (30 gün) kullanılır." />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField label="Ortam Güncelleme" fullWidth size="small" value={form.env_update}
+                       onChange={set('env_update')} slotProps={LABEL_SHRINK} />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            {yesNo('lb_update', 'LoadBalancer Güncelleme', true)}
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            {yesNo('waf_update', 'WAF Güncelleme', true)}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             {yesNo('action_required', 'Aksiyon Alma', false)}
@@ -314,10 +328,16 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
             {yesNo('ssl_pinning', 'SSL Pinning', false)}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField label="Keystore" fullWidth size="small" value={form.keystore} onChange={set('keystore')} />
+            <TextField label="Güncellenecek Sunucular" fullWidth size="small" value={form.servers_to_update}
+                       onChange={set('servers_to_update')} slotProps={LABEL_SHRINK} />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField label="Keystore" fullWidth size="small" value={form.keystore}
+                       onChange={set('keystore')} slotProps={LABEL_SHRINK} />
           </Grid>
           <Grid size={{ xs: 12 }}>
-            <TextField label="Detay" fullWidth size="small" multiline rows={2} value={form.info} onChange={set('info')} />
+            <TextField label="Detay" fullWidth size="small" multiline rows={2} value={form.info}
+                       onChange={set('info')} slotProps={LABEL_SHRINK} />
           </Grid>
         </Grid>
       </DialogContent>

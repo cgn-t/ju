@@ -10,11 +10,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { PolicyReport } from '../api/types'
-import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { usePageAccess } from '../hooks/usePageAccess'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
 
 const RULE_LABELS: Record<string, string> = {
@@ -32,13 +32,13 @@ const SEVERITY: Record<string, { label: string; color: 'error' | 'warning' | 'de
 
 export default function Policy() {
   useDocumentTitle('Uyum')
-  const { role } = useAuth()
+  const { policy: canSee } = usePageAccess()
   const [ruleFilter, setRuleFilter] = useState<string | null>(null)
 
   const { data, isLoading, isError, error, refetch } = useQuery<PolicyReport>({
     queryKey: ['policy', 'report'],
     queryFn: async () => (await api.get('/policy/report')).data,
-    enabled: !!role,
+    enabled: canSee,
   })
 
   const rules = useMemo(() => Object.entries(data?.rule_counts ?? {})
@@ -162,13 +162,13 @@ export default function Policy() {
   )
 }
 
-// Nav rozeti: uyumsuz sertifika sayısı (tüm rollere görünür)
+// Nav rozeti: uyumsuz sertifika sayısı (yalnız Uyum sayfasını görebilenlere — bkz. usePageAccess)
 export function usePolicyViolationCount() {
-  const { role } = useAuth()
+  const { policy: canSee } = usePageAccess()
   const { data } = useQuery<PolicyReport>({
     queryKey: ['policy', 'report'],
     queryFn: async () => (await api.get('/policy/report')).data,
-    enabled: !!role,
+    enabled: canSee,
     refetchInterval: 60_000,
   })
   return data?.non_compliant ?? 0

@@ -17,12 +17,16 @@ import hmac
 import logging
 import threading
 import time
+from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.security import ROLE_LEVELS, get_current_user
+from app.api.schemas import MailHistoryOut
+from app.core.security import ROLE_LEVELS, get_current_user, require_role
+from app.db.models import Certificate, MailQueue, Notification, User
 from app.db.session import get_db
 from app.services import notifier
 from app.services.audit import log_action
@@ -148,3 +152,79 @@ def run_expired_notifications(request: Request, actor: str = Depends(_trigger_ac
     """SÜRESİ GEÇMİŞ ama JUMBO'da hâlâ AKTİF (güncellenmemiş) sertifikalar için
     paydaşlara 'JUMBO'da güncelleyin' hatırlatması gönderir."""
     return _run_scan(notifier.send_expired_notifications, "expired-run", request, actor, db)
+
+
+@router.post("/proposal-run")
+def run_proposal_notifications(request: Request, actor: str = Depends(_trigger_actor),
+                               db: Session = Depends(get_db)):
+    """Onay kuyruğunda BEKLEYEN devir önerileri için ilgili SY ekiplerine (ekip başına tek mail)
+    hatırlatma gönderir. Dış otomasyon (X-API-Key) veya admin JWT tetikler; ayarlardaki
+    auto_proposal_reminder_enabled bayrağından ETKİLENMEZ — çağrıldığında her zaman gönderir."""
+    return _run_scan(notifier.send_pending_proposal_notifications, "proposal-run", request, actor, db)
+
+
+@router.get("/history", response_model=list[MailHistoryOut])
+def list_mail_history(
+        limit: int = Query(200, ge=1, le=1000),
+        channel: str | None = None,          # vars. frontend 'email' gönderir
+        status: str | None = None,           # sent | pending | failed
+        search: str | None = None,           # alıcı / konu ilike
+        date_from: date | None = None,
+        date_to: date | None = None,
+        db: Session = Depends(get_db),
+        _: User = Depends(require_role("admin"))):
+    """Admin MAIL GÖNDERİM GEÇMİŞİ — iki kaynak birleşik, tarih-desc:
+      • notifications: gönderilen bildirimler (status='sent').
+      • mail_queue: teslim edilmemişler (status pending|failed) + hata mesajı; 'sent' kuyruk
+        satırları ATLANIR (zaten notifications'ta 'gönderildi' olarak var → mükerrer olmasın).
+    Salt-okunur, admin-only (require_role). Audit'teki limit-only sayfalama deseni."""
+    like = f"%{search}%" if search else None
+    start = datetime(date_from.year, date_from.month, date_from.day) if date_from else None
+    end = (datetime(date_to.year, date_to.month, date_to.day) + timedelta(days=1)) if date_to else None
+    rows: list[MailHistoryOut] = []
+
+    # 1) notifications — gönderilen bildirimler
+    if status in (None, "sent"):
+        q = (db.query(Notification, Certificate.name)
+             .outerjoin(Certificate, Certificate.id == Notification.certificate_id))
+        if channel:
+            q = q.filter(Notification.channel == channel)
+        if like is not None:
+            q = q.filter(Notification.recipient.ilike(like) | Notification.subject.ilike(like))
+        if start is not None:
+            q = q.filter(Notification.sent_at >= start)
+        if end is not None:
+            q = q.filter(Notification.sent_at < end)
+        for n, cname in q.order_by(Notification.sent_at.desc()).limit(limit).all():
+            rows.append(MailHistoryOut(
+                id=n.id, source="notification", certificate_id=n.certificate_id,
+                certificate_name=cname, recipient=n.recipient, subject=n.subject,
+                days_left=n.days_left, channel=n.channel, status="sent",
+                error=None, attempts=None, sent_at=n.sent_at))
+
+    # 2) mail_queue — teslim edilmemişler (kanal e-posta; 'sent' hariç)
+    if channel in (None, "email") and status in (None, "pending", "failed"):
+        ts = func.coalesce(MailQueue.sent_at, MailQueue.created_at)  # gönderilmemişte created_at
+        q = db.query(MailQueue).filter(MailQueue.status.in_(["pending", "failed"]))
+        if status in ("pending", "failed"):
+            q = q.filter(MailQueue.status == status)
+        if like is not None:
+            q = q.filter(MailQueue.to_addresses.ilike(like) | MailQueue.subject.ilike(like))
+        if start is not None:
+            q = q.filter(ts >= start)
+        if end is not None:
+            q = q.filter(ts < end)
+        items = q.order_by(ts.desc()).limit(limit).all()
+        cids = {i.certificate_id for i in items if i.certificate_id}
+        names = (dict(db.query(Certificate.id, Certificate.name)
+                      .filter(Certificate.id.in_(cids)).all()) if cids else {})
+        for i in items:
+            rows.append(MailHistoryOut(
+                id=i.id, source="queue", certificate_id=i.certificate_id,
+                certificate_name=names.get(i.certificate_id), recipient=i.to_addresses,
+                subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
+                error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at))
+
+    # birleşik: zaman-desc (naive-UTC), limit'e kırp
+    rows.sort(key=lambda r: r.sent_at or datetime.min, reverse=True)
+    return rows[:limit]

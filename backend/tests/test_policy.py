@@ -152,7 +152,9 @@ def test_policy_auth_and_config(client, auth_headers):
     r = client.post("/api/auth/login-json", json={"username": "pol_viewer", "password": "pw12345"})
     vh = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
-    assert client.get("/api/policy/report", headers=vh).status_code == 200      # rapor viewer+
+    # Uyum sayfası varsayılan admin+allviewer-only (bkz. test_page_visibility.py) — takımsız
+    # sıradan viewer artık 403 alır; ayar açılınca herkese açılabilir.
+    assert client.get("/api/policy/report", headers=vh).status_code == 403
     # config admin-only
     assert client.put("/api/settings/policy", headers=vh,
                       json={"min_rsa_bits": 3072}).status_code == 403

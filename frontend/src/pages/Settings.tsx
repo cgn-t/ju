@@ -15,10 +15,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppUser, AuditEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
+import type { AppUser, AuditEntry, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { daysLeftColor, daysLeftLabel } from '../theme'
+import { exportCsv } from '../utils/csv'
 
 // ---------- Ortak kategori formu kancası ----------
 function useCategory(category: string) {
@@ -47,7 +49,7 @@ function useCategory(category: string) {
   return { form, setForm, save }
 }
 
-function Text({ form, setForm, field, label, type, helper, width, multiline, rows }: {
+function Text({ form, setForm, field, label, type, helper, width, multiline, rows, disabled }: {
   form: Record<string, unknown>
   setForm: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
   field: string
@@ -57,11 +59,12 @@ function Text({ form, setForm, field, label, type, helper, width, multiline, row
   width?: { xs: number; sm: number }
   multiline?: boolean
   rows?: number
+  disabled?: boolean
 }) {
   return (
     <Grid size={width ?? { xs: 12, sm: 6 }}>
       <TextField
-        label={label} type={type} fullWidth size="small" helperText={helper}
+        label={label} type={type} fullWidth size="small" helperText={helper} disabled={disabled}
         multiline={multiline} rows={rows}
         value={String(form[field] ?? '')}
         onChange={(e) => setForm((f) => ({ ...f, [field]: type === 'number' ? Number(e.target.value) : e.target.value }))}
@@ -187,12 +190,17 @@ function SmtpTab() {
     onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.enabled && d.sent > 0 ? 'success' : 'info' }),
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
+  const runProposals = useMutation({
+    mutationFn: async () => (await api.post('/notifications/proposal-run')).data,
+    onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.enabled && d.sent > 0 ? 'success' : 'info' }),
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
 
   return (
     <Stack spacing={2}>
       <Alert severity="info">
-        Etkinleştirildiğinde her sabah 08:00'de, bitişine <b>uyarı eşiğinden az gün kalan</b> sertifikalar
-        için bilgilendirme maili gönderilir. Alıcılar (her biri <b>ayrı mail</b> alır): sertifikanın{' '}
+        Etkinleştirilip <b>Günlük Otomatik Tarama</b> açıkken her sabah 08:00'de, bitişine
+        <b> uyarı eşiğinden az gün kalan</b> sertifikalar için bilgilendirme maili gönderilir. Alıcılar (her biri <b>ayrı mail</b> alır): sertifikanın{' '}
         <b>sahibi</b> (oluşturan kullanıcı), bağlı olduğu <b>domainlerin SY ekipleri</b> ve client olarak
         bağlı olduğu <b>uygulamaların sahibi SY ekipleri</b>. "Şimdi Gönder" ile tarama anında da çalıştırılabilir.
       </Alert>
@@ -200,6 +208,16 @@ function SmtpTab() {
         control={<Switch checked={!!form.enabled}
                          onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} />}
         label="E-posta Bildirimleri Etkin" />
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={form.auto_expiry_enabled !== false}
+                           onChange={(e) => setForm((f) => ({ ...f, auto_expiry_enabled: e.target.checked }))} />}
+          label="Günlük Otomatik Tarama (her sabah 08:00)" />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+          Kapalıyken zamanlanmış tarama mail göndermez; <b>dış API tetiği</b> (X-API-Key / "Şimdi Gönder")
+          çağrıldığında yine gönderim yapılır.
+        </Typography>
+      </Box>
       <Grid container spacing={2}>
         <Text form={form} setForm={setForm} field="host" label="SMTP Sunucusu" />
         <Text form={form} setForm={setForm} field="port" label="Port" type="number" width={{ xs: 6, sm: 3 }} />
@@ -215,8 +233,19 @@ function SmtpTab() {
               helper="Maillerin hangi adresten gideceği" />
         <Text form={form} setForm={setForm} field="expiry_warning_days" label="Uyarı Eşiği (gün)" type="number"
               helper="Bitişe bu kadar gün kalınca bilgilendirme gönderilir" />
-        <Text form={form} setForm={setForm} field="resend_interval_days" label="Tekrar Aralığı (gün)" type="number"
-              helper="Pencereye giren sertifika için mailin kaç günde bir tekrarlanacağı. 1 = her gün (30 gün boyunca)."
+        <Grid size={{ xs: 12, sm: 8 }}>
+          <FormControlLabel
+            control={<Switch checked={form.resend_dedup_enabled !== false}
+                             onChange={(e) => setForm((f) => ({ ...f, resend_dedup_enabled: e.target.checked }))} />}
+            label="Tekrar-Önleme Etkin (aynı sertifikaya kısa sürede tekrar mail atma)" />
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+            Kapatılırsa her tarama mail gönderir (günlük cron doğal olarak günde bir çalışır).
+            "Şimdi Gönder" / dış API bu frenden zaten etkilenmez.
+          </Typography>
+        </Grid>
+        <Text form={form} setForm={setForm} field="resend_interval_hours" label="Tekrar Aralığı (saat)" type="number"
+              disabled={form.resend_dedup_enabled === false}
+              helper="Pencereye giren sertifika için mailin kaç SAATTE bir tekrarlanacağı (varsayılan 3). Dış API 'Şimdi Gönder' bu freni atlar."
               width={{ xs: 6, sm: 4 }} />
         <Text form={form} setForm={setForm} field="fallback_address" label="Yedek/Varsayılan Adres"
               helper="Birincil gönderim başarısızsa ikinci deneme bu adrese yapılır (virgülle çoklu)."
@@ -244,13 +273,38 @@ function SmtpTab() {
               helper="Kuyruğun kaç dakikada bir boşaltılacağı (>=1)" width={{ xs: 6, sm: 4 }} />
       </Grid>
 
-      <Stack direction="row" spacing={2}>
+      <Alert severity="info" sx={{ mt: 1 }}>
+        <b>Devir Onayı Hatırlatması:</b> Onay kuyruğunda <b>bekleyen devir önerisi</b> olan SY ekiplerine
+        (ekip başına <b>tek mail</b>, tüm bekleyen önerilerini listeler) hatırlatma gönderir — kuyruğun temiz
+        tutulması için. Açıkken her gün belirtilen saatte; kapalıyken yalnız "Şimdi Hatırlat" / dış API ile.
+      </Alert>
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={form.auto_proposal_reminder_enabled === true}
+                           onChange={(e) => setForm((f) => ({ ...f, auto_proposal_reminder_enabled: e.target.checked }))} />}
+          label="Günlük Devir Onayı Hatırlatması" />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+          Kapalıyken zamanlanmış hatırlatma gönderilmez; <b>dış API tetiği</b> (X-API-Key / "Şimdi Hatırlat")
+          çağrıldığında yine gönderim yapılır.
+        </Typography>
+      </Box>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="proposal_reminder_hour" label="Hatırlatma Saati (0-23)" type="number"
+              disabled={form.auto_proposal_reminder_enabled !== true}
+              helper="Günlük hatırlatmanın gönderileceği saat (varsayılan 09:00). Dış API 'Şimdi Hatırlat' saatten bağımsızdır."
+              width={{ xs: 6, sm: 4 }} />
+      </Grid>
+
+      <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => runNow.mutate()} disabled={runNow.isPending}>
           Süre Uyarılarını Şimdi Gönder
         </Button>
         <Button variant="outlined" color="warning" onClick={() => runExpired.mutate()} disabled={runExpired.isPending}>
           Süresi Geçenleri Şimdi Gönder
+        </Button>
+        <Button variant="outlined" onClick={() => runProposals.mutate()} disabled={runProposals.isPending}>
+          Bekleyen Önerileri Şimdi Hatırlat
         </Button>
       </Stack>
     </Stack>
@@ -338,9 +392,9 @@ function UsersTab() {
     queryKey: ['teams', 'all'],
     queryFn: async () => (await api.get('/teams')).data,
   })
-  // Takım üyeliği YALNIZ kapsam (hangi SY ekipleri) için — rol users.role'den atanır. Bu yüzden
-  // yalnız SY takımları listelenir (ADMIN/VIEWER üyeliği artık rol vermez → gösterme).
-  const manageableTeams = useMemo(() => (teams ?? []).filter((t) => t.type === 'SY'), [teams])
+  // Tüm takım tipleri (SY/ADMIN/VIEWER/UG) burada yönetilir — rol HER ZAMAN users.role'den atanır,
+  // üyelik tek başına rol VERMEZ (SY yalnız kapsam belirler; ADMIN/VIEWER/UG roster bilgi amaçlı).
+  const manageableTeams = useMemo(() => teams ?? [], [teams])
 
   const openTeamEdit = (u: AppUser) => { setTeamEdit(u); setTeamSel(u.team_ids ?? []) }
   const saveTeams = useMutation({
@@ -349,7 +403,7 @@ function UsersTab() {
       const before = new Set(teamEdit.team_ids ?? [])
       const after = new Set(teamSel)
       const toAdd = [...after].filter((id) => !before.has(id))
-      // yalnız yönetilebilir (UG olmayan) takımlardan çıkar — UG team_ids'e zaten girmez
+      // yalnız bu picker'ın bildiği (manageableTeams) takımlardan çıkar
       const toRemove = [...before].filter((id) => !after.has(id)
         && manageableTeams.some((t) => t.id === id))
       await Promise.all([
@@ -515,9 +569,10 @@ function UsersTab() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info" sx={{ py: 0.5 }}>
-              Bu <b>SY ekip üyeliği kapsamı belirler</b>: <b>Ekip Editörü/İzleyici</b> rolündeki
-              kullanıcı yalnız seçilen ekiplerin domain/uygulamalarını görür. <b>Rol</b> ise Rol
-              sütunundan atanır — buradaki seçim rol vermez. Birden çok ekip seçilebilir.
+              <b>SY ekip üyeliği kapsam belirler</b>: <b>Ekip Editörü/İzleyici</b> rolündeki
+              kullanıcı yalnız seçilen SY ekiplerinin domain/uygulamalarını görür. <b>ADMIN/
+              VIEWER/UG üyeliği yalnız roster (bilgi) amaçlıdır — tek başına rol/yetki VERMEZ.</b>{' '}
+              <b>Rol</b> her zaman Rol sütunundan atanır. Birden çok ekip seçilebilir.
             </Alert>
             <Autocomplete
               multiple size="small" options={manageableTeams}
@@ -695,10 +750,9 @@ function MembershipsTab() {
     enabled: teamId != null,
   })
 
-  // UG yalnız etiket → üyelik tanımlanmaz; yalnız yetki veren tipler (ADMIN/VIEWER/SY) yönetilir.
-  // Yalnız SY takımları: üyelik artık KAPSAM belirler (rol Kullanıcılar sekmesinden atanır).
-  // ADMIN/VIEWER üyeliği rol vermediği için burada gösterilmez.
-  const manageable = useMemo(() => (teams ?? []).filter((t) => t.type === 'SY'), [teams])
+  // Tüm takım tipleri (SY/ADMIN/VIEWER/UG) burada yönetilir. SY üyeliği KAPSAM belirler; diğerleri
+  // (ADMIN/VIEWER/UG) yalnız roster/bilgi amaçlıdır — rol her zaman Kullanıcılar sekmesinden atanır.
+  const manageable = useMemo(() => teams ?? [], [teams])
   const effectiveTeam = teamId ?? manageable[0]?.id ?? null
   const selectedTeam = manageable.find((t) => t.id === effectiveTeam) ?? null
   const memberIds = useMemo(() => new Set((members ?? []).map((m) => m.id)), [members])
@@ -740,8 +794,9 @@ function MembershipsTab() {
       <Alert severity="info" sx={{ mb: 2 }}>
         SY ekip üyeliği <b>kapsamı</b> belirler: <b>Ekip Editörü</b> ve <b>Ekip İzleyici</b> rolündeki
         kullanıcılar yalnız üye oldukları SY ekiplerinin domain/uygulamalarını (ve devir önerilerini)
-        görür. <b>Rolün kendisi</b> (Yönetici/Editör/İzleyici) <b>Kullanıcılar</b> sekmesinden atanır —
-        buradaki üyelik rol vermez, yalnız hangi ekibin verisinin görüneceğini belirler.
+        görür. <b>ADMIN/VIEWER/UG üyeliği yalnız roster (bilgi) amaçlıdır — tek başına rol/yetki
+        VERMEZ.</b> <b>Rolün kendisi</b> (Yönetici/Editör/İzleyici) her zaman <b>Kullanıcılar</b>
+        sekmesinden atanır.
       </Alert>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         <TextField select size="small" label="Takım" sx={{ minWidth: 260 }}
@@ -894,6 +949,129 @@ function AuditTab() {
               <TableCell sx={{ fontFamily: 'monospace', fontSize: 11 }}>{e.ip_address ?? '—'}</TableCell>
             </TableRow>
           ))}
+        </TableBody>
+      </Table>
+    </Stack>
+  )
+}
+
+// ---------- Mail Gönderim Geçmişi ----------
+const MAIL_STATUS: Record<string, { color: 'success' | 'warning' | 'error'; label: string }> = {
+  sent: { color: 'success', label: 'Gönderildi' },
+  pending: { color: 'warning', label: 'Kuyrukta' },
+  failed: { color: 'error', label: 'Başarısız' },
+}
+
+function MailHistoryTab() {
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState('')
+  const [channel, setChannel] = useState('email')  // vars. mail; 'Tümü' → tüm kanallar
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const params = {
+    search: search || undefined, status: status || undefined, channel: channel || undefined,
+    date_from: dateFrom || undefined, date_to: dateTo || undefined,
+  }
+  const { data: entries, isLoading } = useQuery<MailHistoryEntry[]>({
+    queryKey: ['mail-history', search, status, channel, dateFrom, dateTo],
+    queryFn: async () => (await api.get('/notifications/history', { params })).data,
+  })
+  const rows = entries ?? []
+  // Ekranda görünen = indirilen (aynı satırlar). CSV util'i \r-güvenli (çok-satırlı konu/hata bozmaz).
+  const onExport = () => exportCsv(
+    `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.csv`,
+    ['Tarih', 'Alıcı', 'Sertifika', 'Konu', 'Kalan Gün', 'Kanal', 'Durum', 'Hata'],
+    rows.map((r) => [
+      r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '',
+      r.recipient ?? '', r.certificate_name ?? '', r.subject ?? '',
+      r.days_left ?? '', r.channel, MAIL_STATUS[r.status]?.label ?? r.status, r.error ?? '',
+    ]),
+  )
+  return (
+    <Stack spacing={2}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}
+             sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap' }}>
+        <TextField size="small" label="Alıcı / konu ara" value={search}
+                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 220 }} />
+        <TextField select size="small" label="Durum" value={status}
+                   onChange={(e) => setStatus(e.target.value)} sx={{ width: 150 }}
+                   slotProps={{ inputLabel: { shrink: true } }}>
+          <MenuItem value="">Tümü</MenuItem>
+          <MenuItem value="sent">Gönderildi</MenuItem>
+          <MenuItem value="pending">Kuyrukta</MenuItem>
+          <MenuItem value="failed">Başarısız</MenuItem>
+        </TextField>
+        <TextField select size="small" label="Kanal" value={channel}
+                   onChange={(e) => setChannel(e.target.value)} sx={{ width: 150 }}
+                   slotProps={{ inputLabel: { shrink: true } }}>
+          <MenuItem value="email">E-posta</MenuItem>
+          <MenuItem value="">Tümü</MenuItem>
+        </TextField>
+        <TextField size="small" type="date" label="Başlangıç" value={dateFrom}
+                   onChange={(e) => setDateFrom(e.target.value)} sx={{ width: 170 }}
+                   slotProps={{ inputLabel: { shrink: true } }} />
+        <TextField size="small" type="date" label="Bitiş" value={dateTo}
+                   onChange={(e) => setDateTo(e.target.value)} sx={{ width: 170 }}
+                   slotProps={{ inputLabel: { shrink: true } }} />
+        <Box sx={{ flexGrow: 1 }} />
+        <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={onExport}
+                disabled={!rows.length}>Dışa Aktar (CSV)</Button>
+      </Stack>
+      <Typography variant="caption" color="text.secondary">
+        Gönderilen bilgilendirme e-postaları <b>ve teslim edilemeyen</b> (kuyrukta/başarısız)
+        kayıtlar. Tarihler <b>dâhil</b>dir; liste en çok 1000 satır gösterir. Boş tarih = sınırsız uç.
+      </Typography>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            <TableCell>Tarih</TableCell>
+            <TableCell>Alıcı</TableCell>
+            <TableCell>Sertifika</TableCell>
+            <TableCell>Konu</TableCell>
+            <TableCell>Kalan Gün</TableCell>
+            <TableCell>Kanal</TableCell>
+            <TableCell>Durum</TableCell>
+            <TableCell>Hata</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={`${r.source}-${r.id}`} hover>
+              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                {r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '—'}
+              </TableCell>
+              <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {r.recipient ?? '—'}
+              </TableCell>
+              <TableCell>{r.certificate_name ?? '—'}</TableCell>
+              <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {r.subject ?? '—'}
+              </TableCell>
+              <TableCell>
+                {r.days_left === null || r.days_left === undefined
+                  ? '—'
+                  : <Chip size="small" color={daysLeftColor(r.days_left)} label={daysLeftLabel(r.days_left)} />}
+              </TableCell>
+              <TableCell>{r.channel}</TableCell>
+              <TableCell>
+                <Chip size="small" color={MAIL_STATUS[r.status]?.color ?? 'default'}
+                      label={MAIL_STATUS[r.status]?.label ?? r.status} />
+              </TableCell>
+              <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
+                               whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11, color: 'error.main' }}>
+                {r.error ?? '—'}
+              </TableCell>
+            </TableRow>
+          ))}
+          {!isLoading && !rows.length && (
+            <TableRow>
+              <TableCell colSpan={8}>
+                <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
+                  Kayıt yok — henüz mail gönderilmemiş ya da filtrelerle eşleşen kayıt bulunamadı.
+                </Typography>
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </Stack>
@@ -1155,6 +1333,43 @@ function ScanTargetDialog({ open, target, syTeams, onClose }: {
         </Button>
       </DialogActions>
     </Dialog>
+  )
+}
+
+// ---------- Erişim (sayfa görünürlüğü: Uyum/Devir Önerileri/Keşif/Dağıtım) ----------
+function AccessTab() {
+  const { form, setForm, save } = useCategory('access')
+
+  const SWITCHES: { key: string; label: string }[] = [
+    { key: 'policy_all_roles', label: 'Uyum sayfası herkese açık' },
+    { key: 'proposals_all_roles', label: 'Devir Önerileri sayfası herkese açık' },
+    { key: 'discovery_all_roles', label: 'Keşif sayfası herkese açık' },
+    { key: 'deployments_all_roles', label: 'Dağıtım sayfası herkese açık' },
+  ]
+
+  return (
+    <Stack spacing={3}>
+      <Alert severity="info">
+        Varsayılan: Uyum, Devir Önerileri, Keşif ve Dağıtım sayfaları yalnız <b>Yönetici</b> ve
+        <b> Global İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız ilgili sayfa
+        <b> tüm rollere</b> (İzleyici dahil) görünür olur. <b>Devir Önerileri istisnası:</b> bu
+        ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin bekleyen devir tekliflerini
+        her zaman görüp onaylayabilir — onay yetkisi bu anahtarla DEĞİŞMEZ. Dağıtımı fiilen
+        <b> tetikleme</b> her durumda yalnız Yönetici'dedir; bu anahtar yalnız görüntülemeyi açar.
+      </Alert>
+      <Box>
+        <SectionLabel>SAYFA GÖRÜNÜRLÜĞÜ</SectionLabel>
+        {SWITCHES.map((s) => (
+          <FormControlLabel key={s.key}
+            control={<Switch checked={!!form[s.key]}
+                             onChange={(e) => setForm((f) => ({ ...f, [s.key]: e.target.checked }))} />}
+            label={s.label} sx={{ display: 'block' }} />
+        ))}
+        <Button variant="contained" sx={{ mt: 2 }} onClick={() => save.mutate()} disabled={save.isPending}>
+          Kaydet
+        </Button>
+      </Box>
+    </Stack>
   )
 }
 
@@ -1788,10 +2003,12 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'users', label: 'Kullanıcılar', desc: 'Hesaplar, roller ve takım kapsamları', wide: true, el: <UsersTab /> },
     { key: 'teams', label: 'Ekipler', desc: 'SY/UG ekiplerini oluştur ve yönet', wide: true, el: <TeamsTab /> },
     { key: 'memberships', label: 'Ekip Üyelikleri', desc: 'Üyelik = kullanıcının veri kapsamı', wide: true, el: <MembershipsTab /> },
+    { key: 'access', label: 'Erişim', desc: 'Uyum/Devir Önerileri/Keşif/Dağıtım sayfa görünürlüğü', el: <AccessTab /> },
     { key: 'ldap', label: 'LDAP / Active Directory', desc: 'Kurumsal dizinle kimlik doğrulama', el: <LdapTab /> },
   ] },
   { title: 'Bildirimler', items: [
     { key: 'smtp', label: 'E-posta (SMTP)', desc: 'Süresi yaklaşan sertifikalar için bilgilendirme e-postaları', el: <SmtpTab /> },
+    { key: 'mail-history', label: 'Mail Gönderim Geçmişi', desc: 'Gönderilen bilgilendirme e-postalarının kaydı (teslim edilemeyenler dâhil)', wide: true, el: <MailHistoryTab /> },
     { key: 'slack', label: 'Slack', desc: 'Süre uyarılarını bir Slack kanalına yayınlar', el: <SlackTab /> },
     { key: 'teams-notify', label: 'Microsoft Teams', desc: 'Süre uyarılarını bir Teams kanalına yayınlar', el: <MsTeamsTab /> },
     { key: 'webhook', label: 'Webhook', desc: 'Olay verisini genel bir uç noktaya (URL) POST eder', el: <WebhookTab /> },

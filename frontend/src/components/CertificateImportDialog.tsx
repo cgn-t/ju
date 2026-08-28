@@ -9,7 +9,7 @@ import { useSnackbar } from 'notistack'
 import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { ImportPreview, Team } from '../api/types'
-import { MONO_FONT, nodeColors } from '../theme'
+import { MONO_FONT, TRANSFER_TOAST_MS, nodeColors } from '../theme'
 import ConfirmSaveDialog, { type ConfirmItem } from './ConfirmSaveDialog'
 
 interface Props {
@@ -38,6 +38,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const [notes, setNotes] = useState('')
   const [purchasedBy, setPurchasedBy] = useState('')
   const [isInternal, setIsInternal] = useState(false)
+  const [environment, setEnvironment] = useState('')
   const [supersedeOld, setSupersedeOld] = useState(true)
   const [dragOver, setDragOver] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -48,12 +49,14 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const [manualNotes, setManualNotes] = useState('')
   const [manualPurchasedBy, setManualPurchasedBy] = useState('')
   const [manualInternal, setManualInternal] = useState(false)
+  const [manualEnvironment, setManualEnvironment] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
 
   const reset = () => {
     setFile(null); setPfxPassword(''); setPreview(null); setNotes(''); setPurchasedBy('')
-    setIsInternal(false); setSupersedeOld(true); setManualName(''); setManualPem('')
-    setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setCreator(''); setTab(0)
+    setIsInternal(false); setEnvironment(''); setSupersedeOld(true); setManualName(''); setManualPem('')
+    setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setManualEnvironment('')
+    setCreator(''); setTab(0)
     setConfirmOpen(false)
   }
 
@@ -104,6 +107,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       if (purchasedBy) form.append('purchased_by', purchasedBy)
       if (creator) form.append('creator', creator)
       form.append('is_internal', String(isInternal))
+      if (environment) form.append('environment', environment)
       // Onay sözleşmesi: devir yalnız kullanıcı planı GÖRDÜYSE gönderilir
       // (buton önizleme yüklenmeden kilitli, plan tüm öncülleri listeler)
       form.append('supersede', String(renewals.length > 0 && supersedeOld))
@@ -114,7 +118,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         ? ` — ${renewals.length} devir önerisi oluşturuldu (SY onayı bekliyor)`
         : ''
       enqueueSnackbar(`${data.length} sertifika eklendi${handedOver}`,
-                      { variant: 'success', autoHideDuration: handedOver ? 8000 : undefined })
+                      { variant: 'success', autoHideDuration: handedOver ? TRANSFER_TOAST_MS : undefined })
       queryClient.invalidateQueries({ queryKey: ['domains'] })
       invalidate(); close()
     },
@@ -126,7 +130,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       (await api.post('/certificates', {
         name: manualName, pem_certificate: manualPem || null, notes: manualNotes || null,
         purchased_by: manualPurchasedBy || null, is_internal: manualInternal,
-        creator: creator || null,
+        creator: creator || null, environment: manualEnvironment || null,
       })).data,
     onSuccess: () => {
       enqueueSnackbar('Sertifika eklendi', { variant: 'success' })
@@ -150,6 +154,18 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                                              : 'Tanımlı SY ekibi yok — Ayarlar’dan ekleyin')}>
       <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
       {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
+    </TextField>
+  )
+
+  // Ortam alanı: manuel formda zorunlu (prod/test) — otomatik yollar (vault-sync/keşif) bu
+  // alanı bilemediği için yalnız burada, insan eliyle dolduruluyorken zorunlu kılınır.
+  const environmentSelect = (value: string, onChange: (v: string) => void) => (
+    <TextField select required label="Ortam" size="small" fullWidth
+               value={value} onChange={(e) => onChange(e.target.value)} error={!value}
+               helperText={!value ? 'Zorunlu — Prod veya Test seçin' : undefined}>
+      <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
+      <MenuItem value="prod">Prod</MenuItem>
+      <MenuItem value="test">Test</MenuItem>
     </TextField>
   )
 
@@ -312,6 +328,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
             )}
 
             {creatorSelect}
+            {environmentSelect(environment, setEnvironment)}
             <Stack direction="row" spacing={2}>
               <TextField label="Satın Alım Yapan Ekip/Kişi" size="small" fullWidth
                          value={purchasedBy} onChange={(e) => setPurchasedBy(e.target.value)} />
@@ -340,6 +357,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
               slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }}
             />
             {creatorSelect}
+            {environmentSelect(manualEnvironment, setManualEnvironment)}
             <Stack direction="row" spacing={2}>
               <TextField label="Satın Alım Yapan Ekip/Kişi" size="small" fullWidth
                          value={manualPurchasedBy} onChange={(e) => setManualPurchasedBy(e.target.value)} />
@@ -360,7 +378,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
             // Önizleme yüklenmeden import edilemez: yenileme/devir bilgisi önizlemeden gelir
             variant="contained"
             disabled={!file || !preview || previewMutation.isPending || importMutation.isPending
-                      || preview.every((p) => p.already_exists) || !creator}
+                      || preview.every((p) => p.already_exists) || !creator || !environment}
             onClick={() => setConfirmOpen(true)}
           >
             {importMutation.isPending ? 'İçe aktarılıyor…'
@@ -369,7 +387,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         ) : (
           <Button
             variant="contained"
-            disabled={(!manualName && !manualPem) || manualMutation.isPending || !creator}
+            disabled={(!manualName && !manualPem) || manualMutation.isPending || !creator || !manualEnvironment}
             onClick={() => setConfirmOpen(true)}
           >
             Kaydet

@@ -219,12 +219,14 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                         password: str | None = Form(None), notes: str | None = Form(None),
                         purchased_by: str | None = Form(None), is_internal: bool = Form(False),
                         source: str = Form("manual"), supersede: bool = Form(False),
-                        creator: str | None = Form(None),
+                        creator: str | None = Form(None), environment: str | None = Form(None),
                         db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     """Binary import: PEM (fullchain destekli) / DER / PFX. Var olanları atlar,
     zinciri SKI/AKI ile otomatik bağlar. supersede=true ise yeni leaf'lerin
     öncülleri (aynı SKI veya aynı subject+issuer) devralınır: eşlemeler taşınır,
     eski kayıt pasife alınır."""
+    if environment not in (None, "", "prod", "test"):
+        raise HTTPException(status_code=400, detail="environment yalnız 'prod' veya 'test' olabilir")
     try:
         parsed_list = cert_parser.parse_upload(file.file.read(), password)
     except ValueError as exc:
@@ -239,7 +241,8 @@ def import_certificates(request: Request, file: UploadFile = File(...),
         if _find_existing(db, parsed):
             continue
         cert = Certificate(**parsed.__dict__, notes=notes, purchased_by=purchased_by,
-                           is_internal=is_internal, creator=creator or user.username, source=source)
+                           is_internal=is_internal, creator=creator or user.username, source=source,
+                           environment=environment or None)
         cert.parent_id = cert_parser.resolve_parent(db, parsed)
         db.add(cert)
         db.flush()
@@ -460,6 +463,22 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
     return _to_out(cert)
 
 
+def _ensure_deactivatable(db: Session, cert: Certificate) -> None:
+    """İş kuralı: bir domaine SERVER olarak bağlı sertifika PASİFE ALINAMAZ — canlı hizmet
+    veriyor demektir; önce server bağlantısı halef sertifikaya devredilmeli (devir onayı).
+    Client/Trusted/mTLS bağı engellemez (bunlar pasife almayı bloklamaz)."""
+    bound = (db.query(CertificateDomainMap)
+             .options(joinedload(CertificateDomainMap.domain))
+             .filter(CertificateDomainMap.certificate_id == cert.id,
+                     CertificateDomainMap.mapping_type == "server").all())
+    names = [m.domain.domain for m in bound if m.domain]
+    if names:
+        raise HTTPException(status_code=409,
+                            detail=f"Bu sertifika şu domain(ler)e SERVER olarak bağlı: "
+                                   f"{', '.join(names)}. Pasife almadan önce server bağlantısını "
+                                   f"halef sertifikaya devredin.")
+
+
 @router.put("/{cert_id}", response_model=CertificateOut)
 def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                        db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
@@ -469,10 +488,12 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
     changes = body.model_dump(exclude_unset=True)
     # Aktif/pasif durumu (is_active) YALNIZ admin tarafından değiştirilir. Aksi halde SY editörü
     # deactivate ucunu baypas edip PUT is_active=false ile sertifikayı pasife alabilirdi.
-    if ("is_active" in changes and changes["is_active"] != cert.is_active
-            and user.role != "admin"):
-        raise HTTPException(status_code=403,
-                            detail="Sertifikayı yalnız admin pasife alabilir/aktifleştirebilir")
+    if "is_active" in changes and changes["is_active"] != cert.is_active:
+        if user.role != "admin":
+            raise HTTPException(status_code=403,
+                                detail="Sertifikayı yalnız admin pasife alabilir/aktifleştirebilir")
+        if changes["is_active"] is False:  # pasife alma → server bağı engeller (deactivate ile aynı kural)
+            _ensure_deactivatable(db, cert)
     for key, value in changes.items():
         setattr(cert, key, value)
     log_action(db, user.username, "update", "certificates", cert.id, changes, request)
@@ -493,6 +514,7 @@ def deactivate_certificate(request: Request, cert_id: int, db: Session = Depends
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
     if not cert.is_active:
         return DeactivateResult(certificate=_to_out(cert), message="Sertifika zaten pasif.")
+    _ensure_deactivatable(db, cert)  # server olarak domaine bağlıysa 409 — önce devret
     cert.is_active = False
     log_action(db, user.username, "deactivate", "certificates", cert.id, {"name": cert.name}, request)
     db.commit()

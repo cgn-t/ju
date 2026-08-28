@@ -10,12 +10,12 @@ import { useSnackbar } from 'notistack'
 import { useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { TransferProposal } from '../api/types'
-import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import ProposalReviewDrawer from '../components/ProposalReviewDrawer'
 import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { MONO_FONT } from '../theme'
+import { usePageAccess } from '../hooks/usePageAccess'
+import { mappingTypeLabel, MONO_FONT } from '../theme'
 
 const VIA_LABEL: Record<string, string> = {
   import: 'İçe aktarma', manual: 'Elle', 'vault-sync': 'Vault senkron',
@@ -124,13 +124,21 @@ export default function Proposals() {
                         <Chip size="small" variant="outlined"
                               label={p.signal === 'ski' ? 'aynı anahtar' : 'aynı CN+CA'} />
                       )}
+                      {p.kind === 'trusted_add' && (
+                        <Chip size="small" color="secondary" variant="outlined"
+                              label="trust store'a ekle — eski kalır" />
+                      )}
                       <CompareArrowsIcon fontSize="small" sx={{ color: 'info.main', ml: 0.25 }} />
                     </Box>
                   </Tooltip>
                 </TableCell>
-                <TableCell>{p.domain_name ?? (p.app_dependency_id ? 'mTLS bağımlılığı' : '—')}</TableCell>
+                <TableCell>{p.kind === 'trusted_add'
+                  ? `${p.app_name ?? 'uygulama'} (trust store)`
+                  : (p.domain_name ?? (p.app_dependency_id ? 'mTLS bağımlılığı' : '—'))}</TableCell>
                 <TableCell>
-                  {p.mapping_type && <Chip size="small" variant="outlined" label={p.mapping_type} />}
+                  {p.kind === 'trusted_add'
+                    ? <Chip size="small" color="secondary" variant="outlined" label="trusted (ekle)" />
+                    : (p.mapping_type && <Chip size="small" variant="outlined" label={mappingTypeLabel(p.mapping_type)} />)}
                 </TableCell>
                 <TableCell>
                   {p.sy_team_name
@@ -197,11 +205,11 @@ export default function Proposals() {
 
 // nav rozeti için bekleyen sayısını paylaşan hook
 export function usePendingProposalCount() {
-  const { role } = useAuth()
+  const { proposals: canSee } = usePageAccess()
   const { data } = useQuery<TransferProposal[]>({
     queryKey: ['proposals', 'pending'],
     queryFn: async () => (await api.get('/proposals', { params: { status: 'pending' } })).data,
-    enabled: !!role,
+    enabled: canSee,
     refetchInterval: 60_000,
   })
   return (data ?? []).filter((p) => p.can_decide).length

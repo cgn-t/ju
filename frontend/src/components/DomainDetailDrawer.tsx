@@ -14,7 +14,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, ChainImportResult, Domain } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { daysLeftColor, daysLeftLabel } from '../theme'
+import { daysLeftColor, daysLeftLabel, mappingTypeLabel, TRANSFER_TOAST_MS } from '../theme'
 import CertificatePicker from './CertificatePicker'
 import SkiText from './SkiText'
 
@@ -122,7 +122,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
       if (r.mapped_server) parts.push(`"${r.mapped_server}" server eşlendi`)
       if (r.superseded.length) parts.push(`${r.superseded.length} devir önerisi oluşturuldu (SY onayı bekliyor)`)
       enqueueSnackbar(parts.join(', ') || 'Değişiklik yok',
-                      { variant: 'success', autoHideDuration: r.superseded.length ? 8000 : undefined })
+                      { variant: 'success', autoHideDuration: r.superseded.length ? TRANSFER_TOAST_MS : undefined })
       invalidate()
       liveCheck.mutate()
     },
@@ -151,7 +151,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
             {domain.certificates.map((c) => (
               <Box key={`${c.certificate_id}-${c.mapping_type}`}
                    sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Chip size="small" label={c.mapping_type === 'server' ? 'Server' : 'Client'}
+                <Chip size="small" label={mappingTypeLabel(c.mapping_type)}
                       color={c.mapping_type === 'server' ? 'error' : 'info'} sx={{ width: 64 }} />
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap title={c.name}>{c.name}</Typography>
@@ -184,7 +184,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                                sx={{ flexGrow: 1 }}
                                onChange={(e) => setMappingType(e.target.value as 'server' | 'client')}>
                       <MenuItem value="server">Server</MenuItem>
-                      <MenuItem value="client">Client</MenuItem>
+                      <MenuItem value="client">Trusted</MenuItem>
                     </TextField>
                     <Button variant="contained" startIcon={<AddLinkIcon />} sx={{ px: 3, flexShrink: 0 }}
                             disabled={!selectedCert || alreadyMapped.has(selectedCert.id) || attach.isPending}
@@ -210,6 +210,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               <Field label="WAF Güncelleme" value={domain.waf_update} />
             </Stack>
             <Field label="Güncellenecek Sunucular" value={domain.servers_to_update} />
+            <Field label="Bildirim Gün Sayısı"
+                   value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
             <Field label="Dış Firma" value={domain.external_company} />
             <Field label="Detay" value={domain.info} />
             <Stack direction="row" spacing={4}>

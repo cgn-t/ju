@@ -25,17 +25,72 @@ import type { Certificate } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificateDetailDrawer from '../components/CertificateDetailDrawer'
 import CertificateImportDialog from '../components/CertificateImportDialog'
+import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import SkiText from '../components/SkiText'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { daysLeftColor, daysLeftLabel, nodeColors, sourceLabel } from '../theme'
+import { daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, nodeColors, sourceLabel } from '../theme'
 import { exportCsv } from '../utils/csv'
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
   root: 'Kök CA (Root)', intermediate: 'Ara CA (Intermediate)', leaf: 'Uç Sertifika (Leaf)',
 }
+
+// Kolon-başı (huni) filtreleri. Kaynak + Geçerlilik durum kolonları; gerisi metin.
+const KNOWN_SRC = new Set(['vault', 'live', 'discovery', 'ct'])
+function validityBucket(days: number | null | undefined): string {
+  if (days === null || days === undefined) return 'none'
+  if (days < 0) return 'expired'
+  if (days <= 30) return 'expiring'
+  return 'valid'
+}
+const SRC_OPTS = [
+  { value: 'all', label: 'Tümü' },
+  { value: 'manual', label: 'Manuel' },
+  { value: 'vault', label: 'Vault' },
+  { value: 'live', label: 'Canlı' },
+  { value: 'discovery', label: 'Ağ Keşfi' },
+  { value: 'ct', label: 'CT Log' },
+]
+const VAL_OPTS = [
+  { value: 'all', label: 'Tümü' },
+  { value: 'valid', label: 'Geçerli' },
+  { value: 'expiring', label: 'Yaklaşan (≤30g)' },
+  { value: 'expired', label: 'Süresi Dolmuş' },
+  { value: 'none', label: 'Tarihsiz' },
+]
+const ENV_OPTS = [
+  { value: 'all', label: 'Tümü' },
+  { value: 'prod', label: 'Prod' },
+  { value: 'test', label: 'Test' },
+  { value: 'none', label: 'Belirtilmemiş' },
+]
+const CERT_COLS: ColDef<Certificate>[] = [
+  { key: 'name', label: 'Ad', kind: 'text', get: (c) => c.name },
+  { key: 'ski', label: 'SKI', kind: 'text', get: (c) => c.subject_key_identifier },
+  { key: 'saniss', label: 'SAN / Issuer', kind: 'text', get: (c) => c.san || c.issuer },
+  { key: 'source', label: 'Kaynak', kind: 'status', options: SRC_OPTS,
+    get: (c) => (KNOWN_SRC.has(c.source ?? '') ? (c.source as string) : 'manual') },
+  { key: 'environment', label: 'Ortam', kind: 'status', options: ENV_OPTS,
+    get: (c) => c.environment ?? 'none' },
+  { key: 'valid', label: 'Geçerlilik', kind: 'status', options: VAL_OPTS,
+    get: (c) => validityBucket(c.days_left) },
+]
+
+// İşlemler VE Geçerlilik birlikte sağa sabitlenir (sticky): tablo yan kaydırma
+// gerektirdiğinde "durum + aksiyon" ikilisi hep tam görünür kalır — taşma olduğunda yalnız
+// ortadaki ikincil kolonlar (SKI/SAN/Kaynak/Ortam, zaten detay çekmecesinde de var) kayar.
+// İki kolon birbirine bitişik sabitlendiği için Geçerlilik, İşlemler'in ALTINDA kalmaz.
+// İşlemler'in genişliği buton sayısına göre değişir (admin: göz+duraklat+sil, diğer: yalnız göz).
+const ACTIONS_COL_WIDTH = { admin: 128, other: 56 }
+const stickyCellSx = (right: number) => ({
+  position: 'sticky' as const, right,
+  bgcolor: 'background.paper',
+  boxShadow: right === 0 ? '-6px 0 6px -6px rgba(0,0,0,0.35)' : undefined,
+  '.MuiTableRow-hover:hover &': { bgcolor: 'action.hover' },
+})
 
 interface TreeRow {
   cert: Certificate
@@ -63,6 +118,9 @@ function buildTree(certs: Certificate[]): TreeRow[] {
 export default function Certificates() {
   useDocumentTitle('SSL Sertifikaları')
   const { canEdit, isAdmin } = useAuth()
+  // İşlemler kolonundaki buton sayısı role göre değişir (admin: göz+duraklat+sil, diğer: yalnız
+  // göz) — Geçerlilik'in sticky right ofseti bu genişliğe göre ayarlanır ki üst üste binmesin.
+  const actionsColWidth = isAdmin ? ACTIONS_COL_WIDTH.admin : ACTIONS_COL_WIDTH.other
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const [view, setView] = useState<'table' | 'cards'>('table')
@@ -140,7 +198,7 @@ export default function Certificates() {
     exportCsv('sertifikalar.csv',
       ['name', 'cert_type', 'serial_number', 'subject_key_identifier', 'authority_key_identifier',
        'fingerprint_sha256', 'subject', 'issuer', 'san', 'extended_key_usage',
-       'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'halef', 'internal', 'kaynak', 'vault_path',
+       'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'halef', 'internal', 'ortam', 'kaynak', 'vault_path',
        'auto_renew', 'satin_alan', 'olusturan', 'notlar', 'olusturulma', 'domainler'],
       (certs ?? []).map((c) => [c.name, c.cert_type, c.serial_number, c.subject_key_identifier,
                                 c.authority_key_identifier, c.fingerprint_sha256, c.subject,
@@ -149,7 +207,8 @@ export default function Certificates() {
                                 // yenileme zinciri: yerine geçen kaydın adı (varsa)
                                 c.superseded_by_id
                                   ? (certNames.get(c.superseded_by_id) ?? `#${c.superseded_by_id}`) : '',
-                                c.is_internal ? 'evet' : 'hayir', c.source, c.vault_path,
+                                c.is_internal ? 'evet' : 'hayir', environmentLabel(c.environment),
+                                c.source, c.vault_path,
                                 c.auto_renew ? 'evet' : 'hayir', c.purchased_by, c.creator,
                                 c.notes, c.created_at,
                                 c.domains.map((d) => `${d.domain}(${d.mapping_type})`).join(' ')]))
@@ -169,6 +228,14 @@ export default function Certificates() {
     }
     return result
   }, [certs, collapsed])
+
+  const cf = useColumnFilters(CERT_COLS)  // kolon-başı (huni) filtreleri
+  // Kolon filtresi AKTİFSE ağaç yerine DÜZ eşleşen liste (hiyerarşi filtrede korunamaz); yoksa ağaç.
+  const displayRows = useMemo(() =>
+    cf.anyActive
+      ? (certs ?? []).filter(cf.matches).map((cert) => ({ cert, depth: 0 }))
+      : rows,
+    [cf.values, certs, rows])
 
   const toggle = (id: number) =>
     setCollapsed((prev) => {
@@ -299,6 +366,11 @@ export default function Certificates() {
                     sx={{ fontWeight: depth === 0 ? 700 : 500, minWidth: 0 }}>
           {cert.name}
         </Typography>
+        {cert.environment && (
+          <Chip size="small" color={environmentColor(cert.environment)} variant="outlined"
+                label={environmentLabel(cert.environment)}
+                sx={{ flexShrink: 0, display: { xs: 'none', sm: 'inline-flex' } }} />
+        )}
         {cert.is_internal && (
           <Chip size="small" variant="outlined" label="Internal"
                 sx={{ flexShrink: 0, display: { xs: 'none', sm: 'inline-flex' } }} />
@@ -414,6 +486,10 @@ export default function Certificates() {
           onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 340 } }}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
         />
+        {cf.anyActive && (
+          <Chip size="small" color="primary" variant="outlined"
+                label={`Kolon filtreleri (${displayRows.length})`} onDelete={cf.clearAll} />
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <Button size="small" sx={{ color: 'text.secondary' }}
                 onClick={() => view === 'table'
@@ -448,16 +524,15 @@ export default function Certificates() {
           <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow>
-                <TableCell>Ad</TableCell>
-                <TableCell>SKI</TableCell>
-                <TableCell>SAN / Issuer</TableCell>
-                <TableCell>Kaynak</TableCell>
-                <TableCell sx={{ width: '1%', whiteSpace: 'nowrap' }}>Geçerlilik</TableCell>
-                <TableCell align="right">İşlemler</TableCell>
+                {CERT_COLS.map((c) => (
+                  <ColHeaderCell key={c.key} def={c} cf={cf}
+                                 sx={c.key === 'valid' ? stickyCellSx(actionsColWidth) : undefined} />
+                ))}
+                <TableCell align="right" sx={stickyCellSx(0)}>İşlemler</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map(({ cert, depth }) => (
+              {displayRows.map(({ cert, depth }) => (
                 <TableRow key={cert.id} hover>
                   <TableCell>
                     {/* Sabit hizalama: girinti + kontrol yuvası + tip çipi ASLA küçülmez (flexShrink:0);
@@ -465,7 +540,7 @@ export default function Certificates() {
                     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
                       {depth > 0 && <Box sx={{ width: depth * 24, flexShrink: 0 }} />}
                       <Box sx={{ width: 34, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-                        {hasChildren(cert.id) && (
+                        {!cf.anyActive && hasChildren(cert.id) && (
                           <IconButton size="small" onClick={() => toggle(cert.id)}>
                             {collapsed.has(cert.id) ? <KeyboardArrowRightIcon /> : <KeyboardArrowDownIcon />}
                           </IconButton>
@@ -485,17 +560,22 @@ export default function Certificates() {
                       {renewalChip(cert, false, { ml: 1 })}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 240 }}>
+                  <TableCell sx={{ maxWidth: 170 }}>
                     <SkiText value={cert.subject_key_identifier} />
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <TableCell sx={{ maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                             title={cert.san || cert.issuer || undefined}>
                     {cert.san || cert.issuer}
                   </TableCell>
                   <TableCell>
                     <Chip size="small" variant="outlined"
                           label={sourceLabel(cert.source)} />
                   </TableCell>
-                  <TableCell sx={{ width: '1%', whiteSpace: 'nowrap' }}>
+                  <TableCell>
+                    <Chip size="small" color={environmentColor(cert.environment)}
+                          variant="outlined" label={environmentLabel(cert.environment)} />
+                  </TableCell>
+                  <TableCell sx={{ ...stickyCellSx(actionsColWidth), width: '1%', whiteSpace: 'nowrap' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Typography variant="body2" component="span" sx={{ color: 'text.secondary' }}>
                         {cert.valid_to ? new Date(cert.valid_to).toLocaleDateString('tr-TR') : '—'}
@@ -503,14 +583,16 @@ export default function Certificates() {
                       <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
                     </Box>
                   </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>{rowActions(cert)}</TableCell>
+                  <TableCell align="right" sx={{ ...stickyCellSx(0), whiteSpace: 'nowrap', width: '1%' }}>
+                    {rowActions(cert)}
+                  </TableCell>
                 </TableRow>
               ))}
-              {rows.length === 0 && (
+              {displayRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
                     <Typography color="text.secondary">
-                      {search ? 'Aramayla eşleşen sertifika yok' : 'Henüz sertifika eklenmemiş — "Yeni Ekle" ile başlayın'}
+                      {search || cf.anyActive ? 'Filtreyle eşleşen sertifika yok' : 'Henüz sertifika eklenmemiş — "Yeni Ekle" ile başlayın'}
                     </Typography>
                   </TableCell>
                 </TableRow>
@@ -535,6 +617,8 @@ export default function Certificates() {
           ))}
         </Box>
       )}
+
+      <ColumnFilterMenu cf={cf} facetRows={certs ?? []} />
 
       <CertificateImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <CertificateDetailDrawer certId={detailId} onClose={() => setDetailId(null)}

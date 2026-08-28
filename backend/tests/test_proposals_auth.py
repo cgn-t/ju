@@ -77,11 +77,11 @@ def test_membership_management(client, auth_headers):
     assert client.delete(f"/api/teams/{team_id}/members/{uid}",
                          headers=auth_headers).status_code == 200
     assert client.get(f"/api/teams/{team_id}/members", headers=auth_headers).json() == []
-    # UG ekibine üyelik reddedilir
+    # UG ekibine üyelik artık serbest (yalnız roster/bilgi amaçlı, rol vermez — bkz. test_rbac_derivation.py)
     r = client.post("/api/teams", headers=auth_headers, json={"name": "UGX", "type": "UG"})
     ug_id = r.json()["id"]
     assert client.post(f"/api/teams/{ug_id}/members", headers=auth_headers,
-                       json={"user_id": uid}).status_code == 400
+                       json={"user_id": uid}).status_code == 200
 
 
 def test_non_member_cannot_approve_but_admin_and_member_can(client, auth_headers):
@@ -93,9 +93,9 @@ def test_non_member_cannot_approve_but_admin_and_member_can(client, auth_headers
     outsider = _mk_user(client, auth_headers, "outsider")
     oh = _login(client, "outsider")
     assert client.post(f"/api/proposals/{prop_id}/approve", headers=oh).status_code == 403
-    # Görünürlük: üye olmayan bu öneriyi listede görmez
-    assert all(p["id"] != prop_id
-               for p in client.get("/api/proposals", headers=oh).json())
+    # Görünürlük: hiçbir SY ekibine üye olmayan editör Devir Önerileri sayfasını hiç göremez
+    # (varsayılan admin+allviewer-only; bkz. test_page_visibility.py)
+    assert client.get("/api/proposals", headers=oh).status_code == 403
 
     # Ekibe üye edilen editör onaylayabilir
     member = _mk_user(client, auth_headers, "beta_member")
@@ -239,3 +239,87 @@ def test_reject_keeps_old_active_and_double_decision_conflicts(client, auth_head
     # ikinci karar (approve) çakışır: zaten karara bağlanmış
     assert client.post(f"/api/proposals/{prop_id}/approve",
                        headers=auth_headers).status_code == 409
+
+
+def test_cancel_cannot_override_decided_proposal(client, auth_headers):
+    """Bug #3 regresyonu: karara bağlanmış (applied/rejected) öneri CANCEL ile EZİLEMEZ (409).
+    cancel artık approve/reject gibi atomik CAS kullanır (WHERE status IN pending/approved).
+    (Gerçek eşzamanlı yarış SQLite tek-bağlantıda deterministik test edilemez — bu, sözleşmeyi
+    ve status-guard'ı korur; yarış güvenliği yapısaldır.)"""
+    h = auth_headers
+    # (a) approve → applied: cancel 409 döner ve devir mutasyonu bozulmaz
+    ta = _sy_team(client, h, "TeamCancelA")
+    pid, v1, v2, dom = _setup_pending_proposal(client, h, "cancel-a.example.com", ta)
+    assert client.post(f"/api/proposals/{pid}/approve", headers=h).status_code == 200
+    assert client.post(f"/api/proposals/{pid}/cancel", headers=h).status_code == 409
+    d = client.get(f"/api/domains/{dom}", headers=h).json()
+    assert [c["certificate_id"] for c in d["certificates"] if c["mapping_type"] == "server"] == [v2]
+    assert client.get(f"/api/certificates/{v1}", headers=h).json()["is_active"] is False
+
+    # (b) reject → rejected: cancel 409 döner ve durum 'rejected' KALIR (red-kalıcılığı ezilmez)
+    tb = _sy_team(client, h, "TeamCancelB")
+    pid2, _, _, _ = _setup_pending_proposal(client, h, "cancel-b.example.com", tb)
+    assert client.post(f"/api/proposals/{pid2}/reject", headers=h).status_code == 200
+    assert client.post(f"/api/proposals/{pid2}/cancel", headers=h).status_code == 409
+    rejected = client.get("/api/proposals", headers=h, params={"status": "rejected"}).json()
+    assert any(p["id"] == pid2 for p in rejected), "öneri 'rejected' kalmalı (cancel ezmemeli)"
+
+
+def test_out_of_team_editor_cannot_cancel_auto_proposal(client, auth_headers):
+    """Bug #6 regresyonu: import(supersede) ile OTOMATİK üretilen öneride created_by tetikleyen
+    editördür ama kapsam yoktur. Kapsam-dışı editör bu öneriyi (created_by=kendisi olsa da)
+    İPTAL EDEMEZ — created_by istisnası yalnız via='manual'da geçerli."""
+    team_y = _sy_team(client, auth_headers, "TeamY6")
+    ca, ca_key = certgen.make_ca("Bug6 CA")
+    key = certgen.make_key()                                   # ortak anahtar → halef sinyali
+    v1, _ = certgen.make_leaf(ca, ca_key, "bug6.example.com", key=key, not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "bug6.example.com", key=key, not_before=datetime(2026, 6, 1))
+    v1_id = next(c["id"] for c in _import_pem(client, auth_headers,
+                 certgen.pem(v1) + certgen.pem(ca)).json() if c["cert_type"] == "leaf")
+    dom_id = _domain_with_sy(client, auth_headers, "bug6.example.com", team_y)
+    client.post(f"/api/domains/{dom_id}/certificates", headers=auth_headers,
+                json={"certificate_id": v1_id, "mapping_type": "server"})
+
+    # kapsam-dışı editör E: v2'yi supersede ile import → öneri created_by=E, sy_team=Y, via=import
+    _mk_user(client, auth_headers, "e_outsider6")
+    eh = _login(client, "e_outsider6")
+    v2_id = _import_pem(client, eh, certgen.pem(v2), extra={"supersede": "true"}).json()[0]["id"]
+    prop = next(p for p in client.get("/api/proposals", headers=auth_headers,
+                                      params={"status": "pending"}).json()
+                if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id)
+    assert prop["created_by"] == "e_outsider6" and prop["via"] == "import"
+
+    # E, created_by=kendisi olsa da iptal EDEMEZ (403) — otomatik öneri, kapsam yok
+    assert client.post(f"/api/proposals/{prop['id']}/cancel", headers=eh).status_code == 403
+    still = client.get("/api/proposals", headers=auth_headers, params={"status": "pending"}).json()
+    assert any(p["id"] == prop["id"] for p in still), "öneri iptal edilmemeli"
+
+
+def test_manual_creator_can_cancel_own_cross_team_proposal(client, auth_headers):
+    """Fix aşırı-kısıtlamamalı: MANUEL supersede oluşturanı, ÜYE OLMADIĞI bir granülün önerisini de
+    (via='manual' + created_by) iptal edebilir — kendi tetiklediği hatalı öneriyi geri alma korunur."""
+    ty = _sy_team(client, auth_headers, "TeamY6b")
+    tz = _sy_team(client, auth_headers, "TeamZ6b")
+    ca, ca_key = certgen.make_ca("Bug6b CA")
+    key = certgen.make_key()
+    v1, _ = certgen.make_leaf(ca, ca_key, "bug6b.example.com", key=key, not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "bug6b.example.com", key=key, not_before=datetime(2026, 6, 1))
+    v1_id = next(c["id"] for c in _import_pem(client, auth_headers,
+                 certgen.pem(v1) + certgen.pem(ca)).json() if c["cert_type"] == "leaf")
+    v2_id = _import_pem(client, auth_headers, certgen.pem(v2)).json()[0]["id"]
+    dy = _domain_with_sy(client, auth_headers, "dy6b.example.com", ty)
+    dz = _domain_with_sy(client, auth_headers, "dz6b.example.com", tz)
+    for d in (dy, dz):                                          # v1 iki domaine de server eşli
+        client.post(f"/api/domains/{d}/certificates", headers=auth_headers,
+                    json={"certificate_id": v1_id, "mapping_type": "server"})
+
+    uid = _mk_user(client, auth_headers, "e_member6b")          # yalnız TeamY üyesi
+    client.post(f"/api/teams/{ty}/members", headers=auth_headers, json={"user_id": uid})
+    eh = _login(client, "e_member6b")
+    # E manuel supersede tetikler (v1 TeamY'ye bağlı → yetkili) → P_Y ve P_Z (via=manual, created_by=E)
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=eh).status_code == 200
+    props = client.get("/api/proposals", headers=auth_headers, params={"status": "pending"}).json()
+    p_z = next(p for p in props if p["new_cert_id"] == v2_id and p["domain_id"] == dz)
+    assert p_z["sy_team_id"] == tz and p_z["via"] == "manual" and p_z["created_by"] == "e_member6b"
+    # E TeamZ üyesi DEĞİL ama KENDİ manuel önerisini iptal edebilir (200)
+    assert client.post(f"/api/proposals/{p_z['id']}/cancel", headers=eh).status_code == 200

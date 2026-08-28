@@ -11,7 +11,8 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import AppDependency, Certificate, MailQueue, Notification, Team, User
+from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate, MailQueue,
+                            Notification, Team, TransferProposal, User)
 from app.db.session import SessionLocal
 from app.services.settings_service import get_category
 
@@ -94,12 +95,15 @@ def _warn_line(text: str) -> str:
     return f'<div style="color:#c62828;font-weight:bold;margin:6px 0">&#9888; {_esc(text)}</div>'
 
 
+def _mapping_label(mapping_type: str | None) -> str:
+    """mapping_type ('server'/'client') → düz metin etiket. DB değeri 'client' kalır, UX'te 'Trusted' gösterilir."""
+    return {"server": "Server", "client": "Trusted"}.get((mapping_type or "").lower(), mapping_type or "-")
+
+
 def _type_strip(mapping_type: str) -> str:
-    label = {"server": "Server", "client": "Client"}.get((mapping_type or "").lower(),
-                                                         mapping_type or "-")
     return ('<div style="border-left:4px solid #1565c0;background:#e8f0fe;color:#222;'
             'padding:8px 12px;margin:20px 0 8px;font-size:14px">'
-            f'Bağlantı Tipi: <b>{_esc(label)}</b></div>')
+            f'Bağlantı Tipi: <b>{_esc(_mapping_label(mapping_type))}</b></div>')
 
 
 def _domain_rows(dom) -> list[tuple]:
@@ -147,8 +151,7 @@ def _related_domains_table(mappings) -> str:
     for m in mappings:
         dom = m.domain
         cells = (dom.domain,
-                 {"server": "Server", "client": "Client"}.get((m.mapping_type or "").lower(),
-                                                              m.mapping_type),
+                 _mapping_label(m.mapping_type),
                  dom.ug_team.name if dom.ug_team else dom.ug_team_name,
                  dom.sy_team.name if dom.sy_team else None,
                  dom.cert_owner)
@@ -289,49 +292,58 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
             "mail_sent": mail_sent, "message": message}
 
 
-def _expiry_stakeholders(db: Session, cert: Certificate) -> list[dict]:
+def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) -> list[dict]:
     """Süre uyarısının PAYDAŞLARINI çözer — her paydaş AYRI mail alır:
-      1. Sertifikanın SAHİBİ: cert.creator kullanıcı adıysa o kullanıcının e-postası.
+      1. Sertifikanın SAHİBİ: cert.creator "Oluşturan Ekip" (SY) ya da geriye dönük kullanıcı.
       2. Bağlı olduğu her DOMAIN'in sahibi SY ekibi (Team.email, virgülle çoklu).
       3. CLIENT olarak bağlı olduğu her UYGULAMANIN (AppDependency.client_cert) sahibi SY ekibi.
-    Aynı SY ekibi hem domain hem uygulama sahibiyse TEK mail alır, nedenleri birleşir.
-    Döner: [{key, label, emails, reasons}] — emails boş paydaşlar elenir."""
+    Aynı SY ekibi birden çok kaynaktan geliyorsa TEK mail alır, nedenleri birleşir.
+
+    Her paydaşa `effective_days` eşlenir: paydaş, sertifika bitişine bu kadar gün kala mail
+    almaya başlar. DOMAIN paydaşında domainin `notify_days`'i (boşsa `global_days`); oluşturan-
+    ekip / kullanıcı / uygulama paydaşında `global_days`. Aynı ekip birden çok domaine sahipse
+    effective_days = MAX (en erken pencere isteyen kazanır). Geçit `_dispatch_cert_mails`'te.
+    Döner: [{label, emails, reasons, effective_days}] — emails boş paydaşlar elenir."""
     stakeholders: dict[str, dict] = {}
 
-    def add(key: str, label: str, emails: list[str], reason: str) -> None:
+    def add(key: str, label: str, emails: list[str], reason: str, effective_days: int) -> None:
         if not emails:
             return
-        s = stakeholders.setdefault(key, {"label": label, "emails": sorted(set(emails)), "reasons": []})
+        s = stakeholders.setdefault(key, {"label": label, "emails": sorted(set(emails)),
+                                          "reasons": [], "effective_days": effective_days})
         if reason not in s["reasons"]:
             s["reasons"].append(reason)
+        s["effective_days"] = max(s["effective_days"], effective_days)
 
     # 1) sahip: OLUŞTURAN EKİP (SY). creator alanı SSL Sertifikalar sayfasındaki
     #    "Oluşturan Ekip" seçiminden SY ekip ADI olarak gelir → o ekip HER ZAMAN
     #    paydaştır (domaine/uygulamaya bağlı olmasa bile mail alır). Geriye dönük:
     #    eşleşen SY ekip yoksa creator bir kullanıcı adı olarak denenir
     #    (Vault/oto-import yollarında creator=user.username'e düşebiliyor).
+    #    Domaini olmayan paydaş global_days penceresini kullanır.
     if cert.creator:
         owner_team = (db.query(Team)
                       .filter(Team.name == cert.creator, Team.type == "SY").first())
         if owner_team is not None and _team_emails(owner_team):
             add(f"team:{owner_team.id}", owner_team.name, _team_emails(owner_team),
-                "Sertifikayı oluşturan (sahibi) SY ekibisiniz")
+                "Sertifikayı oluşturan (sahibi) SY ekibisiniz", global_days)
         else:
             owner = db.query(User).filter(User.username == cert.creator,
                                           User.is_active == True).first()
             if owner is not None and owner.email:
                 add(f"user:{owner.id}", f"sahip ({owner.username})", [owner.email],
-                    "Bu sertifikayı siz oluşturdunuz (sahip)")
+                    "Bu sertifikayı siz oluşturdunuz (sahip)", global_days)
 
-    # 2) bağlı domainlerin SY ekipleri
+    # 2) bağlı domainlerin SY ekipleri — domainin kendi notify_days penceresiyle
     for m in cert.domain_mappings:
         dom = m.domain
         if dom is None or dom.sy_team is None:
             continue
+        dom_days = dom.notify_days or global_days
         add(f"team:{dom.sy_team.id}", dom.sy_team.name, _team_emails(dom.sy_team),
-            f"Domain sahibi: {dom.domain} ({m.mapping_type})")
+            f"Domain sahibi: {dom.domain} ({_mapping_label(m.mapping_type)})", dom_days)
 
-    # 3) client olarak bağlı olduğu uygulamaların SY ekipleri
+    # 3) client (trusted) olarak bağlı olduğu uygulamaların SY ekipleri
     deps = (db.query(AppDependency)
             .filter(AppDependency.client_cert_id == cert.id).all())
     for dep in deps:
@@ -339,7 +351,17 @@ def _expiry_stakeholders(db: Session, cert: Certificate) -> list[dict]:
         if app_row is None or app_row.sy_team is None:
             continue
         add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
-            f"Uygulama sahibi (client sertifikası): {app_row.app_name}")
+            f"Uygulama sahibi (trusted bağlantı): {app_row.app_name}", global_days)
+
+    # 4) trust store'una eklendiği (trusted) uygulamaların SY ekipleri
+    trusted = (db.query(ApplicationTrustedCert)
+               .filter(ApplicationTrustedCert.cert_id == cert.id).all())
+    for tr in trusted:
+        app_row = tr.app
+        if app_row is None or app_row.sy_team is None:
+            continue
+        add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
+            f"Uygulama trust store'unda (trusted): {app_row.app_name}", global_days)
 
     return list(stakeholders.values())
 
@@ -400,27 +422,29 @@ def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body
 
 
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
-                         make_subject, make_body, make_html=None) -> dict:
+                         make_subject, make_body, make_html=None, global_days: int = 30) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
-    kendi nedenleriyle AYRI mail atar. force=False → son `resend_interval_days` günde
-    (varsayılan 1 = HER GÜN) bildirim gönderilen sertifika atlanır (cron tekrar-önleme);
-    force=True → mutlaka gönderilir (API). queue_enabled ise mailler doğrudan gönderilmez,
-    mail_queue'ya yazılır. make_html verilirse multipart: HTML + düz metin yedek."""
+    kendi nedenleriyle AYRI mail atar. force=False + resend_dedup_enabled AÇIK → son
+    `resend_interval_hours` saatte (varsayılan 3) bildirim gönderilen sertifika atlanır
+    (cron tekrar-önleme); dedup KAPALIYSA her tarama gönderir; force=True → dedup'tan bağımsız
+    mutlaka gönderilir (API). queue_enabled ise mailler doğrudan gönderilmez, mail_queue'ya
+    yazılır. make_html verilirse multipart: HTML + düz metin yedek."""
     sent = skipped = 0
     details: list[dict] = []
-    interval_days = max(1, int(cfg.get("resend_interval_days") or 1))
+    interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
+    dedup_enabled = cfg.get("resend_dedup_enabled", True)  # kapalıysa her tarama gönderir
     for cert in certs:
-        if not force:
+        if not force and dedup_enabled:
             recent = (db.query(Notification)
                       .filter(Notification.certificate_id == cert.id,
                               Notification.channel == "email",  # kanal bildirimleri maili engellemesin
-                              Notification.sent_at >= utcnow() - timedelta(days=interval_days))
+                              Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
                       .first())
             if recent:
                 skipped += 1
                 continue
 
-        parties = _expiry_stakeholders(db, cert)
+        parties = _expiry_stakeholders(db, cert, global_days)
         if not parties:
             skipped += 1
             continue
@@ -429,6 +453,10 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
         subject = make_subject(cert, days_left)
         mails: list[dict] = []
         for p in parties:  # HER paydaşa AYRI mail — kendi nedenleriyle
+            # per-domain geçit: paydaş kendi bildirim penceresine (effective_days) girmeden
+            # mail almaz. Süresi-geçmiş akışında days_left negatif → geçit hep geçer.
+            if days_left > p.get("effective_days", global_days):
+                continue
             body = make_body(cert, days_left, p)
             html_body = make_html(cert, days_left, p) if make_html else None
             ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
@@ -443,6 +471,17 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                 mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
             else:
                 logger.warning("Bildirim işlenemedi: %s → %s (%s)", cert.name, p["label"], note)
+                # queue KAPALIYKEN doğrudan gönderim + fallback başarısız → mail geçmişinde
+                # görünsün diye mail_queue'ya 'failed' yaz. Notifications'a YAZMA (dedup açık
+                # kalsın → sonraki tarama yeniden dener). drain yalnız 'pending' işler; bu satır
+                # yeniden denenmez (zaten doğrudan denendi). queue AÇIKSA zaten _deliver kuyruğa
+                # yazmış olurdu (ok=True) → buraya düşmez; çift kayıt olmaz.
+                if not cfg.get("queue_enabled"):
+                    db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
+                                     body_text=body, body_html=html_body, certificate_id=cert.id,
+                                     stakeholder=p["label"], days_left=days_left,
+                                     status="failed", last_error=(note or "")[:1000], attempts=1))
+                    db.commit()
                 mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
         details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
 
@@ -465,7 +504,14 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
     Günlük 08:00 cron ve POST /api/notifications/expiry-run bu fonksiyonu kullanır."""
     cfg = get_category(db, "smtp", mask_secrets=False)
     warn_days = int(cfg.get("expiry_warning_days") or 30)
-    threshold = utcnow() + timedelta(days=warn_days)
+    # Bir domain kendi notify_days'iyle global default'tan ERKEN uyarı isteyebilir → aday
+    # penceresini tüm domainlerin en büyük (MAX) isteğine kadar aç; asıl "kaç gün kala"
+    # kararı paydaş/domain bazında _dispatch_cert_mails içindeki geçitte verilir.
+    from app.db.models import Domain
+    row = (db.query(Domain.notify_days).filter(Domain.notify_days.isnot(None))
+           .order_by(Domain.notify_days.desc()).first())
+    scan_days = max(warn_days, int(row[0]) if row and row[0] else 0)
+    threshold = utcnow() + timedelta(days=scan_days)
     expiring = (
         db.query(Certificate)
         .filter(Certificate.is_active == True,
@@ -475,9 +521,11 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
         .all()
     )
 
-    # E-posta DIŞI kanallar (Slack/Teams/Webhook) — SMTP açık olmasa da bağımsız çalışır.
+    # E-posta DIŞI kanallar (Slack/Teams/Webhook): per-domain gün sayısı YALNIZ e-postayı
+    # etkiler → bu kanallara global warn_days penceresine süzülmüş listeyi ver.
+    global_threshold = utcnow() + timedelta(days=warn_days)
     from app.services.notify.dispatcher import notify_certs
-    notify_certs(db, expiring, kind="expiry", force=force)
+    notify_certs(db, [c for c in expiring if c.valid_to <= global_threshold], kind="expiry", force=force)
 
     if not cfg.get("enabled") or not cfg.get("host"):
         return dict(_SMTP_OFF)
@@ -501,7 +549,8 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
                                       doc_links=cfg.get("doc_links") or "")
 
     return _dispatch_cert_mails(db, cfg, expiring, force=force,
-                                make_subject=subject, make_body=body, make_html=html)
+                                make_subject=subject, make_body=body, make_html=html,
+                                global_days=warn_days)
 
 
 def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
@@ -548,13 +597,164 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
                                       doc_links=cfg.get("doc_links") or "")
 
     return _dispatch_cert_mails(db, cfg, expired, force=force,
-                                make_subject=subject, make_body=body, make_html=html)
+                                make_subject=subject, make_body=body, make_html=html,
+                                global_days=int(cfg.get("expiry_warning_days") or 30))
+
+
+def _proposal_label(p: TransferProposal) -> str:
+    """Tek bir devir önerisinin insan-okur özeti (mail satırı)."""
+    old = p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"
+    new = p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"
+    if p.kind == "trusted_add":
+        where = f"trust store: {p.app.app_name}" if p.app else "uygulama trust store"
+    elif p.domain is not None:
+        where = f"domain {p.domain.domain} ({p.mapping_type})"
+    elif p.app_dependency_id is not None:
+        where = "mTLS bağımlılığı"
+    else:
+        where = "-"
+    return f"{old} → {new}  [{where}]"
+
+
+def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
+    head = f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,"
+    lines = "".join(f"  - {_proposal_label(p)}\n" for p in props)
+    return (
+        f"{head}\n\n"
+        f"JUMBO'da onayınızı bekleyen {len(props)} devir önerisi var:\n\n"
+        f"{lines}\n"
+        "Lütfen JUMBO 'Devir Önerileri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
+        "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
+        "onay kuyruğu temizlenir.\n"
+        + _doc_links_text(cfg.get("doc_links") or "")
+        + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+    )
+
+
+def _render_proposal_reminder_html(team: Team | None, props: list, cfg: dict) -> str:
+    head = html_mod.escape(f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,")
+    rows = "".join(
+        f"<tr><td style='padding:8px 12px;border-bottom:1px solid #e5e7eb;"
+        f"font-family:monospace;font-size:13px'>{html_mod.escape(_proposal_label(p))}</td></tr>"
+        for p in props)
+    return (
+        "<div style='font-family:Segoe UI,Arial,sans-serif;color:#1f2937;max-width:640px'>"
+        f"<p>{head}</p>"
+        f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>"
+        "<table style='border-collapse:collapse;width:100%;border:1px solid #e5e7eb;border-radius:6px'>"
+        f"{rows}</table>"
+        "<p>Lütfen JUMBO <b>'Devir Önerileri'</b> ekranından bu önerileri gözden geçirip "
+        "<b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni sertifikayı devreye alır; "
+        "reddedilenler kapanır ve onay kuyruğu temizlenir.</p>"
+        "<p style='color:#6b7280;font-size:12px'>JUMBO Sertifika Yönetimi tarafından otomatik "
+        "gönderilmiştir.</p></div>"
+    )
+
+
+def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> dict:
+    """Onay kuyruğunda BEKLEYEN (status='pending') devir önerileri için ilgili SY ekiplerine
+    hatırlatma gönderir — ekip başına TEK mail, o ekibin tüm bekleyen önerilerini listeler.
+    Amaç: onay kuyruğunu temizlemek. Günlük zamanlanmış job (check_pending_proposals) ve
+    POST /api/notifications/proposal-run bu fonksiyonu kullanır. `force` imza uyumu içindir;
+    dedup YOKTUR — hatırlatma, öneri karara bağlanana dek tekrarlanabilir olmalıdır."""
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    if not cfg.get("enabled") or not cfg.get("host"):
+        return dict(_SMTP_OFF)
+
+    pending = (db.query(TransferProposal)
+               .filter(TransferProposal.status == "pending")
+               .order_by(TransferProposal.sy_team_id, TransferProposal.created_at).all())
+    # Sertifikası silinmiş orphan önerileri atla (savunma; delete zaten temizler)
+    pending = [p for p in pending
+               if db.get(Certificate, p.old_cert_id) and db.get(Certificate, p.new_cert_id)]
+
+    by_team: dict[int, list] = {}
+    ownerless: list = []
+    for p in pending:
+        if p.sy_team_id is None:
+            ownerless.append(p)
+        else:
+            by_team.setdefault(p.sy_team_id, []).append(p)
+
+    sent = skipped = 0
+    for team_id, props in by_team.items():
+        team = db.get(Team, team_id)
+        emails = ([a.strip() for a in (team.email or "").replace(";", ",").split(",") if a.strip()]
+                  if team else [])
+        if not emails:
+            skipped += len(props)
+            continue
+        subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
+        ok, note = _deliver(db, cfg, emails, subject,
+                            _proposal_reminder_text(team, props, cfg),
+                            _render_proposal_reminder_html(team, props, cfg),
+                            certificate_id=None, stakeholder=(team.name if team else None),
+                            days_left=None)
+        if ok:
+            sent += 1
+        else:
+            skipped += len(props)
+            logger.warning("Devir hatırlatması gönderilemedi: %s (%s)",
+                           team.name if team else team_id, note)
+
+    # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
+    if ownerless:
+        fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
+              if a.strip()]
+        if fb:
+            ok, _ = _deliver(db, cfg, fb,
+                             f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
+                             _proposal_reminder_text(None, ownerless, cfg), None,
+                             certificate_id=None, stakeholder="ownerless", days_left=None)
+            if ok:
+                sent += 1
+        else:
+            skipped += len(ownerless)
+
+    return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
+            "message": f"{len(pending)} bekleyen öneri; {sent} hatırlatma gönderildi, {skipped} atlandı."}
+
+
+def check_pending_proposals() -> None:
+    """Zamanlanmış devir-onayı hatırlatma job'ı. `smtp.auto_proposal_reminder_enabled` KAPALIYSA
+    atlar (job zamanlıdır ama mail atmaz). Dış API tetiği (/notifications/proposal-run) bu
+    bayraktan ETKİLENMEZ — send_pending_proposal_notifications'ı DOĞRUDAN çağırır."""
+    db: Session = SessionLocal()
+    try:
+        cfg = get_category(db, "smtp", mask_secrets=False)
+        if not cfg.get("auto_proposal_reminder_enabled", False):
+            logger.info("Devir hatırlatması: otomatik gönderim kapalı — atlandı")
+            return
+        result = send_pending_proposal_notifications(db, force=False)
+        if result["sent"]:
+            logger.info("Devir hatırlatması: %s", result["message"])
+    finally:
+        db.close()
+
+
+def _proposal_reminder_hour() -> int:
+    """Devir-onayı hatırlatmasının saatini smtp ayarından okur (0-23, varsayılan 9)."""
+    db = SessionLocal()
+    try:
+        h = int(get_category(db, "smtp", mask_secrets=False).get("proposal_reminder_hour") or 9)
+        return h if 0 <= h <= 23 else 9
+    except Exception:
+        return 9
+    finally:
+        db.close()
 
 
 def check_expiring_certificates() -> None:
-    """Günlük 08:00 zamanlanmış job — ortak çekirdeği tekrar-önleme AÇIK çağırır."""
+    """Günlük 08:00 zamanlanmış job — ortak çekirdeği tekrar-önleme AÇIK çağırır.
+    `smtp.auto_expiry_enabled` KAPALIYSA otomatik tarama atlanır (job yine zamanlıdır ama
+    mail atmaz). Dış API tetiği (/notifications/expiry-run) bu bayraktan ETKİLENMEZ —
+    send_expiry_notifications'ı DOĞRUDAN çağırır, istendiğinde her zaman gönderir."""
     db: Session = SessionLocal()
     try:
+        cfg = get_category(db, "smtp", mask_secrets=False)
+        if not cfg.get("auto_expiry_enabled", True):
+            logger.info("Süre uyarısı: günlük otomatik tarama kapalı (auto_expiry_enabled=false) — atlandı")
+            return
         result = send_expiry_notifications(db, force=False)
         if result["sent"]:
             logger.info("Süre uyarısı: %s", result["message"])
@@ -654,6 +854,9 @@ def start_scheduler() -> None:
     if not scheduler.running:
         scheduler.add_job(check_expiring_certificates, "cron", hour=8, minute=0,
                           id="expiry-check", replace_existing=True)
+        # Devir-onayı hatırlatması — iş içinde 'smtp.auto_proposal_reminder_enabled' kontrol edilir
+        scheduler.add_job(check_pending_proposals, "cron", hour=_proposal_reminder_hour(), minute=0,
+                          id="proposal-reminder", replace_existing=True)
         scheduler.add_job(check_all_domains, "cron", hour=7, minute=0,
                           id="live-check", replace_existing=True)
         # Ağ keşfi gece taraması — iş içinde 'discovery.enabled' kontrol edilir (kapalıysa atlar)

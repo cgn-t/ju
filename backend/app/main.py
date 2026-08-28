@@ -55,9 +55,9 @@ def ensure_initial_admin() -> None:
 
 
 def ensure_service_user() -> None:
-    """Otomasyon için servis kullanıcısı tohumlar (AUTOMATION_USERNAME + PASSWORD set ise) ve onu
-    ADMIN takımına ekler. RBAC: yetki takım üyeliğinden gelir; takımsız kalırsa effective role 'none'
-    → vault-sync/propose 403 olurdu. Güvenilir servis olduğundan ADMIN takımı verilir."""
+    """Otomasyon için servis kullanıcısı tohumlar (AUTOMATION_USERNAME + PASSWORD set ise). Rol
+    doğrudan 'admin' atanır (users.role TEK KAYNAK, bkz. security.effective_role); ayrıca ADMIN
+    takımına da eklenir (roster/görünürlük tutarlılığı için — üyeliğin kendisi yetki VERMEZ)."""
     settings = get_settings()
     if not settings.automation_username:
         return
@@ -243,14 +243,20 @@ def ensure_new_columns() -> None:
             "key_size": INT, "public_key_type": V(20), "key_curve": V(50), "signature_hash": V(50),
             # İptal (revocation) durumu — OCSP/CRL ile denetlenir (null = denetlenmemiş, backfill yok).
             "revocation_status": V(20), "revocation_checked_at": DT, "revocation_detail": TXT,
+            # Ortam etiketi (prod|test) — nullable, backfill yok; yalnız manuel formda UI zorunlu kılar.
+            "environment": V(20),
         },
         "domain_certificates": {
             "sy_team_id": INT, "ug_team_id": INT, "ug_team_name": V(255),
             "servers_to_update": V(500),
             "live_check_status": V(20), "live_check_detail": TXT, "live_check_at": DT,
             "created_at": DT, "updated_at": DT,
+            "notify_days": INT,  # domain-başına süre-uyarı gün sayısı (NULL = global)
         },
         "applications": {"domain_id": INT, "sy_team_id": INT, "ug_team_id": INT},
+        # trusted_add önerileri: hedef uygulama (app_id) + öneri türü (kind). Grain index'i
+        # app_id'yi de içerir — mevcut DB'de index schema-NEW.sql ile yeniden oluşturulur.
+        "transfer_proposals": {"app_id": INT, "kind": V(20)},
         "users": {
             "full_name": V(255), "role": V(20), "auth_source": V(10),
             "is_active": BIT, "last_login": DT,

@@ -18,6 +18,7 @@ import Policy from './pages/Policy'
 import Proposals from './pages/Proposals'
 import Settings from './pages/Settings'
 import { createAppTheme, type ThemeMode } from './theme'
+import { usePageAccess } from './hooks/usePageAccess'
 
 const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -47,10 +48,16 @@ function Protected() {
   return <AppLayout />
 }
 
-// Yalnız admin: aksi halde ana sayfaya yönlendir (Keşif admin-only — nav'da da gizli).
-function AdminRoute({ children }: { children: ReactNode }) {
-  const { isAdmin } = useAuth()
-  return isAdmin ? <>{children}</> : <Navigate to="/" replace />
+// Uyum/Devir Önerisi/Keşif/Dağıtım: varsayılan admin+allviewer (+ Devir Önerisi'nde SY üyeleri
+// kendi teklifleri için), Ayarlar>Erişim'den herkese açılabilir (bkz. security.page_visible).
+// Yükleme bitmeden YÖNLENDİRME yapma — aksi halde admin'in doğrudan/refresh erişimi anlık "/"e
+// sıçrar (auth-me henüz cache'e gelmeden isLoading=false sanılırsa yanlış-negatif redirect olur).
+function PageAccessRoute({ page, children }: {
+  page: 'policy' | 'proposals' | 'discovery' | 'deployments'; children: ReactNode
+}) {
+  const access = usePageAccess()
+  if (access.isLoading) return null
+  return access[page] ? <>{children}</> : <Navigate to="/" replace />
 }
 
 // /settings artık HERKESE açık: admin tüm sekmeleri, diğer kullanıcılar yalnız 'Etiketler'
@@ -83,12 +90,12 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/certificates" element={<Certificates />} />
                   <Route path="/domains" element={<Domains />} />
-                  <Route path="/proposals" element={<Proposals />} />
+                  <Route path="/proposals" element={<PageAccessRoute page="proposals"><Proposals /></PageAccessRoute>} />
                   <Route path="/cert-map" element={<CertMap />} />
                   <Route path="/applications" element={<Applications />} />
-                  <Route path="/policy" element={<Policy />} />
-                  <Route path="/discovery" element={<AdminRoute><Discovery /></AdminRoute>} />
-                  <Route path="/deployments" element={<AdminRoute><Deployments /></AdminRoute>} />
+                  <Route path="/policy" element={<PageAccessRoute page="policy"><Policy /></PageAccessRoute>} />
+                  <Route path="/discovery" element={<PageAccessRoute page="discovery"><Discovery /></PageAccessRoute>} />
+                  <Route path="/deployments" element={<PageAccessRoute page="deployments"><Deployments /></PageAccessRoute>} />
                   <Route path="/settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

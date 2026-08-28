@@ -13,8 +13,9 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   Box, Button, Card, CardActions, CardContent, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, Grid, IconButton, InputAdornment, MenuItem, Paper, Skeleton, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
+  DialogTitle, Grid, IconButton, InputAdornment, MenuItem, Paper, Skeleton,
+  Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
+  Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -23,33 +24,58 @@ import { useSearchParams } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Domain } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import DomainDetailDrawer from '../components/DomainDetailDrawer'
 import DomainFormDialog from '../components/DomainFormDialog'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { daysLeftColor, daysLeftLabel } from '../theme'
+import { daysLeftColor, daysLeftLabel, mappingTypeLabel } from '../theme'
 import { exportCsv } from '../utils/csv'
 
 type StatusFilter = 'all' | 'valid' | 'expiring' | 'expired' | 'nocert'
 
 function domainStatus(d: Domain): StatusFilter {
   const days = d.server_days_left ?? d.client_days_left
+  return certStatus(days)
+}
+
+// Tek bir "kalan gün" değerinin durumu — kolon (server/client) filtresinde kullanılır.
+function certStatus(days: number | null | undefined): StatusFilter {
   if (days === null || days === undefined) return 'nocert'
   if (days < 0) return 'expired'
   if (days <= 30) return 'expiring'
   return 'valid'
 }
 
+const STATUS_OPTS = [
+  { value: 'all', label: 'Tümü' },
+  { value: 'valid', label: 'Geçerli' },
+  { value: 'expiring', label: 'Yaklaşan (≤30g)' },
+  { value: 'expired', label: 'Süresi Dolmuş' },
+  { value: 'nocert', label: 'Sertifikasız' },
+]
+
+// Domain tablosu kolon-başı (huni) filtreleri — metin kolonları + server/client durum kolonları.
+const COLS: ColDef<Domain>[] = [
+  { key: 'domain', label: 'Domain', kind: 'text', get: (d) => d.domain },
+  { key: 'sy', label: 'SY Takımı', kind: 'text', get: (d) => d.sy_team?.name },
+  { key: 'ug', label: 'UG Takımı', kind: 'text', get: (d) => d.ug_team_name ?? d.ug_team?.name },
+  { key: 'server', label: 'Server Sertifika', kind: 'status', options: STATUS_OPTS, get: (d) => certStatus(d.server_days_left) },
+  { key: 'client', label: 'Trusted Sertifika', kind: 'status', options: STATUS_OPTS, get: (d) => certStatus(d.client_days_left) },
+  { key: 'email', label: 'E-Mail', kind: 'text', get: (d) => d.sy_team?.email },
+]
+
 export default function Domains() {
   useDocumentTitle('Domainler')
   const { canEdit } = useAuth()
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [view, setView] = useState<'cards' | 'table'>('cards')
+  const [view, setView] = useState<'cards' | 'table'>('table')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const cf = useColumnFilters(COLS)  // tablo kolon-başı (huni) filtreleri
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Domain | null>(null)
   const [detailId, setDetailId] = useState<number | null>(null)
@@ -100,20 +126,25 @@ export default function Domains() {
     [domains, status, syFilter],
   )
 
+  // Kolon-başı (huni) filtreleri genel arama/durum filtresinin ÜSTÜNE uygulanır.
+  const tableRows = useMemo(() => filtered.filter(cf.matches), [filtered, cf.values])
+  // CSV/sayaç: tablo görünümünde kolon filtreleri de dâhil "görünen" set.
+  const visibleRows = view === 'table' ? tableRows : filtered
+
   const handleExport = () => {
     // DB'deki tüm domain kolonları + türetilen alanlar — eksiksiz dışa aktarım
     exportCsv('domainler.csv',
       ['domain', 'external_address', 'sy', 'ug', 'cert_owner', 'external_company',
        'mail_addresses', 'expire_date', 'lb_update', 'waf_update', 'env_update',
        'servers_to_update', 'action_required', 'ssl_pinning', 'keystore', 'info',
-       'server_kalan_gun', 'client_kalan_gun', 'sertifikalar',
+       'server_kalan_gun', 'trusted_kalan_gun', 'sertifikalar',
        'canli_dogrulama', 'son_kontrol'],
-      filtered.map((d) => [d.domain, d.external_address, d.sy_team?.name, d.ug_team_name ?? d.ug_team?.name,
+      visibleRows.map((d) => [d.domain, d.external_address, d.sy_team?.name, d.ug_team_name ?? d.ug_team?.name,
                            d.cert_owner, d.external_company, d.mail_addresses, d.expire_date,
                            d.lb_update, d.waf_update, d.env_update, d.servers_to_update,
                            d.action_required, d.ssl_pinning, d.keystore, d.info,
                            d.server_days_left, d.client_days_left,
-                           d.certificates.map((c) => `${c.name}(${c.mapping_type})`).join(' '),
+                           d.certificates.map((c) => `${c.name}(${mappingTypeLabel(c.mapping_type)})`).join(' '),
                            d.live_check_status, d.live_check_at]))
   }
 
@@ -190,9 +221,12 @@ export default function Domains() {
         {syFilter && (
           <Chip label={`SY: ${syFilter}`} color="success" onDelete={() => setSearchParams({})} />
         )}
+        {cf.anyActive && (
+          <Chip label="Kolon filtreleri" color="primary" variant="outlined" onDelete={cf.clearAll} />
+        )}
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" color="text.secondary">
-          {filtered.length} / {counts.total} domain
+          {visibleRows.length} / {counts.total} domain
         </Typography>
         <Tooltip title="Görünen listeyi CSV olarak indirir">
           <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon />}
@@ -237,7 +271,7 @@ export default function Domains() {
                       <Chip size="small" color={daysLeftColor(d.server_days_left)}
                             label={`Server: ${d.server_days_left != null ? daysLeftLabel(d.server_days_left) : '—'}`} />
                       <Chip size="small" variant="outlined" color={daysLeftColor(d.client_days_left)}
-                            label={`Client: ${d.client_days_left != null ? daysLeftLabel(d.client_days_left) : '—'}`} />
+                            label={`Trusted: ${d.client_days_left != null ? daysLeftLabel(d.client_days_left) : '—'}`} />
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
                       {d.sy_team?.email && (
@@ -265,17 +299,12 @@ export default function Domains() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Domain</TableCell>
-                <TableCell>SY Takımı</TableCell>
-                <TableCell>UG Takımı</TableCell>
-                <TableCell>Server Sertifika</TableCell>
-                <TableCell>Client Sertifika</TableCell>
-                <TableCell>E-Mail</TableCell>
+                {COLS.map((c) => <ColHeaderCell key={c.key} def={c} cf={cf} />)}
                 <TableCell align="right">İşlemler</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filtered.map((d) => (
+              {tableRows.map((d) => (
                 <TableRow key={d.id} hover>
                   <TableCell sx={{ fontWeight: 600 }}>{d.domain}</TableCell>
                   <TableCell>{d.sy_team?.name ?? '—'}</TableCell>
@@ -294,10 +323,21 @@ export default function Domains() {
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>{actions(d)}</TableCell>
                 </TableRow>
               ))}
+              {tableRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7}>
+                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+                      Filtreyle eşleşen domain yok
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </Paper>
       )}
+
+      <ColumnFilterMenu cf={cf} facetRows={filtered} />
 
       <DomainFormDialog open={formOpen} onClose={() => setFormOpen(false)} domain={editTarget} />
       <DomainDetailDrawer domainId={detailId} onClose={() => setDetailId(null)} />

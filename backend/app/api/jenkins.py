@@ -1,4 +1,6 @@
-"""Jenkins tetikleme uçları (admin-only). Genel: herhangi bir job'u parametrelerle başlatır.
+"""Jenkins tetikleme uçları. Görme (jobs/builds) varsayılan admin+allviewer'a açık; Ayarlar >
+Erişim'den (access.deployments_all_roles) tüm rollere açılabilir. Tetikleme (trigger) HER
+DURUMDA admin-only — canlı sertifika dağıtımını başlatan hassas aksiyon.
 
 NetScaler cert-deploy bu genel tetiğin bir kullanımıdır — frontend 'Dağıt' butonu bu uca
 {job: <netscaler_job>, params: {CERTKEY, VAULT_PATH, ...}} gönderir. Custody yok.
@@ -7,7 +9,7 @@ NetScaler cert-deploy bu genel tetiğin bir kullanımıdır — frontend 'Dağı
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.core.security import require_role
+from app.core.security import require_page_access, require_role
 from app.db.models import User
 from app.db.session import get_db
 from app.services.audit import log_action
@@ -17,7 +19,8 @@ router = APIRouter(prefix="/api/jenkins", tags=["jenkins"])
 
 
 @router.get("/jobs")
-def list_jobs(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+def list_jobs(db: Session = Depends(get_db),
+             _: User = Depends(require_page_access("deployments"))):
     """Tetiklenebilir Jenkins job adları (genel 'Job Tetikle' arayüzü için)."""
     client = JenkinsClient(db)
     if not client.is_available():
@@ -29,7 +32,8 @@ def list_jobs(db: Session = Depends(get_db), _: User = Depends(require_role("adm
 
 
 @router.get("/job/{job}/builds")
-def job_builds(job: str, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+def job_builds(job: str, db: Session = Depends(get_db),
+               _: User = Depends(require_page_access("deployments"))):
     """Bir job'un son build'leri (Dağıtım sayfası canlı geçmişi). Erişilemezse boş liste + 502."""
     client = JenkinsClient(db)
     if not client.is_available():
