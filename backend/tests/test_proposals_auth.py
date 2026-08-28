@@ -40,6 +40,22 @@ def _domain_with_sy(client, admin, name, sy_team_id):
     return r.json()["id"]
 
 
+def _app(client, admin, name, sy_team_id):
+    r = client.post("/api/applications", headers=admin,
+                    json={"app_name": name, "server_name": name, "sy_team_id": sy_team_id})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _dep(client, admin, app_id, domain_id):
+    """mTLS bağımlılığı: client sertifikası ELLE seçilmez, hedef domainin AKTİF server
+    sertifikası otomatik izlenir."""
+    r = client.post(f"/api/applications/{app_id}/dependencies", headers=admin,
+                    json={"target_domain_id": domain_id})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
 def _setup_pending_proposal(client, admin, cn, sy_team_id):
     """Bir domain için v1 eşle, v2 import et → manuel supersede ile öneri üret. (proposal_id, v1, v2)."""
     ca, ca_key = certgen.make_ca(f"{cn} CA")
@@ -323,3 +339,120 @@ def test_manual_creator_can_cancel_own_cross_team_proposal(client, auth_headers)
     assert p_z["sy_team_id"] == tz and p_z["via"] == "manual" and p_z["created_by"] == "e_member6b"
     # E TeamZ üyesi DEĞİL ama KENDİ manuel önerisini iptal edebilir (200)
     assert client.post(f"/api/proposals/{p_z['id']}/cancel", headers=eh).status_code == 200
+
+
+def test_domain_sy_change_rehomes_open_proposal(client, auth_headers):
+    """Domain'in sy_team_id'si değişince, o domain'e ait AÇIK (pending) devir önerisinin
+    sy_team_id'si de yeni sahibe taşınır (domains.py::update_domain sy_changed bloğu) —
+    aksi halde öneri eski ekipte kalır ve yeni sahip onaylayamazdı."""
+    t1 = _sy_team(client, auth_headers, "TeamRehomeDom1")
+    t2 = _sy_team(client, auth_headers, "TeamRehomeDom2")
+    prop_id, v1_id, v2_id, domain_id = _setup_pending_proposal(
+        client, auth_headers, "rehome-dom.example.com", t1)
+    prop = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+               if p["id"] == prop_id)
+    assert prop["sy_team_id"] == t1, "öneri başlangıçta T1'de olmalı"
+
+    assert client.put(f"/api/domains/{domain_id}", headers=auth_headers,
+                      json={"sy_team_id": t2}).status_code == 200
+
+    prop_after = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+                      if p["id"] == prop_id)
+    assert prop_after["sy_team_id"] == t2, "açık öneri yeni sahibe (T2) taşınmalı"
+
+
+def test_app_sy_change_rehomes_dependency_proposal(client, auth_headers):
+    """Uygulamanın sy_team_id'si değişince, mTLS bağımlılığına ait AÇIK devir önerisinin
+    sy_team_id'si de yeni sahibe taşınır (applications.py::update_application sy_changed
+    bloğu, dep_ids filtresi) — trusted_add dışındaki (dep-tabanlı) önerileri de kapsar."""
+    t1 = _sy_team(client, auth_headers, "TeamRehomeDep1")
+    t2 = _sy_team(client, auth_headers, "TeamRehomeDep2")
+    ca, ca_key = certgen.make_ca("Rehome Dep CA")
+    v1, _ = certgen.make_leaf(ca, ca_key, "rehome-dep.example.com", not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "rehome-dep.example.com", not_before=datetime(2026, 4, 1))
+    v1_id = next(c["id"] for c in _import_pem(
+        client, auth_headers, certgen.pem(v1) + certgen.pem(ca)).json() if c["cert_type"] == "leaf")
+    v2_id = _import_pem(client, auth_headers, certgen.pem(v2)).json()[0]["id"]
+    domain_id = _domain_with_sy(client, auth_headers, "rehome-dep.example.com", t1)
+    client.post(f"/api/domains/{domain_id}/certificates", headers=auth_headers,
+               json={"certificate_id": v1_id, "mapping_type": "server"})
+    app_id = _app(client, auth_headers, "RehomeDepApp", t1)
+    dep_id = _dep(client, auth_headers, app_id, domain_id)
+
+    r = client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["proposed"] >= 1
+    prop = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+               if p.get("app_dependency_id") == dep_id)
+    assert prop["sy_team_id"] == t1
+
+    assert client.put(f"/api/applications/{app_id}", headers=auth_headers,
+                      json={"sy_team_id": t2}).status_code == 200
+
+    prop_after = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+                      if p["id"] == prop["id"])
+    assert prop_after["sy_team_id"] == t2, "dep-tabanlı öneri yeni sahibe (T2) taşınmalı"
+
+
+def test_deleting_domain_clears_its_proposals(client, auth_headers):
+    """Domain silinince ona ait devir önerileri de düşer (orphan öneri kalmaz; MSSQL FK
+    NO ACTION uyumu için domains.py::delete_domain uygulama seviyesinde elle temizler)."""
+    team_id = _sy_team(client, auth_headers, "TeamDomDelete")
+    prop_id, v1_id, v2_id, domain_id = _setup_pending_proposal(
+        client, auth_headers, "domdelete.example.com", team_id)
+    assert any(p["id"] == prop_id for p in client.get("/api/proposals", headers=auth_headers).json())
+
+    assert client.delete(f"/api/domains/{domain_id}", headers=auth_headers).status_code == 200
+    assert all(p["id"] != prop_id for p in client.get("/api/proposals", headers=auth_headers).json())
+
+
+def test_deleting_application_clears_dependency_proposals(client, auth_headers):
+    """Uygulama silinince ona bağlı mTLS bağımlılıklarının devir önerileri de düşer
+    (applications.py::delete_application, dep_ids üzerinden elle temizlik)."""
+    team_id = _sy_team(client, auth_headers, "TeamAppDelete")
+    ca, ca_key = certgen.make_ca("AppDelete CA")
+    v1, _ = certgen.make_leaf(ca, ca_key, "appdelete.example.com", not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "appdelete.example.com", not_before=datetime(2026, 4, 1))
+    v1_id = next(c["id"] for c in _import_pem(
+        client, auth_headers, certgen.pem(v1) + certgen.pem(ca)).json() if c["cert_type"] == "leaf")
+    v2_id = _import_pem(client, auth_headers, certgen.pem(v2)).json()[0]["id"]
+    domain_id = _domain_with_sy(client, auth_headers, "appdelete.example.com", team_id)
+    client.post(f"/api/domains/{domain_id}/certificates", headers=auth_headers,
+               json={"certificate_id": v1_id, "mapping_type": "server"})
+    app_id = _app(client, auth_headers, "AppDeleteApp", team_id)
+    dep_id = _dep(client, auth_headers, app_id, domain_id)
+
+    r = client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["proposed"] >= 1
+    dep_prop = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+                    if p.get("app_dependency_id") == dep_id)
+
+    assert client.delete(f"/api/applications/{app_id}", headers=auth_headers).status_code == 200
+    assert all(p["id"] != dep_prop["id"]
+              for p in client.get("/api/proposals", headers=auth_headers).json())
+
+
+def test_deleting_dependency_clears_its_proposal(client, auth_headers):
+    """Tek bir mTLS bağımlılığı (dependency) silinince, yalnız ONA ait devir önerisi düşer
+    (applications.py::delete_dependency elle temizlik) — uygulamanın kendisi silinmez."""
+    team_id = _sy_team(client, auth_headers, "TeamDepDelete")
+    ca, ca_key = certgen.make_ca("DepDelete CA")
+    v1, _ = certgen.make_leaf(ca, ca_key, "depdelete.example.com", not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "depdelete.example.com", not_before=datetime(2026, 4, 1))
+    v1_id = next(c["id"] for c in _import_pem(
+        client, auth_headers, certgen.pem(v1) + certgen.pem(ca)).json() if c["cert_type"] == "leaf")
+    v2_id = _import_pem(client, auth_headers, certgen.pem(v2)).json()[0]["id"]
+    domain_id = _domain_with_sy(client, auth_headers, "depdelete.example.com", team_id)
+    client.post(f"/api/domains/{domain_id}/certificates", headers=auth_headers,
+               json={"certificate_id": v1_id, "mapping_type": "server"})
+    app_id = _app(client, auth_headers, "DepDeleteApp", team_id)
+    dep_id = _dep(client, auth_headers, app_id, domain_id)
+
+    r = client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["proposed"] >= 1
+    dep_prop = next(p for p in client.get("/api/proposals", headers=auth_headers).json()
+                    if p.get("app_dependency_id") == dep_id)
+
+    assert client.delete(f"/api/applications/dependencies/{dep_id}",
+                         headers=auth_headers).status_code == 200
+    assert all(p["id"] != dep_prop["id"]
+              for p in client.get("/api/proposals", headers=auth_headers).json())

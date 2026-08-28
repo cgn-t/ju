@@ -11,6 +11,8 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime
 
+from app.db.models import Certificate
+from app.db.session import SessionLocal
 from tests import certgen
 
 
@@ -548,3 +550,81 @@ def test_fingerprint_unique_index_enforced():
         db.commit()
     finally:
         db.close()
+
+
+def test_apply_transfers_vault_path_from_old_to_new(client, auth_headers):
+    """apply_proposal onayında old_cert'in vault_path'i new_cert'e TAŞINIR ve old_cert'te
+    None kalır (renewal.py:293-298) — bu davranış şimdiye kadar hiçbir testte doğrudan
+    doğrulanmamıştı (test_vault_sync_proposes_livecheck_marks_evidence_then_approve
+    yalnız vault-sync'in v2'ye ATADIĞI vault_path'i onaydan ÖNCE kontrol ediyor; apply
+    zamanındaki old→new devrini hiç tetiklemiyor çünkü o testte old_cert'in vault_path'i
+    zaten boş)."""
+    ca, ca_key = certgen.make_ca("VaultPath Transfer CA")
+    v1, _ = certgen.make_leaf(ca, ca_key, "vpath-old.example.com", not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "vpath-new.example.com", not_before=datetime(2026, 3, 1))
+    r1 = _import_pem(client, auth_headers, certgen.pem(v1) + certgen.pem(ca))
+    v1_id = next(c["id"] for c in r1.json() if c["cert_type"] == "leaf")
+    v2_id = _import_pem(client, auth_headers, certgen.pem(v2)).json()[0]["id"]
+
+    domain_id = _make_domain(client, auth_headers, "vpath-domain.test")
+    assert _attach(client, auth_headers, domain_id, v1_id).status_code == 200
+
+    # old cert'in DAHA ÖNCE vault'tan senkronlanmış gibi bir vault_path'i olduğunu simüle et
+    db = SessionLocal()
+    try:
+        db.get(Certificate, v1_id).vault_path = "certs/vpath-demo"
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert _approve_all(client, auth_headers, new_id=v2_id, old_id=v1_id) >= 1
+
+    v1_after = client.get(f"/api/certificates/{v1_id}", headers=auth_headers).json()
+    v2_after = client.get(f"/api/certificates/{v2_id}", headers=auth_headers).json()
+    assert v1_after["vault_path"] is None, "old cert'in vault_path'i devir sonrası boşalmalı"
+    assert v2_after["vault_path"] == "certs/vpath-demo", "vault_path new cert'e taşınmalı"
+
+
+def test_import_chain_proposes_for_unrelated_active_server(client, auth_headers):
+    """Domain'e ÖNCEDEN bağlı, TAMAMEN İLGİSİZ (farklı CA/subject/SKI — öncül sinyali
+    paylaşmayan) bir aktif server sertifikası varken import-chain FARKLI bir leaf getirirse
+    bu SESSİZCE GÖRMEZDEN GELİNMEZ: domains.py'deki 'öncül olarak yakalanmayan mevcut server
+    sertifikaları da devir önerisi olur' fallback'i (propose_attach_transfer) devreye girer."""
+    old_ca, old_ca_key = certgen.make_ca("Unrelated Old CA")
+    old_leaf, _ = certgen.make_leaf(old_ca, old_ca_key, "unrelated-old.example.com",
+                                    not_before=datetime(2026, 1, 1))
+    r = _import_pem(client, auth_headers, certgen.pem(old_leaf) + certgen.pem(old_ca))
+    old_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+
+    served_ca, served_ca_key = certgen.make_ca("Served New CA")
+    served_leaf, served_key = certgen.make_leaf(
+        served_ca, served_ca_key, "served-new.example.com", not_before=datetime(2026, 3, 1))
+
+    with _tls_server(certgen.pem(served_leaf) + certgen.pem(served_ca),
+                     certgen.key_pem(served_key)) as port:
+        domain_id = _make_domain(client, auth_headers, f"127.0.0.1:{port}(attach-fallback)")
+        assert _attach(client, auth_headers, domain_id, old_id).status_code == 200
+
+        r = client.post(f"/api/domains/{domain_id}/import-chain", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        result = r.json()
+        assert result["mapped_server"] is None, (
+            "domainde zaten aktif bir server sertifikası var, yeni leaf doğrudan eklenmemeli")
+        assert any("unrelated-old" in s for s in result["superseded"]), (
+            f"öncül-olmayan eski sertifika görmezden gelinmemeli, devir önerisine konu olmalı: {result}")
+        assert any("served-new" in c for c in result["created"]), (
+            f"sunucunun sunduğu yeni leaf import edilmiş olmalı: {result}")
+
+        props = [p for p in _proposals(client, auth_headers)
+                if p["old_cert_id"] == old_id and p["domain_id"] == domain_id]
+        assert len(props) == 1, f"tam olarak 1 attach-devir önerisi bekleniyor: {props}"
+        assert props[0]["mapping_type"] == "server"
+
+        # devir HENÜZ olmadı: eski hâlâ aktif ve domain'in TEK server eşlemesi hâlâ eski
+        old_after = client.get(f"/api/certificates/{old_id}", headers=auth_headers).json()
+        assert old_after["is_active"] is True
+        dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
+        assert [c["certificate_id"] for c in dom["certificates"]
+                if c["mapping_type"] == "server"] == [old_id]

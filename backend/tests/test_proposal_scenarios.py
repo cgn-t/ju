@@ -279,3 +279,36 @@ def test_scn_competing_successors_no_double_mapping(client, auth_headers):
     _approve(client, h, p3["id"])                       # yuva DOLU → ikinci eşleme EKLENMEMELİ (no-op)
     assert _server_certs(client, h, dom) == [v2], \
         "domain TEK server cert taşımalı; rakip halef yuvayı doldurduğundan v3 eklenmez (Bug #1)"
+
+
+# 8 — Cross-granül: server onayı + dep RED → eski, hâlâ bağımlılığı olduğu için AKTİF kalır.
+# Senaryo #2'nin (çoklu granül) ikiz kardeşi ama dep onayı yerine RED ediliyor — bu kombinasyon
+# hiçbir testte kapsanmıyordu (_maybe_deactivate_old'daki has_deps kontrolünün tam olarak
+# koruduğu durum).
+def test_scn_server_approve_dep_reject_old_stays_active(client, auth_headers):
+    h = auth_headers
+    ca, v1, v2 = _v1v2("scn-cross.test")
+    v1_id = _leaf_id(_import(client, h, certgen.pem(v1) + certgen.pem(ca)))
+    dom = _domain(client, h, "scn-cross-dom.test")
+    _attach(client, h, dom, v1_id)                      # v1 = domainin server cert'i
+    sy = _team(client, h, "SCN-Cross-SY")
+    app_id = _app(client, h, "SCN-Cross-App", sy)
+    dep = _dep(client, h, app_id, dom)                  # bağımlılık v1'i izler
+    assert dep["client_cert_id"] == v1_id
+
+    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    props = {p["mapping_type"] or ("dep" if p["app_dependency_id"] else "?"): p
+             for p in _pending(client, h) if p["new_cert_id"] == v2_id}
+    assert "server" in props and "dep" in props, f"iki granül önerisi bekleniyor: {props.keys()}"
+
+    _approve(client, h, props["server"]["id"])          # domain devri ONAYLANDI
+    _reject(client, h, props["dep"]["id"])              # mTLS bağımlılık devri REDDEDİLDİ
+
+    assert _server_certs(client, h, dom) == [v2_id], "server eşlemesi v2'ye taşınmalı"
+    # Reddedilen öneri HİÇBİR mutasyon yapmaz — dep hâlâ v1'i izliyor
+    assert _dep_client_id(client, h, app_id, dep["id"]) == v1_id, \
+        "reddedilen dep önerisi bağımlılığı taşımamalı"
+    # Tüm açık öneriler kapandı (biri applied, biri rejected) AMA eski cert hâlâ bir mTLS
+    # bağımlılığına bağlı olduğundan PASİFE ALINAMAZ (_maybe_deactivate_old has_deps kontrolü)
+    assert _active(v1_id) is True, \
+        "eski cert hâlâ bir mTLS bağımlılığına bağlı, tüm önerilerin kapanmasına rağmen aktif kalmalı"
