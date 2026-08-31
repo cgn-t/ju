@@ -11,6 +11,8 @@ import CertMap from './pages/CertMap'
 import Certificates from './pages/Certificates'
 import Dashboard from './pages/Dashboard'
 import Deployments from './pages/Deployments'
+import DeploymentRunDetail from './pages/DeploymentRunDetail'
+import DeploymentRunsAll from './pages/DeploymentRunsAll'
 import Discovery from './pages/Discovery'
 import Domains from './pages/Domains'
 import Login from './pages/Login'
@@ -66,7 +68,7 @@ function PageAccessRoute({ page, children }: {
 
 export default function App() {
   const [mode, setMode] = useState<ThemeMode>(
-    (localStorage.getItem('jumbo_theme') as ThemeMode) || 'dark',
+    (localStorage.getItem('jumbo_theme') as ThemeMode) || 'light',
   )
   const theme = useMemo(() => createAppTheme(mode), [mode])
   const toggle = () => {
@@ -96,6 +98,8 @@ export default function App() {
                   <Route path="/policy" element={<PageAccessRoute page="policy"><Policy /></PageAccessRoute>} />
                   <Route path="/discovery" element={<PageAccessRoute page="discovery"><Discovery /></PageAccessRoute>} />
                   <Route path="/deployments" element={<PageAccessRoute page="deployments"><Deployments /></PageAccessRoute>} />
+                  <Route path="/deployments/runs" element={<PageAccessRoute page="deployments"><DeploymentRunsAll /></PageAccessRoute>} />
+                  <Route path="/deployments/runs/:runId" element={<PageAccessRoute page="deployments"><DeploymentRunDetail /></PageAccessRoute>} />
                   <Route path="/settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

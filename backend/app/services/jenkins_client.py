@@ -71,16 +71,45 @@ class JenkinsClient:
             return False, f"Jenkins bağlantı hatası: {exc}"
         return True, "Jenkins erişilebilir, kimlik doğrulandı"
 
+    @staticmethod
+    def _job_path(job: str) -> str:
+        """Kalifiye job adını ('Folder/Sub/job') Jenkins REST yoluna çevirir: job/Folder/job/Sub/job/job.
+        Klasörsüz job'larda (çoğunluk) tek segment olduğundan davranış DEĞİŞMEZ."""
+        segments = [s for s in job.split("/") if s]
+        return "/".join(f"job/{s}" for s in segments)
+
+    def _list_jobs_recursive(self, c: httpx.Client, folder: str, depth: int = 0) -> list[str]:
+        """Bir klasörün (veya kökün) içindeki job'ları listeler; alt klasörlere (Folder eklentisi)
+        OTOMATİK iner — kullanıcı yeni bir alt klasör açtığında ayar değiştirmesi gerekmez.
+        depth, olası döngü/aşırı derinliğe karşı güvenlik sınırı (Jenkins klasör yapıları sığdır)."""
+        if depth > 5:
+            return []
+        path = f"/{self._job_path(folder)}" if folder else ""
+        r = c.get(f"{path}/api/json", params={"tree": "jobs[name,_class]"})
+        r.raise_for_status()
+        result: list[str] = []
+        for j in r.json().get("jobs", []):
+            name = j.get("name")
+            if not name:
+                continue
+            full = f"{folder}/{name}" if folder else name
+            if "folder" in (j.get("_class") or "").lower():
+                result.extend(self._list_jobs_recursive(c, full, depth + 1))
+            else:
+                result.append(full)
+        return result
+
     def list_jobs(self) -> list[str]:
+        """Tetiklenebilir job adları — 'jobs_folder' ayarlanmışsa YALNIZ o klasörün altından
+        (alt klasörler dahil, özyinelemeli), boşsa Jenkins kökünden taranır."""
+        folder = (self.config.get("jobs_folder") or "").strip().strip("/")
         with self._client() as c:
-            r = c.get("/api/json?tree=jobs[name]")
-            r.raise_for_status()
-            return [j["name"] for j in r.json().get("jobs", []) if j.get("name")]
+            return self._list_jobs_recursive(c, folder)
 
     def recent_builds(self, job: str, limit: int = 8) -> list[dict]:
         """Son build'ler (numara/sonuç/çalışıyor/zaman/süre) — Dağıtım sayfası geçmişi için."""
         with self._client() as c:
-            r = c.get(f"/job/{job}/api/json",
+            r = c.get(f"/{self._job_path(job)}/api/json",
                       params={"tree": f"builds[number,result,building,timestamp,duration]{{0,{limit}}}"})
             r.raise_for_status()
             return [{
@@ -91,24 +120,90 @@ class JenkinsClient:
                 "duration": b.get("duration"),
             } for b in r.json().get("builds", [])]
 
-    def trigger_job(self, job: str, params: dict) -> tuple[bool, str]:
-        """Job'u buildWithParameters ile tetikler → (ok, kullanıcıya mesaj[+kuyruk konumu])."""
+    def _trigger(self, job: str, params: dict) -> tuple[bool, str, str | None]:
+        """Ortak tetikleme: buildWithParameters + CSRF crumb → (ok, mesaj, ham kuyruk Location URL'i).
+        trigger_job/trigger_job_tracked bunu sarar — istek gövdesi/hata mesajları TEK yerde."""
         if not job:
-            return False, "Job adı boş"
+            return False, "Job adı boş", None
         if not self.is_available():
-            return False, "Jenkins entegrasyonu etkin değil"
+            return False, "Jenkins entegrasyonu etkin değil", None
         try:
             with self._client() as c:
                 headers = self._crumb(c)
-                r = c.post(f"/job/{job}/buildWithParameters", data=params, headers=headers)
+                r = c.post(f"/{self._job_path(job)}/buildWithParameters", data=params, headers=headers)
                 if r.status_code in (200, 201):
-                    queue = r.headers.get("Location", "")
+                    queue = r.headers.get("Location", "") or None
                     tail = queue.rstrip("/").rsplit("/", 1)[-1] if queue else ""
-                    return True, f"'{job}' tetiklendi" + (f" (kuyruk #{tail})" if tail else "")
+                    return True, f"'{job}' tetiklendi" + (f" (kuyruk #{tail})" if tail else ""), queue
                 if r.status_code == 404:
-                    return False, f"Job bulunamadı: '{job}'"
+                    return False, f"Job bulunamadı: '{job}'", None
                 if r.status_code in (401, 403):
-                    return False, f"Yetki/CSRF hatası (HTTP {r.status_code}) — kullanıcı/token veya crumb?"
-                return False, f"Tetikleme başarısız (HTTP {r.status_code})"
+                    return False, f"Yetki/CSRF hatası (HTTP {r.status_code}) — kullanıcı/token veya crumb?", None
+                return False, f"Tetikleme başarısız (HTTP {r.status_code})", None
         except httpx.HTTPError as exc:
-            return False, f"Jenkins bağlantı hatası: {exc}"
+            return False, f"Jenkins bağlantı hatası: {exc}", None
+
+    def trigger_job(self, job: str, params: dict) -> tuple[bool, str]:
+        """Job'u buildWithParameters ile tetikler → (ok, kullanıcıya mesaj[+kuyruk konumu]).
+        Genel/manuel tetikleme ucu (`/api/jenkins/trigger`) için — imza DEĞİŞMEDİ."""
+        ok, message, _queue = self._trigger(job, params)
+        return ok, message
+
+    def trigger_job_tracked(self, job: str, params: dict) -> tuple[bool, str, str | None]:
+        """trigger_job ile AYNI tetikleme, ama ham kuyruk Location URL'ini de döner —
+        deployment_engine build numarasını çözüp poll edebilsin diye (bkz. resolve_queue_item)."""
+        return self._trigger(job, params)
+
+    def resolve_queue_item(self, queue_url: str) -> int | None:
+        """Kuyruk konumunu (trigger_job_tracked'ın döndürdüğü Location URL'i) build numarasına
+        çözer. Henüz kuyrukta ise None; kuyruktan İPTAL edildiyse -1; başladıysa build numarası."""
+        try:
+            with self._client() as c:
+                r = c.get(f"{queue_url.rstrip('/')}/api/json")
+                if r.status_code != 200:
+                    return None
+                data = r.json()
+                if data.get("cancelled"):
+                    return -1
+                executable = data.get("executable")
+                if executable and executable.get("number") is not None:
+                    return int(executable["number"])
+                return None
+        except httpx.HTTPError:
+            return None
+
+    def job_parameters(self, job: str) -> list[dict]:
+        """Job'un tanımlı parametreleri (ad/tip/varsayılan/açıklama/seçenekler) — akış editöründe
+        'job seç → parametreler otomatik gelsin' adımı için. Job'da parametre tanımı yoksa [].
+
+        DİKKAT: `ParametersDefinitionProperty` gerçek Jenkins'te (özellikle Pipeline/WorkflowJob)
+        `property[]` altında döner — `actions[]` DEĞİL (bir mock sunucuyla doğrulanıp gerçek
+        Jenkins'e karşı test edilince ortaya çıktı; `actions[]` her zaman BOŞ kalıyordu)."""
+        with self._client() as c:
+            r = c.get(f"/{self._job_path(job)}/api/json",
+                      params={"tree": "property[parameterDefinitions[name,type,"
+                                       "defaultParameterValue[value],description,choices]]"})
+            r.raise_for_status()
+            for prop in r.json().get("property", []) or []:
+                defs = prop.get("parameterDefinitions")
+                if defs:
+                    return [{
+                        "name": d.get("name"),
+                        "type": d.get("type"),
+                        "default": (d.get("defaultParameterValue") or {}).get("value"),
+                        "description": d.get("description"),
+                        "choices": d.get("choices"),
+                    } for d in defs if d.get("name")]
+            return []
+
+    def console_url(self, job: str, number: int) -> str:
+        """Bir build'in Jenkins konsol log sayfasının tam URL'i — UI'da yeni sekmede açmak için."""
+        return f"{self._base()}/{self._job_path(job)}/{number}/console"
+
+    def build_status(self, job: str, number: int) -> dict:
+        """Tek bir build'in durumu (sonuç/çalışıyor mu) — poll_running_runs bunu kullanır."""
+        with self._client() as c:
+            r = c.get(f"/{self._job_path(job)}/{number}/api/json", params={"tree": "result,building"})
+            r.raise_for_status()
+            data = r.json()
+            return {"result": data.get("result"), "building": bool(data.get("building"))}

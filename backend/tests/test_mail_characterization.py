@@ -140,7 +140,8 @@ def test_scheduler_job_inventory(client):
     assert notifier.scheduler.running
     job_ids = {j.id for j in notifier.scheduler.get_jobs()}
     expected = {"expiry-check", "proposal-reminder", "live-check",
-                "discovery-scan", "ct-scan", "revocation-check", "mail-queue-drain"}
+                "discovery-scan", "ct-scan", "revocation-check", "mail-queue-drain",
+                "deployment-poll"}
     assert job_ids == expected, f"job envanteri değişti: {job_ids}"
     assert "expired-check" not in job_ids, (
         "süresi-geçmiş bildirimi BİLİNÇLİ OLARAK cron'da YOK — yalnız API ile tetiklenir")

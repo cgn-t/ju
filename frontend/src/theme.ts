@@ -137,3 +137,12 @@ export const nodeColors: Record<string, string> = {
   domain: '#9c27b0',
   app: '#26a69a',
 }
+
+/** Dağıtım akışı düğüm türü renkleri — ortama göre (Deployments.tsx editörü). */
+export const deploymentNodeColors: Record<string, string> = {
+  ns: '#2196f3',
+  waf: '#e53935',
+  windows: '#00897b',
+  linux: '#fdd835',
+  custom: '#9e9e9e',
+}

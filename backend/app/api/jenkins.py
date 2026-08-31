@@ -31,7 +31,7 @@ def list_jobs(db: Session = Depends(get_db),
         raise HTTPException(status_code=502, detail=f"Jenkins iş listesi alınamadı: {exc}")
 
 
-@router.get("/job/{job}/builds")
+@router.get("/job/{job:path}/builds")
 def job_builds(job: str, db: Session = Depends(get_db),
                _: User = Depends(require_page_access("deployments"))):
     """Bir job'un son build'leri (Dağıtım sayfası canlı geçmişi). Erişilemezse boş liste + 502."""
@@ -42,6 +42,29 @@ def job_builds(job: str, db: Session = Depends(get_db),
         return {"builds": client.recent_builds(job)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Jenkins build geçmişi alınamadı: {exc}")
+
+
+@router.get("/job/{job:path}/parameters")
+def job_parameters(job: str, db: Session = Depends(get_db),
+                   _: User = Depends(require_page_access("deployments"))):
+    """Job'un tanımlı parametreleri (Dağıtım akış editöründe job seçildiğinde otomatik doldurma)."""
+    client = JenkinsClient(db)
+    if not client.is_available():
+        return {"parameters": []}
+    try:
+        return {"parameters": client.job_parameters(job)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Jenkins job parametreleri alınamadı: {exc}")
+
+
+@router.get("/job/{job:path}/console-url")
+def job_console_url(job: str, build: int, db: Session = Depends(get_db),
+                    _: User = Depends(require_page_access("deployments"))):
+    """Bir build'in Jenkins konsol log sayfası URL'i (Çalıştırma Detayı'nda 'Konsol Logu' linki)."""
+    client = JenkinsClient(db)
+    if not client.is_available():
+        raise HTTPException(status_code=404, detail="Jenkins entegrasyonu etkin değil")
+    return {"url": client.console_url(job, build)}
 
 
 @router.post("/trigger")

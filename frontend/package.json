@@ -26,7 +26,8 @@
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",
     "reactflow": "^11.11.4",
-    "recharts": "^3.9.2"
+    "recharts": "^3.9.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/dagre": "^0.7.54",

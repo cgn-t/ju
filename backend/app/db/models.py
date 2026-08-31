@@ -227,6 +227,9 @@ class Application(Base):
     tag_links: Mapped[list["ApplicationTag"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
+    flows: Mapped[list["DeploymentFlow"]] = relationship(
+        back_populates="app", cascade="all, delete-orphan"
+    )
 
     @property
     def tags(self) -> list["Tag"]:
@@ -567,3 +570,94 @@ class ScanRun(Base):
     new_findings: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     error: Mapped[str | None] = mapped_column(UnicodeText)
     created_by: Mapped[str | None] = mapped_column(Unicode(100))
+
+
+class DeploymentFlow(Base):
+    """Bir uygulamaya bağlı Jenkins dağıtım-akışı TANIMI (nodes+edges+params JSON, ReactFlow'un
+    kendi veri modeliyle birebir). Çalıştırma anında DeploymentRun'a SNAPSHOT alınır — flow
+    sonradan düzenlense/silinse de geçmiş run değişmez kalır. YENİ tablo (prod'da yok)."""
+
+    __tablename__ = "deployment_flows"
+    __table_args__ = (
+        UniqueConstraint("app_id", "name", name="uq_deployment_flow_app_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    app_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)  # uq lider kolon
+    name: Mapped[str] = mapped_column(Unicode(255))
+    description: Mapped[str | None] = mapped_column(UnicodeText)
+    definition: Mapped[str] = mapped_column(UnicodeText)   # JSON: {"nodes":[...], "edges":[...]}
+    created_by: Mapped[str | None] = mapped_column(Unicode(100))
+    updated_by: Mapped[str | None] = mapped_column(Unicode(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    app: Mapped["Application"] = relationship(back_populates="flows")
+    runs: Mapped[list["DeploymentRun"]] = relationship(back_populates="flow")
+
+    @property
+    def app_name(self) -> str | None:
+        return self.app.app_name if self.app else None
+
+
+class DeploymentRun(Base):
+    """Bir DeploymentFlow'un TEK çalıştırılması. definition_snapshot: run başladığı andaki flow
+    tanımının donmuş kopyası (flow sonradan değişse/silinse de bu run ETKİLENMEZ). app_id
+    kasıtlı FK'siz (mail_queue.certificate_id deseni) — Application(CASCADE)→Flow(SET NULL)→Run
+    çoklu cascade yolunu MSSQL'de önlemek için; run oluşturulurken flow'dan kopyalanır.
+    YENİ tablo (prod'da yok)."""
+
+    __tablename__ = "deployment_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    flow_id: Mapped[int | None] = mapped_column(ForeignKey("deployment_flows.id", ondelete="SET NULL"), index=True)
+    app_id: Mapped[int | None] = mapped_column(Integer, index=True)          # FK'siz — flow'dan snapshot
+    flow_name_snapshot: Mapped[str] = mapped_column(Unicode(255))
+    definition_snapshot: Mapped[str] = mapped_column(UnicodeText)            # JSON, donmuş
+    status: Mapped[str] = mapped_column(Unicode(20), default="pending", server_default=text("'pending'"), index=True)
+    # pending | running | success | failed | cancelled
+    triggered_by: Mapped[str | None] = mapped_column(Unicode(100))
+    # manual (Dağıt) | retry (tek adım yeniden dene) | rerun (geçmiş bir run'ı aynı parametrelerle
+    # yeniden tetikle — rollback). retry AYRI bir mekanizma (mevcut run'ı günceller, yeni run
+    # yaratmaz); bu alan yalnız start_run/rerun_run ile oluşan run'ları etiketler.
+    trigger_type: Mapped[str] = mapped_column(Unicode(20), default="manual", server_default=text("'manual'"))
+    source_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("deployment_runs.id", ondelete="SET NULL"))  # rerun'ın kaynağı olan run
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    flow: Mapped["DeploymentFlow | None"] = relationship(back_populates="runs")
+    steps: Mapped[list["DeploymentRunStep"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="DeploymentRunStep.id"
+    )
+
+
+class DeploymentRunStep(Base):
+    """Bir run içindeki TEK node'un çalıştırma durumu. params_snapshot/depends_on JSON olarak
+    donar — orkestrasyon motoru yalnız bunlara bakar, flow tanımına bir daha dönmez.
+    YENİ tablo (prod'da yok)."""
+
+    __tablename__ = "deployment_run_steps"
+    __table_args__ = (
+        UniqueConstraint("run_id", "node_id", name="uq_run_step_node"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("deployment_runs.id", ondelete="CASCADE"), index=True)  # uq lider kolon
+    node_id: Mapped[str] = mapped_column(Unicode(100))         # ReactFlow node.id (ör. "node-3")
+    node_label: Mapped[str] = mapped_column(Unicode(255))
+    jenkins_job: Mapped[str] = mapped_column(Unicode(255))
+    params_snapshot: Mapped[str] = mapped_column(UnicodeText)  # JSON dict
+    depends_on: Mapped[str | None] = mapped_column(UnicodeText)  # JSON list[node_id]
+    status: Mapped[str] = mapped_column(Unicode(20), default="pending", server_default=text("'pending'"), index=True)
+    # pending | running | success | failed | skipped | cancelled
+    jenkins_queue_url: Mapped[str | None] = mapped_column(Unicode(500))
+    jenkins_build_number: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_poll_at: Mapped[datetime | None] = mapped_column(DateTime)
+    error_message: Mapped[str | None] = mapped_column(Unicode(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    run: Mapped["DeploymentRun"] = relationship(back_populates="steps")

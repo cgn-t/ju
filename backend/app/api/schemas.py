@@ -1,7 +1,8 @@
+import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.core.certtype import normalize_cert_type
 
@@ -663,3 +664,98 @@ class MailHistoryOut(BaseModel):
     error: str | None
     attempts: int | None
     sent_at: datetime | None
+
+
+# ---- Dağıtım akışı (Jenkins DAG editörü) ----
+class DeploymentFlowCreate(BaseModel):
+    app_id: int
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4000)
+    definition: dict  # {"nodes": [...], "edges": [...]} — ReactFlow veri modeliyle birebir
+
+
+class DeploymentFlowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4000)
+    definition: dict | None = None
+
+
+class DeploymentFlowSummaryOut(ORMModel):
+    """Akış listesi — definition HARİÇ (ağır JSON'ı liste görünümüne taşımaz)."""
+    id: int
+    app_id: int
+    app_name: str | None = None
+    name: str
+    description: str | None = None
+    created_by: str | None = None
+    updated_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeploymentFlowOut(DeploymentFlowSummaryOut):
+    definition: dict
+
+    @field_validator("definition", mode="before")
+    @classmethod
+    def _parse_definition(cls, v: object) -> object:
+        return json.loads(v) if isinstance(v, str) else v
+
+
+class DeploymentRunStepOut(ORMModel):
+    id: int
+    node_id: str
+    node_label: str
+    jenkins_job: str
+    params_snapshot: dict
+    depends_on: list[str] = []
+    status: str  # pending|running|success|failed|skipped|cancelled
+    jenkins_build_number: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error_message: str | None = None
+
+    @field_validator("params_snapshot", mode="before")
+    @classmethod
+    def _parse_params(cls, v: object) -> object:
+        return json.loads(v) if isinstance(v, str) else v
+
+    @field_validator("depends_on", mode="before")
+    @classmethod
+    def _parse_depends_on(cls, v: object) -> object:
+        if v is None:
+            return []
+        return json.loads(v) if isinstance(v, str) else v
+
+    @computed_field
+    @property
+    def duration_seconds(self) -> int | None:
+        if self.started_at and self.finished_at:
+            return int((self.finished_at - self.started_at).total_seconds())
+        return None
+
+
+class DeploymentRunSummaryOut(ORMModel):
+    """Run listesi — steps HARİÇ."""
+    id: int
+    flow_id: int | None = None
+    app_id: int | None = None
+    flow_name_snapshot: str
+    status: str  # pending|running|success|failed|cancelled
+    triggered_by: str | None = None
+    trigger_type: str = "manual"  # manual|retry|rerun
+    source_run_id: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime
+
+    @computed_field
+    @property
+    def duration_seconds(self) -> int | None:
+        if self.started_at and self.finished_at:
+            return int((self.finished_at - self.started_at).total_seconds())
+        return None
+
+
+class DeploymentRunOut(DeploymentRunSummaryOut):
+    steps: list[DeploymentRunStepOut] = []

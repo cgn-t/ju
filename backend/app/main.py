@@ -15,6 +15,7 @@ from app.api import (
     auth,
     certificates,
     dashboard,
+    deployments,
     discovery,
     domains,
     jenkins,
@@ -270,6 +271,11 @@ def ensure_new_columns() -> None:
         # notifications YENİ app tablosu; önceki sürümde kolonsuz kurulmuş DB'de kanal-bazlı dedup
         # kolonu additive eklenir (idempotent). channel: email|slack|teams|webhook|…
         "notifications": {"channel": V(20)},
+        # deployment_runs: rollback provenance — bu oturumda tablo ZATEN kurulduktan SONRA eklendi,
+        # bu yüzden create_all'ın yeni kurulumlarda yaptığını burada additive tamamlıyoruz.
+        # trigger_type: manual|retry|rerun; source_run_id: rerun'ın kaynağı olan run (FK yok,
+        # diğer FK'siz snapshot alanlarıyla aynı desen — bkz. models.py DeploymentRun yorumu).
+        "deployment_runs": {"trigger_type": V(20), "source_run_id": INT},
     }
     inspector = inspect(engine)
     existing_tables = {t.lower() for t in inspector.get_table_names()}
@@ -543,6 +549,10 @@ def backfill_prod_defaults() -> None:
             conn.execute(text("UPDATE [discovered_certificates] SET origin='network' WHERE origin IS NULL"))
         if "kind" in cols("scan_runs"):
             conn.execute(text("UPDATE [scan_runs] SET kind='network' WHERE kind IS NULL"))
+        # rollback provenance: tablo bu kolonlardan ÖNCE kurulmuş satırlarda trigger_type NULL
+        # kalır — şema (str, Optional değil) None'ı reddeder, 'manual' en makul geriye dönük varsayım.
+        if "trigger_type" in cols("deployment_runs"):
+            conn.execute(text("UPDATE [deployment_runs] SET trigger_type='manual' WHERE trigger_type IS NULL"))
 
 
 def backfill_transfer_proposals() -> None:
@@ -647,6 +657,7 @@ app.include_router(tags.router)
 app.include_router(discovery.router)
 app.include_router(policy.router)
 app.include_router(jenkins.router)
+app.include_router(deployments.router)
 
 
 @app.exception_handler(IntegrityError)

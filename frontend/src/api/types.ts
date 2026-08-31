@@ -409,3 +409,98 @@ export interface ScanRun {
   error?: string | null
   created_by?: string | null
 }
+
+// ---- Dağıtım akışı (Jenkins DAG editörü) ----
+export type DeploymentEnvKind = 'ns' | 'waf' | 'windows' | 'linux' | 'custom'
+
+export interface JenkinsJobParameter {
+  name: string
+  type?: string | null
+  default?: string | null
+  description?: string | null
+  choices?: string[] | null
+}
+
+export interface FlowParamRow {
+  key: string
+  value: string
+}
+
+export interface FlowNodeData {
+  label: string
+  jenkins_job: string
+  environment: DeploymentEnvKind
+  params: FlowParamRow[]
+}
+
+export interface FlowNode {
+  id: string
+  position: { x: number; y: number }
+  data: FlowNodeData
+}
+
+export interface FlowEdge {
+  id: string
+  source: string
+  target: string
+}
+
+export interface FlowDefinition {
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+}
+
+export interface DeploymentFlowSummary {
+  id: number
+  app_id: number
+  app_name?: string | null
+  name: string
+  description?: string | null
+  created_by?: string | null
+  updated_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeploymentFlow extends DeploymentFlowSummary {
+  definition: FlowDefinition
+}
+
+export type DeploymentStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cancelled'
+export type DeploymentRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+
+export type DeploymentRunTriggerType = 'manual' | 'retry' | 'rerun'
+
+export interface DeploymentRunStep {
+  id: number
+  node_id: string
+  node_label: string
+  jenkins_job: string
+  params_snapshot: Record<string, string>
+  depends_on: string[]
+  status: DeploymentStepStatus
+  jenkins_build_number?: number | null
+  started_at?: string | null
+  finished_at?: string | null
+  duration_seconds?: number | null
+  error_message?: string | null
+}
+
+export interface DeploymentRunSummary {
+  id: number
+  flow_id?: number | null
+  app_id?: number | null
+  flow_name_snapshot: string
+  status: DeploymentRunStatus
+  triggered_by?: string | null
+  trigger_type: DeploymentRunTriggerType
+  source_run_id?: number | null
+  started_at?: string | null
+  finished_at?: string | null
+  duration_seconds?: number | null
+  created_at: string
+}
+
+export interface DeploymentRun extends DeploymentRunSummary {
+  steps: DeploymentRunStep[]
+}

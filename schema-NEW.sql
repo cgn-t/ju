@@ -122,3 +122,83 @@ GO
 -- (Ayarlar → Erişim); şema DEĞİŞMEZ. Varsayılan hepsi false (admin+allviewer-only).
 --   • policy_all_roles / proposals_all_roles / discovery_all_roles / deployments_all_roles (bool)
 -- -----------------------------------------------------------------------------
+
+-- -----------------------------------------------------------------------------
+-- 2026-08-28 · Dağıtım akışı (Jenkins pipeline editörü)
+--   [ models.py: DeploymentFlow / DeploymentRun / DeploymentRunStep ]
+-- Eski tek-job manuel Dağıtım formunun yerine geçer. Flow = uygulamaya bağlı DAG tanımı
+-- (nodes+edges+params JSON). Run/RunStep = değişmez çalıştırma geçmişi (flow sonradan
+-- değişse/silinse de run ETKİLENMEZ — definition_snapshot donar).
+-- DeploymentRun.app_id KASITLI FK'SİZ (mail_queue.certificate_id deseni) — Application
+-- (CASCADE)→Flow(SET NULL)→Run çoklu cascade yolunu MSSQL'de önlemek için.
+-- Taze DB'de gerekmez (create_all kurar); bu blok mevcut prod DB içindir.
+-- -----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.deployment_flows', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.deployment_flows (
+        id           INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_deployment_flows PRIMARY KEY,
+        app_id       INT            NOT NULL,
+        name         NVARCHAR(255)  NOT NULL,
+        description  NVARCHAR(MAX)  NULL,
+        definition   NVARCHAR(MAX)  NOT NULL,
+        created_by   NVARCHAR(100)  NULL,
+        updated_by   NVARCHAR(100)  NULL,
+        created_at   DATETIME       NOT NULL CONSTRAINT DF_deployment_flows_created DEFAULT (GETUTCDATE()),
+        updated_at   DATETIME       NOT NULL CONSTRAINT DF_deployment_flows_updated DEFAULT (GETUTCDATE()),
+        CONSTRAINT uq_deployment_flow_app_name UNIQUE (app_id, name),
+        CONSTRAINT FK_deployment_flows_app FOREIGN KEY (app_id) REFERENCES dbo.applications(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_deployment_flows_created ON dbo.deployment_flows(created_at);
+END
+GO
+
+IF OBJECT_ID('dbo.deployment_runs', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.deployment_runs (
+        id                   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_deployment_runs PRIMARY KEY,
+        flow_id              INT            NULL,
+        app_id               INT            NULL,   -- FK'siz (bkz. üstteki not)
+        flow_name_snapshot   NVARCHAR(255)  NOT NULL,
+        definition_snapshot  NVARCHAR(MAX)  NOT NULL,
+        status               NVARCHAR(20)   NOT NULL CONSTRAINT DF_deployment_runs_status DEFAULT ('pending'),
+        triggered_by         NVARCHAR(100)  NULL,
+        trigger_type         NVARCHAR(20)   NOT NULL CONSTRAINT DF_deployment_runs_trigger_type DEFAULT ('manual'),
+        -- manual (Dağıt) | retry (tek adım yeniden dene) | rerun (geçmiş run'ı aynı parametrelerle
+        -- yeniden tetikle — rollback)
+        source_run_id        INT            NULL,   -- rerun'ın kaynağı olan run
+        started_at           DATETIME       NULL,
+        finished_at          DATETIME       NULL,
+        created_at           DATETIME       NOT NULL CONSTRAINT DF_deployment_runs_created DEFAULT (GETUTCDATE()),
+        CONSTRAINT FK_deployment_runs_flow FOREIGN KEY (flow_id) REFERENCES dbo.deployment_flows(id) ON DELETE SET NULL,
+        CONSTRAINT FK_deployment_runs_source FOREIGN KEY (source_run_id) REFERENCES dbo.deployment_runs(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IX_deployment_runs_status  ON dbo.deployment_runs(status);
+    CREATE INDEX IX_deployment_runs_app     ON dbo.deployment_runs(app_id);
+    CREATE INDEX IX_deployment_runs_created ON dbo.deployment_runs(created_at);
+END
+GO
+
+IF OBJECT_ID('dbo.deployment_run_steps', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.deployment_run_steps (
+        id                   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_deployment_run_steps PRIMARY KEY,
+        run_id               INT            NOT NULL,
+        node_id              NVARCHAR(100)  NOT NULL,
+        node_label           NVARCHAR(255)  NOT NULL,
+        jenkins_job          NVARCHAR(255)  NOT NULL,
+        params_snapshot      NVARCHAR(MAX)  NOT NULL,
+        depends_on           NVARCHAR(MAX)  NULL,
+        status               NVARCHAR(20)   NOT NULL CONSTRAINT DF_deployment_run_steps_status DEFAULT ('pending'),
+        jenkins_queue_url    NVARCHAR(500)  NULL,
+        jenkins_build_number INT            NULL,
+        started_at           DATETIME       NULL,
+        finished_at          DATETIME       NULL,
+        last_poll_at         DATETIME       NULL,
+        error_message        NVARCHAR(1000) NULL,
+        created_at           DATETIME       NOT NULL CONSTRAINT DF_deployment_run_steps_created DEFAULT (GETUTCDATE()),
+        CONSTRAINT uq_run_step_node UNIQUE (run_id, node_id),
+        CONSTRAINT FK_deployment_run_steps_run FOREIGN KEY (run_id) REFERENCES dbo.deployment_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IX_deployment_run_steps_status ON dbo.deployment_run_steps(status);
+END
+GO

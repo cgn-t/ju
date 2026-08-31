@@ -230,6 +230,10 @@ DEFAULTS: dict[str, dict] = {
         "api_token": "",              # API token ya da şifre (gizli — Basic auth)
         "skip_cert_verify": False,    # https ise sunucu TLS sertifikasını doğrulama (YALNIZ dev)
         "netscaler_job": "netscaler-deploy",   # sertifika 'Dağıt' butonunun tetiklediği job
+        # Job listesinin (GET /jenkins/jobs) taranacağı kök klasör (Jenkins Folder eklentisi).
+        # Boşsa Jenkins kökünden taranır. İçindeki alt klasörler OTOMATİK (özyinelemeli) taranır —
+        # yeni bir alt klasör açıldığında bu ayarı değiştirmeye gerek YOK.
+        "jobs_folder": "",
         "proxy_url": "",
         "timeout_seconds": 15,
     },

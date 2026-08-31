@@ -36,12 +36,14 @@ const NAV: NavEntry[] = [
   { label: 'İşlemler', items: [
     { to: '/proposals', label: 'Devir Önerileri' },
     { to: '/deployments', label: 'Dağıtım' },
+    { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
   ] },
 ]
 
 // Sayfa-görünürlük ayarına tabi rotalar → usePageAccess() anahtarı (bkz. security.page_visible)
 const PAGE_FOR_PATH: Record<string, 'policy' | 'proposals' | 'discovery' | 'deployments'> = {
-  '/policy': 'policy', '/proposals': 'proposals', '/discovery': 'discovery', '/deployments': 'deployments',
+  '/policy': 'policy', '/proposals': 'proposals', '/discovery': 'discovery',
+  '/deployments': 'deployments', '/deployments/runs': 'deployments',
 }
 
 const ROLE_LABELS: Record<string, string> = {

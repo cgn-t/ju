@@ -889,6 +889,7 @@ def _queue_interval() -> int:
 
 def start_scheduler() -> None:
     from app.services.ct_monitor import run_ct_scan_job
+    from app.services.deployment_engine import poll_running_runs
     from app.services.discovery import run_scan_job
     from app.services.live_check import check_all_domains
     from app.services.revocation import check_all_certificates
@@ -913,4 +914,8 @@ def start_scheduler() -> None:
         # Mail gönderim kuyruğunu periyodik boşalt (SMTP provider gönderim limitine uyum)
         scheduler.add_job(run_mail_queue_drain, "interval", minutes=_queue_interval(),
                           id="mail-queue-drain", replace_existing=True)
+        # Dağıtım akışı (Jenkins DAG) orkestrasyonu — RUNNING run'ların adımlarını pollar,
+        # bitenleri ilerletir. max_instances=1: bir poll uzun sürerse üst üste binmesin.
+        scheduler.add_job(poll_running_runs, "interval", seconds=12,
+                          id="deployment-poll", replace_existing=True, max_instances=1, coalesce=True)
         scheduler.start()

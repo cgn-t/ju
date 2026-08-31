@@ -1973,6 +1973,9 @@ function JenkinsTab() {
         <Text form={form} setForm={setForm} field="username" label="Kullanıcı" />
         <Text form={form} setForm={setForm} field="api_token" label="API Token / Parola" type="password" />
         <Text form={form} setForm={setForm} field="netscaler_job" label="NetScaler Deploy Job'u" />
+        <Text form={form} setForm={setForm} field="jobs_folder"
+              label="Job Klasörü (opsiyonel, ör. Certificate-deployment)"
+              helper="Boşsa Jenkins kökü taranır. Alt klasörler otomatik (özyinelemeli) dahil edilir." />
       </Grid>
       <FormControlLabel
         control={<Switch checked={!!form.skip_cert_verify}
