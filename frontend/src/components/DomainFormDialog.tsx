@@ -1,13 +1,13 @@
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControlLabel, Grid, MenuItem, Paper, TextField, Typography,
+  DialogTitle, FormControlLabel, Grid, MenuItem, Paper, Switch, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppUser, ChainImportResult, ChainProbeResult, Domain, Team } from '../api/types'
+import type { AppUser, ChainImportResult, ChainProbeResult, Domain, IssuanceProfile, Team } from '../api/types'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, nodeColors } from '../theme'
@@ -24,6 +24,7 @@ const EMPTY = {
   lb_update: '', env_update: '', waf_update: '', external_company: '', expire_date: '',
   info: '', action_required: '', ssl_pinning: '', keystore: '',
   servers_to_update: '', notify_days: '',
+  issuance_profile_id: '', issuance_renew_before_days: '',
 }
 
 // Zorunlu alanlar (yeni ekleme + düzenleme)
@@ -44,12 +45,19 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
   const [probe, setProbe] = useState<ChainProbeResult | null>(null)
   const [probedFor, setProbedFor] = useState('')
   const [importChain, setImportChain] = useState(true)
+  const [autoIssuance, setAutoIssuance] = useState(false)
+  const [zeroTouch, setZeroTouch] = useState(false)
   const { isAdmin } = useAuth()
   const autoFilled = useRef(false)
 
   const { data: teams } = useQuery<Team[]>({
     queryKey: ['teams'],
     queryFn: async () => (await api.get('/teams')).data,
+    enabled: open,
+  })
+  const { data: issuanceProfiles } = useQuery<IssuanceProfile[]>({
+    queryKey: ['issuance-profiles'],
+    queryFn: async () => (await api.get('/issuance/profiles')).data,
     enabled: open,
   })
   // Giriş yapmış kullanıcının SY ekip üyelikleri (yeni domain formunu otomatik doldurmak için)
@@ -77,9 +85,15 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         keystore: domain.keystore ?? '',
         servers_to_update: domain.servers_to_update ?? '',
         notify_days: domain.notify_days?.toString() ?? '',
+        issuance_profile_id: domain.issuance_profile_id?.toString() ?? '',
+        issuance_renew_before_days: domain.issuance_renew_before_days?.toString() ?? '',
       })
+      setAutoIssuance(domain.auto_issuance_enabled ?? false)
+      setZeroTouch(domain.issuance_zero_touch ?? false)
     } else {
       setForm(EMPTY)
+      setAutoIssuance(false)
+      setZeroTouch(false)
     }
     setProbe(null)
     setProbedFor('')
@@ -130,6 +144,11 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         sy_team_id: form.sy_team_id ? Number(form.sy_team_id) : null,
         expire_date: form.expire_date || null,
         notify_days: form.notify_days ? Number(form.notify_days) : null,
+        issuance_profile_id: form.issuance_profile_id ? Number(form.issuance_profile_id) : null,
+        issuance_renew_before_days: form.issuance_renew_before_days
+          ? Number(form.issuance_renew_before_days) : null,
+        auto_issuance_enabled: autoIssuance,
+        issuance_zero_touch: zeroTouch,
       }
       // Boş stringleri null'a çevir
       const body = Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v === '' ? null : v]))
@@ -335,6 +354,48 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
             <TextField label="Keystore" fullWidth size="small" value={form.keystore}
                        onChange={set('keystore')} slotProps={LABEL_SHRINK} />
           </Grid>
+
+          {/* Otomatik CA sertifika alımı — özel anahtar JUMBO'ya hiç girmez (bkz. Sertifika Talepleri) */}
+          <Grid size={{ xs: 12 }}>
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Otomatik Sertifika Alımı</Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControlLabel
+                    control={<Switch checked={autoIssuance}
+                                     onChange={(e) => setAutoIssuance(e.target.checked)} />}
+                    label="Süre yaklaşınca otomatik yenileme isteği aç" />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Tooltip title={isAdmin ? '' : 'Zero-touch modunu yalnız admin açıp kapatabilir'}>
+                    <span>
+                      <FormControlLabel
+                        control={<Switch checked={zeroTouch} disabled={!isAdmin}
+                                         onChange={(e) => setZeroTouch(e.target.checked)} />}
+                        label="Zero-touch (onaysız tam otomatik)" />
+                    </span>
+                  </Tooltip>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField select label="CA Profili" fullWidth size="small" slotProps={LABEL_SHRINK}
+                             value={form.issuance_profile_id} onChange={set('issuance_profile_id')}
+                             helperText="Boşsa Ayarlar > CA Profilleri'ndeki genel varsayılan kullanılır">
+                    <MenuItem value=""><em>— varsayılan —</em></MenuItem>
+                    {(issuanceProfiles ?? []).map((p) => (
+                      <MenuItem key={p.id} value={p.id.toString()}>{p.name}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField label="Yenileme Eşiği (gün)" type="number" fullWidth size="small"
+                             value={form.issuance_renew_before_days} onChange={set('issuance_renew_before_days')}
+                             slotProps={{ ...LABEL_SHRINK, htmlInput: { min: 1, max: 365 } }}
+                             helperText="Süre bitişine kaç gün kala otomatik istek açılsın? Boşsa genel varsayılan." />
+                </Grid>
+              </Grid>
+            </Paper>
+          </Grid>
+
           <Grid size={{ xs: 12 }}>
             <TextField label="Detay" fullWidth size="small" multiline rows={2} value={form.info}
                        onChange={set('info')} slotProps={LABEL_SHRINK} />

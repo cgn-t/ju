@@ -15,5 +15,6 @@ export function usePageAccess() {
     proposals: data?.page_access?.proposals ?? false,
     discovery: data?.page_access?.discovery ?? false,
     deployments: data?.page_access?.deployments ?? false,
+    issuance: data?.page_access?.issuance ?? false,
   }
 }

@@ -202,3 +202,110 @@ BEGIN
     CREATE INDEX IX_deployment_run_steps_status ON dbo.deployment_run_steps(status);
 END
 GO
+
+-- -----------------------------------------------------------------------------
+-- 2026-09-01 · Otomatik CA sertifika alımı (issuance)
+--   [ models.py: IssuanceProfile / IssuanceRequest, Domain additive kolonları ]
+-- Faz A: Vault PKI sign_csr + onay-kapılı (opsiyonel zero-touch, domain bazlı).
+-- ŞEMADA private_key KOLONU YOK — özel anahtar velayeti JUMBO dışında kalır; csr_pem
+-- yalnız PEM metin (public key + kimlik), sır İÇERMEZ. previous_request_id self-FK
+-- ondelete YOK (SSLCertificates.parent_id ile aynı MSSQL self-ref kısıtı).
+-- Taze DB'de gerekmez (create_all kurar); bu blok mevcut prod DB içindir.
+--
+-- DDL GEREKTİRMEYEN ayarlar (app_settings satırı, Ayarlar → CA Profilleri/Erişim):
+--   • issuance.enabled (bool, false)              — global kill-switch
+--   • issuance.default_profile_id (int, null)     — domain'de seçili değilse düşülecek profil
+--   • issuance.default_renew_before_days (int, 30)
+--   • issuance.schedule_hour (int, 6)              — scan-expiring-for-issuance cron saati
+--   • access.issuance_all_roles (bool, false)      — Sertifika Talepleri sayfa görünürlüğü
+-- -----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.issuance_profiles', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.issuance_profiles (
+        id                  INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_issuance_profiles PRIMARY KEY,
+        name                NVARCHAR(255)  NOT NULL,
+        ca_type             NVARCHAR(20)   NOT NULL,   -- vault_pki | acme (adcs ileride, ayrı plan)
+        enabled             BIT            NOT NULL CONSTRAINT DF_issuance_profiles_enabled DEFAULT (0),
+        vault_mount         NVARCHAR(100)  NULL,
+        vault_role          NVARCHAR(100)  NULL,
+        acme_directory_url  NVARCHAR(500)  NULL,
+        acme_account_key    NVARCHAR(MAX)  NULL,   -- Fernet şifreli (JWK)
+        eab_kid             NVARCHAR(255)  NULL,
+        eab_hmac_key        NVARCHAR(MAX)  NULL,   -- Fernet şifreli
+        proxy_url           NVARCHAR(255)  NULL,
+        timeout_seconds     INT            NOT NULL CONSTRAINT DF_issuance_profiles_timeout DEFAULT (15),
+        allow_key_return    BIT            NOT NULL CONSTRAINT DF_issuance_profiles_keyret  DEFAULT (0),
+        created_by          NVARCHAR(100)  NULL,
+        created_at          DATETIME       NOT NULL CONSTRAINT DF_issuance_profiles_created DEFAULT (GETUTCDATE()),
+        updated_at          DATETIME       NOT NULL CONSTRAINT DF_issuance_profiles_updated DEFAULT (GETUTCDATE()),
+        CONSTRAINT uq_issuance_profiles_name UNIQUE (name)
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.issuance_requests', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.issuance_requests (
+        id                   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_issuance_requests PRIMARY KEY,
+        domain_id            INT            NOT NULL,
+        profile_id           INT            NOT NULL,
+        sy_team_id           INT            NULL,
+        status               NVARCHAR(20)   NOT NULL CONSTRAINT DF_issuance_requests_status  DEFAULT ('pending_approval'),
+        -- pending_approval | approved | submitted | polling | issued | failed | rejected | cancelled | expired
+        method               NVARCHAR(20)   NOT NULL,   -- csr_sign | issue | acme
+        common_name          NVARCHAR(255)  NOT NULL,
+        sans                 NVARCHAR(MAX)  NULL,        -- JSON liste
+        csr_pem              NVARCHAR(MAX)  NULL,        -- PEM metin; private key İÇERMEZ
+        requested_ttl_hours  INT            NULL,
+        previous_request_id  INT            NULL,        -- self-FK, ondelete YOK (bkz. üstteki not)
+        challenge_type       NVARCHAR(10)   NULL,        -- http-01 | dns-01 (yalnız ACME)
+        external_order_url   NVARCHAR(500)  NULL,
+        attempt_count        INT            NOT NULL CONSTRAINT DF_issuance_requests_attempts DEFAULT (0),
+        last_error           NVARCHAR(MAX)  NULL,
+        last_polled_at       DATETIME       NULL,
+        result_cert_id       INT            NULL,
+        [trigger]            NVARCHAR(20)   NOT NULL CONSTRAINT DF_issuance_requests_trigger DEFAULT ('manual'),
+        -- scheduled_renewal | manual | zero_touch
+        zero_touch           BIT            NOT NULL CONSTRAINT DF_issuance_requests_zt DEFAULT (0),
+        created_by           NVARCHAR(100)  NULL,
+        created_at           DATETIME       NOT NULL CONSTRAINT DF_issuance_requests_created DEFAULT (GETUTCDATE()),
+        decided_by           NVARCHAR(100)  NULL,
+        decided_at           DATETIME       NULL,
+        submitted_at         DATETIME       NULL,
+        finished_at          DATETIME       NULL,
+        note                 NVARCHAR(MAX)  NULL,
+        CONSTRAINT FK_issuance_requests_domain   FOREIGN KEY (domain_id)           REFERENCES dbo.domain_certificates(id),
+        CONSTRAINT FK_issuance_requests_profile  FOREIGN KEY (profile_id)          REFERENCES dbo.issuance_profiles(id),
+        CONSTRAINT FK_issuance_requests_team     FOREIGN KEY (sy_team_id)          REFERENCES dbo.teams(id),
+        CONSTRAINT FK_issuance_requests_prev     FOREIGN KEY (previous_request_id) REFERENCES dbo.issuance_requests(id),
+        CONSTRAINT FK_issuance_requests_cert     FOREIGN KEY (result_cert_id)      REFERENCES dbo.[SSLCertificates]([ID]) ON DELETE SET NULL
+    );
+    CREATE INDEX IX_issuance_requests_domain   ON dbo.issuance_requests(domain_id);
+    CREATE INDEX IX_issuance_requests_profile  ON dbo.issuance_requests(profile_id);
+    CREATE INDEX IX_issuance_requests_team     ON dbo.issuance_requests(sy_team_id);
+    CREATE INDEX IX_issuance_requests_status   ON dbo.issuance_requests(status);
+    CREATE INDEX IX_issuance_requests_prev     ON dbo.issuance_requests(previous_request_id);
+    CREATE INDEX IX_issuance_requests_cert     ON dbo.issuance_requests(result_cert_id);
+    CREATE INDEX IX_issuance_requests_created  ON dbo.issuance_requests(created_at);
+END
+GO
+
+IF COL_LENGTH('dbo.domain_certificates', 'issuance_profile_id') IS NULL
+    ALTER TABLE dbo.domain_certificates ADD issuance_profile_id INT NULL
+        CONSTRAINT FK_domain_issuance_profile FOREIGN KEY REFERENCES dbo.issuance_profiles(id);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_domain_issuance_profile'
+               AND object_id = OBJECT_ID('dbo.domain_certificates'))
+    CREATE INDEX IX_domain_issuance_profile ON dbo.domain_certificates(issuance_profile_id);
+GO
+IF COL_LENGTH('dbo.domain_certificates', 'auto_issuance_enabled') IS NULL
+    ALTER TABLE dbo.domain_certificates ADD auto_issuance_enabled BIT NOT NULL
+        CONSTRAINT DF_domain_auto_issuance DEFAULT (0);
+GO
+IF COL_LENGTH('dbo.domain_certificates', 'issuance_zero_touch') IS NULL
+    ALTER TABLE dbo.domain_certificates ADD issuance_zero_touch BIT NOT NULL
+        CONSTRAINT DF_domain_issuance_zt DEFAULT (0);
+GO
+IF COL_LENGTH('dbo.domain_certificates', 'issuance_renew_before_days') IS NULL
+    ALTER TABLE dbo.domain_certificates ADD issuance_renew_before_days INT NULL;
+GO

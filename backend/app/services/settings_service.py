@@ -6,7 +6,7 @@ import logging
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.crypto import get_fernet
 from app.db.models import AppSetting
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ DEFAULTS: dict[str, dict] = {
         "proposals_all_roles": False,
         "discovery_all_roles": False,
         "deployments_all_roles": False,
+        "issuance_all_roles": False,
     },
     "discovery": {
         "enabled": False,             # gece cron taramasını aç/kapa (varsayılan KAPALI)
@@ -220,6 +221,17 @@ DEFAULTS: dict[str, dict] = {
         "skip_cert_verify": False,    # sunucu TLS sertifikasını doğrulama (YALNIZ dev)
         "timeout_seconds": 10,
     },
+    "issuance": {
+        # Otomatik CA sertifika alımı — genel kill-switch. Kapalıyken hiçbir IssuanceProfile'a
+        # (enabled=True olsa bile) gerçek CA çağrısı yapılmaz (run_pending_issuance iş içinde
+        # kontrol eder) — ct/revocation'daki "varsayılan kapalı" deseninin genel karşılığı.
+        "enabled": False,
+        # Domain'de issuance_profile_id boşsa düşülecek varsayılan profil (IssuanceProfile.id).
+        # None ise ve domain de belirtmemişse istek oluşturma 400 döner.
+        "default_profile_id": None,
+        "default_renew_before_days": 30,  # domain.issuance_renew_before_days NULL ise kullanılır
+        "schedule_hour": 6,  # gece cron saati (0-23) — scan_expiring_for_issuance
+    },
     "jenkins": {
         # JUMBO Jenkins JOB'larını tetikler (genel — herhangi bir job + parametre). NetScaler cert
         # deploy bunun bir kullanımıdır: 'netscaler_job' CERTKEY (domain başına) + VAULT_PATH ile
@@ -241,8 +253,7 @@ DEFAULTS: dict[str, dict] = {
 
 
 def _fernet() -> Fernet | None:
-    key = get_settings().fernet_key
-    return Fernet(key.encode()) if key else None
+    return get_fernet()
 
 
 def get_category(db: Session, category: str, mask_secrets: bool = True) -> dict:

@@ -15,6 +15,7 @@ import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
+import { usePendingIssuanceCount } from '../pages/IssuanceRequests'
 import { usePolicyViolationCount } from '../pages/Policy'
 import { usePendingProposalCount } from '../pages/Proposals'
 
@@ -35,15 +36,16 @@ const NAV: NavEntry[] = [
   ] },
   { label: 'İşlemler', items: [
     { to: '/proposals', label: 'Devir Önerileri' },
+    { to: '/issuance', label: 'Sertifika Talepleri' },
     { to: '/deployments', label: 'Dağıtım' },
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
   ] },
 ]
 
 // Sayfa-görünürlük ayarına tabi rotalar → usePageAccess() anahtarı (bkz. security.page_visible)
-const PAGE_FOR_PATH: Record<string, 'policy' | 'proposals' | 'discovery' | 'deployments'> = {
+const PAGE_FOR_PATH: Record<string, 'policy' | 'proposals' | 'discovery' | 'deployments' | 'issuance'> = {
   '/policy': 'policy', '/proposals': 'proposals', '/discovery': 'discovery',
-  '/deployments': 'deployments', '/deployments/runs': 'deployments',
+  '/deployments': 'deployments', '/deployments/runs': 'deployments', '/issuance': 'issuance',
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -62,12 +64,14 @@ export default function AppLayout() {
   const pendingCount = usePendingProposalCount()
   const shadowCount = useDiscoveredCount()
   const violationCount = usePolicyViolationCount()
+  const pendingIssuanceCount = usePendingIssuanceCount()
 
   const isActive = (to: string) => location.pathname === to
   const badgeFor = (to: string) =>
     to === '/proposals' ? pendingCount
       : to === '/discovery' ? shadowCount
-        : to === '/policy' ? violationCount : 0
+        : to === '/policy' ? violationCount
+          : to === '/issuance' ? pendingIssuanceCount : 0
   const groupBadge = (g: NavGroup) => g.items.reduce((n, i) => n + badgeFor(i.to), 0)
   const groupActive = (g: NavGroup) => g.items.some((i) => isActive(i.to))
   // Erişimi olmayan rotaları gizle (bkz. usePageAccess); boşalan grupları düş

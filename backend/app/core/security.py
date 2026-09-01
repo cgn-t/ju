@@ -180,12 +180,38 @@ def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_use
     return user
 
 
-# 4 kısıtlı sayfa (Uyum/Devir Önerisi/Keşif/Dağıtım) → Ayarlar > Erişim kategorisindeki switch adı.
+def require_issuance_team_or_admin(request_id: int, user: User = Depends(get_current_user),
+                                   db: Session = Depends(get_db)) -> User:
+    """require_team_or_admin ile BİREBİR AYNI kural, TransferProposal yerine IssuanceRequest
+    üzerinde: bir CA alım isteğini yalnız domain sahibi SY ekibinin EDİTÖR üyesi VEYA admin
+    onaylar/reddeder (onay = gerçek CA çağrısına kapı açar — bkz. app/services/issuance.py)."""
+    from app.db.models import IssuanceRequest
+
+    if user.role == "admin":
+        return user
+    if ROLE_LEVELS.get(user.role, -1) < ROLE_LEVELS["editor"]:
+        raise HTTPException(status_code=403,
+                            detail="İsteği yalnız Ekip Editörü veya admin onaylayabilir")
+    req = db.get(IssuanceRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="İstek bulunamadı")
+    if req.sy_team_id is None:
+        raise HTTPException(status_code=403,
+                            detail="Sahipsiz domain — bu isteği yalnız admin onaylayabilir")
+    if req.sy_team_id not in user_team_ids(db, user):
+        raise HTTPException(status_code=403,
+                            detail="Bu isteği yalnız domain'in SY ekibi editörü veya admin onaylar")
+    return user
+
+
+# 5 kısıtlı sayfa (Uyum/Devir Önerisi/Keşif/Dağıtım/Sertifika Talepleri) → Ayarlar > Erişim
+# kategorisindeki switch adı.
 PAGE_SETTING_KEY = {
     "policy": "policy_all_roles",
     "proposals": "proposals_all_roles",
     "discovery": "discovery_all_roles",
     "deployments": "deployments_all_roles",
+    "issuance": "issuance_all_roles",
 }
 
 
@@ -199,7 +225,7 @@ def page_visible(db: Session, user: User, page: str) -> bool:
     (settings_service 'access' kategorisi) görünür."""
     if user.role in ("admin", "allviewer"):
         return True
-    if page == "proposals" and user_team_ids(db, user):
+    if page in ("proposals", "issuance") and user_team_ids(db, user):
         return True
     from app.services.settings_service import get_category
     return bool(get_category(db, "access").get(PAGE_SETTING_KEY[page]))

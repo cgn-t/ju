@@ -15,6 +15,7 @@ import DeploymentRunDetail from './pages/DeploymentRunDetail'
 import DeploymentRunsAll from './pages/DeploymentRunsAll'
 import Discovery from './pages/Discovery'
 import Domains from './pages/Domains'
+import IssuanceRequests from './pages/IssuanceRequests'
 import Login from './pages/Login'
 import Policy from './pages/Policy'
 import Proposals from './pages/Proposals'
@@ -55,7 +56,7 @@ function Protected() {
 // Yükleme bitmeden YÖNLENDİRME yapma — aksi halde admin'in doğrudan/refresh erişimi anlık "/"e
 // sıçrar (auth-me henüz cache'e gelmeden isLoading=false sanılırsa yanlış-negatif redirect olur).
 function PageAccessRoute({ page, children }: {
-  page: 'policy' | 'proposals' | 'discovery' | 'deployments'; children: ReactNode
+  page: 'policy' | 'proposals' | 'discovery' | 'deployments' | 'issuance'; children: ReactNode
 }) {
   const access = usePageAccess()
   if (access.isLoading) return null
@@ -100,6 +101,7 @@ export default function App() {
                   <Route path="/deployments" element={<PageAccessRoute page="deployments"><Deployments /></PageAccessRoute>} />
                   <Route path="/deployments/runs" element={<PageAccessRoute page="deployments"><DeploymentRunsAll /></PageAccessRoute>} />
                   <Route path="/deployments/runs/:runId" element={<PageAccessRoute page="deployments"><DeploymentRunDetail /></PageAccessRoute>} />
+                  <Route path="/issuance" element={<PageAccessRoute page="issuance"><IssuanceRequests /></PageAccessRoute>} />
                   <Route path="/settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

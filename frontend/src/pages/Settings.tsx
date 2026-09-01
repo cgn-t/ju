@@ -15,7 +15,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppUser, AuditEntry, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
+import type {
+  AppUser, AuditEntry, IssuanceProfile, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember,
+} from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -1345,17 +1347,19 @@ function AccessTab() {
     { key: 'proposals_all_roles', label: 'Devir Önerileri sayfası herkese açık' },
     { key: 'discovery_all_roles', label: 'Keşif sayfası herkese açık' },
     { key: 'deployments_all_roles', label: 'Dağıtım sayfası herkese açık' },
+    { key: 'issuance_all_roles', label: 'Sertifika Talepleri sayfası herkese açık' },
   ]
 
   return (
     <Stack spacing={3}>
       <Alert severity="info">
-        Varsayılan: Uyum, Devir Önerileri, Keşif ve Dağıtım sayfaları yalnız <b>Yönetici</b> ve
-        <b> Global İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız ilgili sayfa
-        <b> tüm rollere</b> (İzleyici dahil) görünür olur. <b>Devir Önerileri istisnası:</b> bu
-        ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin bekleyen devir tekliflerini
-        her zaman görüp onaylayabilir — onay yetkisi bu anahtarla DEĞİŞMEZ. Dağıtımı fiilen
-        <b> tetikleme</b> her durumda yalnız Yönetici'dedir; bu anahtar yalnız görüntülemeyi açar.
+        Varsayılan: Uyum, Devir Önerileri, Keşif, Dağıtım ve Sertifika Talepleri sayfaları yalnız
+        <b> Yönetici</b> ve <b>Global İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız
+        ilgili sayfa <b>tüm rollere</b> (İzleyici dahil) görünür olur. <b>Devir Önerileri/Sertifika
+        Talepleri istisnası:</b> bu ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin
+        bekleyen tekliflerini/isteklerini her zaman görüp onaylayabilir — onay yetkisi bu anahtarla
+        DEĞİŞMEZ. Dağıtımı fiilen <b>tetikleme</b> her durumda yalnız Yönetici'dedir; bu anahtar
+        yalnız görüntülemeyi açar.
       </Alert>
       <Box>
         <SectionLabel>SAYFA GÖRÜNÜRLÜĞÜ</SectionLabel>
@@ -1995,6 +1999,206 @@ function JenkinsTab() {
   )
 }
 
+function CaProfilesTab() {
+  const { enqueueSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
+  const { form, setForm, save } = useCategory('issuance')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<IssuanceProfile | null>(null)
+  const EMPTY_PROFILE = {
+    name: '', ca_type: 'vault_pki', enabled: true, vault_mount: '', vault_role: '',
+    acme_directory_url: '', eab_kid: '', eab_hmac_key: '', acme_account_key: '', proxy_url: '',
+  }
+  const [pForm, setPForm] = useState(EMPTY_PROFILE)
+
+  const { data: profiles } = useQuery<IssuanceProfile[]>({
+    queryKey: ['issuance-profiles'],
+    queryFn: async () => (await api.get('/issuance/profiles')).data,
+  })
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['issuance-profiles'] })
+
+  const openCreate = () => { setEditTarget(null); setPForm(EMPTY_PROFILE); setDialogOpen(true) }
+  const openEdit = (p: IssuanceProfile) => {
+    setEditTarget(p)
+    setPForm({
+      name: p.name, ca_type: p.ca_type, enabled: p.enabled,
+      vault_mount: p.vault_mount ?? '', vault_role: p.vault_role ?? '',
+      acme_directory_url: p.acme_directory_url ?? '', eab_kid: p.eab_kid ?? '',
+      eab_hmac_key: '', acme_account_key: '', proxy_url: p.proxy_url ?? '',
+    })
+    setDialogOpen(true)
+  }
+
+  const saveProfile = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, unknown> = {
+        name: pForm.name.trim(), ca_type: pForm.ca_type, enabled: pForm.enabled,
+        vault_mount: pForm.vault_mount.trim() || null, vault_role: pForm.vault_role.trim() || null,
+        acme_directory_url: pForm.acme_directory_url.trim() || null,
+        eab_kid: pForm.eab_kid.trim() || null, proxy_url: pForm.proxy_url.trim() || null,
+      }
+      // Hassas alanlar yalnız DOLDURULMUŞSA gönderilir — boş bırakmak mevcut değeri KORUR
+      // (settings_service secret-masking felsefesiyle tutarlı; bkz. api/issuance.py).
+      if (pForm.eab_hmac_key.trim()) body.eab_hmac_key = pForm.eab_hmac_key.trim()
+      if (pForm.acme_account_key.trim()) body.acme_account_key = pForm.acme_account_key.trim()
+      if (editTarget) return api.put(`/issuance/profiles/${editTarget.id}`, body)
+      return api.post('/issuance/profiles', body)
+    },
+    onSuccess: () => {
+      enqueueSnackbar(editTarget ? 'CA profili güncellendi' : 'CA profili eklendi', { variant: 'success' })
+      invalidate(); setDialogOpen(false)
+    },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+
+  const remove = useMutation({
+    mutationFn: async (id: number) => api.delete(`/issuance/profiles/${id}`),
+    onSuccess: () => { enqueueSnackbar('CA profili silindi', { variant: 'info' }); invalidate() },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+
+  return (
+    <Stack spacing={3}>
+      <Box>
+        <Typography variant="subtitle2" sx={{ mb: 1 }}>Genel Ayarlar</Typography>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Genel anahtar kapalıyken hiçbir CA profiline (etkin olsa bile) gerçek çağrı yapılmaz.
+          Özel anahtar velayeti her zaman JUMBO dışında kalır — CSR hedef sunucu/otomasyon
+          tarafında üretilir, JUMBO'ya yalnız genel anahtar içeren metin olarak gelir.
+        </Alert>
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControlLabel control={<Switch checked={!!form.enabled}
+              onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} />}
+              label="Otomatik Alım Etkin (genel anahtar)" />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField select fullWidth size="small" label="Varsayılan CA Profili"
+                       value={form.default_profile_id != null ? String(form.default_profile_id) : ''}
+                       onChange={(e) => setForm((f) => ({
+                         ...f, default_profile_id: e.target.value ? Number(e.target.value) : null,
+                       }))}>
+              <MenuItem value="">— yok —</MenuItem>
+              {(profiles ?? []).map((p) => (
+                <MenuItem key={p.id} value={String(p.id)}>{p.name}</MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Text form={form} setForm={setForm} field="default_renew_before_days"
+                label="Varsayılan Yenileme Eşiği (gün)" type="number" width={{ xs: 12, sm: 6 }}
+                helper="Domain kendi eşiğini belirtmezse kullanılır" />
+        </Grid>
+        <Box sx={{ mt: 2 }}>
+          <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
+        </Box>
+      </Box>
+
+      <Divider />
+
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Typography variant="subtitle2">CA Profilleri</Typography>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>Profil Ekle</Button>
+        </Box>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Ad</TableCell>
+              <TableCell>Tip</TableCell>
+              <TableCell>Etkin</TableCell>
+              <TableCell>Bağlantı</TableCell>
+              <TableCell align="right" />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {(profiles ?? []).map((p) => (
+              <TableRow key={p.id} hover>
+                <TableCell sx={{ fontWeight: 600 }}>{p.name}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={p.ca_type === 'vault_pki' ? 'Vault PKI' : 'ACME'} />
+                </TableCell>
+                <TableCell>
+                  {p.enabled
+                    ? <Chip size="small" color="success" variant="outlined" label="etkin" />
+                    : <Chip size="small" variant="outlined" label="kapalı" />}
+                </TableCell>
+                <TableCell>
+                  {p.ca_type === 'vault_pki'
+                    ? `${p.vault_mount ?? '—'} / ${p.vault_role ?? '—'}`
+                    : (p.acme_directory_url ?? '—')}
+                </TableCell>
+                <TableCell align="right">
+                  <Tooltip title="Düzenle">
+                    <IconButton size="small" onClick={() => openEdit(p)}><EditIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  <Tooltip title="Sil">
+                    <IconButton size="small" color="error" disabled={remove.isPending}
+                                onClick={() => remove.mutate(p.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </TableCell>
+              </TableRow>
+            ))}
+            {profiles && profiles.length === 0 && (
+              <TableRow><TableCell colSpan={5} align="center" sx={{ py: 4 }}>Henüz CA profili yok</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{editTarget ? `Profil Düzenle — ${editTarget.name}` : 'CA Profili Ekle'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Profil Adı" size="small" value={pForm.name} autoFocus
+                       onChange={(e) => setPForm((f) => ({ ...f, name: e.target.value }))} />
+            <TextField select label="CA Tipi" size="small" value={pForm.ca_type}
+                       onChange={(e) => setPForm((f) => ({ ...f, ca_type: e.target.value }))}>
+              <MenuItem value="vault_pki">Vault PKI (özel CA)</MenuItem>
+              <MenuItem value="acme">Public ACME (ileride)</MenuItem>
+            </TextField>
+            <FormControlLabel control={<Switch checked={pForm.enabled}
+              onChange={(e) => setPForm((f) => ({ ...f, enabled: e.target.checked }))} />}
+              label="Etkin" />
+            {pForm.ca_type === 'vault_pki' ? (
+              <>
+                <TextField label="Vault PKI Mount" size="small" value={pForm.vault_mount}
+                           placeholder="pki_int"
+                           onChange={(e) => setPForm((f) => ({ ...f, vault_mount: e.target.value }))} />
+                <TextField label="Vault Role" size="small" value={pForm.vault_role}
+                           placeholder="jumbo-demo"
+                           onChange={(e) => setPForm((f) => ({ ...f, vault_role: e.target.value }))}
+                           helperText="Vault adres/token Ayarlar > Vault sekmesinden paylaşılır" />
+              </>
+            ) : (
+              <>
+                <TextField label="ACME Directory URL" size="small" value={pForm.acme_directory_url}
+                           onChange={(e) => setPForm((f) => ({ ...f, acme_directory_url: e.target.value }))} />
+                <TextField label="EAB Key ID" size="small" value={pForm.eab_kid}
+                           onChange={(e) => setPForm((f) => ({ ...f, eab_kid: e.target.value }))} />
+                <TextField label="EAB HMAC Key" size="small" type="password" value={pForm.eab_hmac_key}
+                           placeholder={editTarget ? '(değiştirmemek için boş bırakın)' : ''}
+                           onChange={(e) => setPForm((f) => ({ ...f, eab_hmac_key: e.target.value }))} />
+              </>
+            )}
+            <TextField label="Proxy URL (opsiyonel)" size="small" value={pForm.proxy_url}
+                       onChange={(e) => setPForm((f) => ({ ...f, proxy_url: e.target.value }))} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDialogOpen(false)}>Vazgeç</Button>
+          <Button variant="contained" onClick={() => saveProfile.mutate()}
+                  disabled={!pForm.name.trim() || saveProfile.isPending}>
+            {editTarget ? 'Kaydet' : 'Ekle'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Stack>
+  )
+}
+
 // Ayarlar sol menüsü — ilişkili bölümler gruplanır. Bildirim kanalları (SMTP + Slack/Teams/Webhook,
 // ileride ServiceNow/Zoom/Jabber) tek "Bildirimler" başlığı altında toplanır.
 // wide=true → tablo ağırlıklı sekme (tam genişlik); aksi halde form okunur bir sütunda (~880px).
@@ -2029,6 +2233,7 @@ const NAV_GROUPS: NavGroup[] = [
   { title: 'Sistem', items: [
     { key: 'tags', label: 'Etiketler', desc: 'Uygulama etiketi kataloğu', wide: true, el: <TagsTab /> },
     { key: 'vault', label: 'Vault (Hazırlık)', desc: 'Vault PKI entegrasyonu (yakında)', el: <VaultTab /> },
+    { key: 'ca-profiles', label: 'CA Profilleri', desc: 'Otomatik sertifika alımı — CA tanımları ve genel anahtar', wide: true, el: <CaProfilesTab /> },
     { key: 'jenkins', label: 'Jenkins', desc: 'Jenkins bağlantı ayarları (tetikleme → Dağıtım sayfası)', el: <JenkinsTab /> },
     { key: 'audit', label: 'Audit Log', desc: 'Denetim kaydı — filtrele ve CSV dışa aktar', wide: true, el: <AuditTab /> },
   ] },

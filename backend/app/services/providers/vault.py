@@ -1,24 +1,37 @@
 """HashiCorp Vault PKI sağlayıcısı.
 
 Settings > Vault sekmesindeki alanlar (adres, auth yöntemi, token/approle,
-pki mount) saklanıyor. JUMBO'nun Vault ile ilişkisi READ-ONLY'dir:
+pki mount) saklanıyor. Temel ilişki READ-ONLY'dir:
   - health(): bağlantı + PKI mount kontrolü ("Bağlantıyı Test Et")
   - fetch(): PKI CA zincirini (root/intermediate) envantere almak için okur
 
-Sertifika ÜRETİMİ (issue) ve YENİLEME (renew) JUMBO'da YAPILMAZ — özel anahtar
-velayeti dış otomasyonda (Ansible/pipeline ↔ Vault) kalır. Üretilen public
-sertifika JUMBO'ya `POST /api/certificates/import` ile geri bildirilir.
+Bunların ÜSTÜNE, otomatik CA alımı (issuance, bkz. app/services/issuance.py) için iki ÜRETİM
+metodu: sign_csr() (dışarıda üretilmiş bir CSR'ı `sign/{role}` ile imzalar — özel anahtar JUMBO'ya
+hiç girmez, ÖNERİLEN/varsayılan yol) ve issue() (`issue/{role}` — Vault'un KENDİSİ anahtar üretir,
+private_key döner; yalnız IssuanceProfile.allow_key_return=True profillerde ve issuance servisi
+tarafından KALICI SAKLANMADAN kullanılmalıdır). Adres/token bağlantı bilgisi hâlâ Settings >
+Vault'tan gelir; mount/role her çağrıda IssuanceProfile'dan parametre olarak geçirilir.
 """
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.services.cert_parser import ParsedCertificate, parse_pem_text
-from app.services.providers.base import CertificateProvider
+from app.services.providers.base import CertificateProvider, IssuedCertificate
 from app.services.settings_service import get_category
 
 # sys/health: 200 aktif, 429 standby, 472 DR standby, 473 perf-standby — hepsi "mühürsüz/erişilebilir"
 _HEALTHY_STATUSES = {200, 429, 472, 473}
+
+
+def _join_chain(data: dict) -> str | None:
+    """Vault sign/issue yanıtından intermediate+root zincirini PEM demeti olarak birleştirir.
+    Modern Vault `ca_chain` (liste) döner; eski sürümler yalnız `issuing_ca` (tek PEM) verir."""
+    chain = data.get("ca_chain")
+    if chain:
+        return "\n".join(chain)
+    issuing_ca = data.get("issuing_ca")
+    return issuing_ca or None
 
 
 class VaultProvider(CertificateProvider):
@@ -65,10 +78,52 @@ class VaultProvider(CertificateProvider):
             pem = resp.json().get("data", {}).get("ca_chain") or resp.text
         return parse_pem_text(pem)
 
-    def renew(self, identifier: str) -> ParsedCertificate:
-        # Bilinçli olarak desteklenmez: yenileme = yeni anahtarla issue; velayet dış otomasyonda kalır.
-        raise NotImplementedError(
-            "Sertifika yenileme JUMBO'da yapılmaz; Vault↔otomasyon (Ansible) üzerinden yürütülür")
+    def sign_csr(self, csr_pem: str, common_name: str, sans: list[str],
+                 ttl_hours: int | None = None, *, mount: str | None = None,
+                 role: str | None = None) -> IssuedCertificate:
+        """`POST /v1/{mount}/sign/{role}` — dışarıda üretilmiş CSR'ı imzalar. Özel anahtar hiç
+        JUMBO'ya girmez/dönmez (`sign` uç noktası yalnız sertifika döner)."""
+        if not role:
+            raise ValueError("Vault PKI role gerekli (IssuanceProfile.vault_role)")
+        address = self._address()
+        mnt = mount or self.config.get("pki_mount") or "pki"
+        payload: dict = {"csr": csr_pem, "common_name": common_name}
+        if sans:
+            payload["alt_names"] = ",".join(sans)
+        if ttl_hours:
+            payload["ttl"] = f"{ttl_hours}h"
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(f"{address}/v1/{mnt}/sign/{role}", headers=self._headers(), json=payload)
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+        return IssuedCertificate(
+            pem_certificate=data.get("certificate", ""),
+            ca_chain_pem=_join_chain(data),
+        )
+
+    def issue(self, common_name: str, sans: list[str], ttl_hours: int | None = None, *,
+             mount: str | None = None, role: str | None = None) -> IssuedCertificate:
+        """`POST /v1/{mount}/issue/{role}` — Vault'un KENDİSİ anahtar çifti üretir, private_key
+        döner. Yalnız `IssuanceProfile.allow_key_return=True` iken çağrılmalı; çağıran (issuance
+        servisi) bu değeri KALICI SAKLAMAMALI, yalnız anlık iletim için kullanmalıdır."""
+        if not role:
+            raise ValueError("Vault PKI role gerekli (IssuanceProfile.vault_role)")
+        address = self._address()
+        mnt = mount or self.config.get("pki_mount") or "pki"
+        payload: dict = {"common_name": common_name}
+        if sans:
+            payload["alt_names"] = ",".join(sans)
+        if ttl_hours:
+            payload["ttl"] = f"{ttl_hours}h"
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(f"{address}/v1/{mnt}/issue/{role}", headers=self._headers(), json=payload)
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+        return IssuedCertificate(
+            pem_certificate=data.get("certificate", ""),
+            ca_chain_pem=_join_chain(data),
+            private_key_pem=data.get("private_key"),
+        )
 
     # ---- KV v2 (kasa) OKUMA — JUMBO yalnız okur, asla yazmaz ----
     def _kv_mount(self) -> str:

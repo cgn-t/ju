@@ -158,6 +158,15 @@ class Domain(Base):
     ug_team_name: Mapped[str | None] = mapped_column(Unicode(255))  # UG ekip etiketi (serbest metin)
     servers_to_update: Mapped[str | None] = mapped_column(Unicode(500))  # Güncellenecek sunucular
     notify_days: Mapped[int | None] = mapped_column(Integer)  # Süre-uyarı penceresi (gün); NULL = global smtp.expiry_warning_days
+    # Otomatik CA alımı (issuance) — bkz. IssuanceProfile/IssuanceRequest. Boşsa/false ise domain
+    # bugünkü gibi yalnız MANUEL import/devir akışını kullanır, hiçbir davranış değişmez.
+    issuance_profile_id: Mapped[int | None] = mapped_column(ForeignKey("issuance_profiles.id"), index=True)
+    auto_issuance_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # Zero-touch: True ise otomatik yenileme isteği hem CA çağrısında hem sonucun eşlemeye
+    # uygulanmasında onay beklemeden geçer (yine de audit+bildirim zorunlu). Admin-only açılmalı
+    # (bkz. security.py) — SY editörünün kendi onay kapısını tek taraflı kaldırmaması için.
+    issuance_zero_touch: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    issuance_renew_before_days: Mapped[int | None] = mapped_column(Integer)  # NULL = issuance.default_renew_before_days
     # Canlı doğrulama (drift detection)
     live_check_status: Mapped[str | None] = mapped_column(Unicode(20))  # match|mismatch|unreachable|no_mapping|not_checkable
     live_check_detail: Mapped[str | None] = mapped_column(UnicodeText)
@@ -167,6 +176,7 @@ class Domain(Base):
 
     ug_team: Mapped[Team | None] = relationship(foreign_keys=[ug_team_id])
     sy_team: Mapped[Team | None] = relationship(foreign_keys=[sy_team_id])
+    issuance_profile: Mapped["IssuanceProfile | None"] = relationship(foreign_keys=[issuance_profile_id])
     certificate_mappings: Mapped[list["CertificateDomainMap"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan"
     )
@@ -661,3 +671,98 @@ class DeploymentRunStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     run: Mapped["DeploymentRun"] = relationship(back_populates="steps")
+
+
+class IssuanceProfile(Base):
+    """Otomatik sertifika alımı (issuance) için bir CA tanımı. YENİ tablo (prod'da yok). Admin
+    Ayarlar'da tanımlar (Vault/Jenkins ayarlarıyla aynı yerde); bir veya daha fazla Domain
+    `issuance_profile_id` ile buna bağlanır. JUMBO CA'yı TAHMİN ETMEZ — seçim daima admin
+    yapılandırmasından gelir (bkz. Domain.issuance_profile_id / issuance.default_profile_id).
+
+    Hassas alanlar (acme_account_key/eab_hmac_key) Fernet ile şifrelenir — bkz. app/core/crypto.py
+    (settings_service._fernet() ile aynı anahtar/desen). allow_key_return varsayılan KAPALI: Vault
+    'issue' uç noktası private_key döndürür, bu JUMBO'nun custody-dışı ilkesine aykırıdır ve yalnız
+    bilinçli opt-in + Faz D (otomatik dağıtım) ile birlikte anlamlıdır."""
+
+    __tablename__ = "issuance_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Unicode(255), unique=True)
+    ca_type: Mapped[str] = mapped_column(Unicode(20))  # vault_pki | acme (adcs ileride, ayrı plan)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    # --- Vault PKI ---
+    vault_mount: Mapped[str | None] = mapped_column(Unicode(100))
+    vault_role: Mapped[str | None] = mapped_column(Unicode(100))
+    # --- Public ACME (Faz C) ---
+    acme_directory_url: Mapped[str | None] = mapped_column(Unicode(500))
+    acme_account_key: Mapped[str | None] = mapped_column(UnicodeText)  # Fernet şifreli (JWK)
+    eab_kid: Mapped[str | None] = mapped_column(Unicode(255))
+    eab_hmac_key: Mapped[str | None] = mapped_column(UnicodeText)  # Fernet şifreli
+    # --- ortak ---
+    proxy_url: Mapped[str | None] = mapped_column(Unicode(255))  # egress-gated deseni (ct/revocation)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=15, server_default=text("15"))
+    allow_key_return: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    created_by: Mapped[str | None] = mapped_column(Unicode(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class IssuanceRequest(Base):
+    """Otomatik sertifika alım talebi — durum makinesi. YENİ tablo (prod'da yok).
+
+    TransferProposal'a KASITLI OLARAK dokunulmadı: o iki VAR OLAN sertifika arasındaki tek-mutasyonluk
+    devri modelliyor (old/new_cert_id dolu olmalı); issuance ise sertifika DOĞMADAN önce başlayan,
+    dış CA'ya bağlı çok adımlı bir akış (submit→poll→issued/failed). Onay UX'i (atomik CAS
+    approve/reject) proposals.py deseninin kopyasıdır ama ayrı tabloda yaşar.
+
+    ŞEMADA `private_key` KOLONU YOK — custody-dışı garantisi veritabanı seviyesinde zorlanır.
+    `csr_pem` bir "dosya" değil PEM metin bloğudur (CN/SAN + talep edenin PUBLIC key'i), private key
+    içermez; bu yüzden burada durması custody ilkesini bozmaz (Certificate.pem_certificate ile aynı
+    UnicodeText deseni)."""
+
+    __tablename__ = "issuance_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    domain_id: Mapped[int] = mapped_column(ForeignKey("domain_certificates.id"), index=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("issuance_profiles.id"), index=True)
+    # domain'den denormalize — TransferProposal.sy_team_id ile aynı gerekçe (RBAC sorgularında
+    # domaine tekrar join gerekmesin).
+    sy_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), index=True)
+    status: Mapped[str] = mapped_column(Unicode(20), default="pending_approval",
+                                        server_default=text("'pending_approval'"), index=True)
+    # pending_approval | approved | submitted | polling | issued | failed | rejected | cancelled | expired
+    method: Mapped[str] = mapped_column(Unicode(20))  # csr_sign | issue | acme
+    common_name: Mapped[str] = mapped_column(Unicode(255))
+    sans: Mapped[str | None] = mapped_column(UnicodeText)  # JSON liste
+    csr_pem: Mapped[str | None] = mapped_column(UnicodeText)  # PEM metin; private key İÇERMEZ
+    requested_ttl_hours: Mapped[int | None] = mapped_column(Integer)
+    # Aynı domain için önceki başarılı isteğe zincirleme referans — yalnız audit/geçmiş görünümü
+    # için (zorunlu değil). MSSQL self-referencing FK'de ON DELETE SET NULL izin vermez (Certificate.
+    # parent_id/superseded_by_id ile aynı kısıt) → ondelete belirtilmez, temizlik uygulama seviyesinde.
+    previous_request_id: Mapped[int | None] = mapped_column(ForeignKey("issuance_requests.id"), index=True)
+    challenge_type: Mapped[str | None] = mapped_column(Unicode(10))  # http-01 | dns-01 (yalnız ACME)
+    external_order_url: Mapped[str | None] = mapped_column(Unicode(500))
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_error: Mapped[str | None] = mapped_column(UnicodeText)
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime)
+    result_cert_id: Mapped[int | None] = mapped_column(
+        ForeignKey("SSLCertificates.ID", ondelete="SET NULL"), index=True)
+    trigger: Mapped[str] = mapped_column(Unicode(20), default="manual", server_default=text("'manual'"))
+    # scheduled_renewal | manual | zero_touch
+    # İstek OLUŞTURULDUĞU anda domain.issuance_zero_touch'ın SNAPSHOT'ıdır — sonradan domain ayarı
+    # değişse bile bekleyen isteğin semantiği bozulmaz (renewal.propose'daki via/signal snapshot
+    # felsefesiyle tutarlı).
+    zero_touch: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
+    created_by: Mapped[str | None] = mapped_column(Unicode(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    decided_by: Mapped[str | None] = mapped_column(Unicode(100))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    note: Mapped[str | None] = mapped_column(UnicodeText)  # onay/red gerekçesi (TransferProposal.note deseni)
+
+    domain: Mapped["Domain"] = relationship(foreign_keys=[domain_id])
+    profile: Mapped["IssuanceProfile"] = relationship(foreign_keys=[profile_id])
+    sy_team: Mapped["Team | None"] = relationship(foreign_keys=[sy_team_id])
+    result_cert: Mapped["Certificate | None"] = relationship(foreign_keys=[result_cert_id])
+    previous_request: Mapped["IssuanceRequest | None"] = relationship(remote_side=[id])

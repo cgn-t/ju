@@ -18,6 +18,7 @@ from app.api import (
     deployments,
     discovery,
     domains,
+    issuance,
     jenkins,
     notifications,
     policy,
@@ -253,6 +254,9 @@ def ensure_new_columns() -> None:
             "live_check_status": V(20), "live_check_detail": TXT, "live_check_at": DT,
             "created_at": DT, "updated_at": DT,
             "notify_days": INT,  # domain-başına süre-uyarı gün sayısı (NULL = global)
+            # Otomatik CA alımı (issuance) — bkz. IssuanceProfile/IssuanceRequest.
+            "issuance_profile_id": INT, "auto_issuance_enabled": BIT,
+            "issuance_zero_touch": BIT, "issuance_renew_before_days": INT,
         },
         "applications": {"domain_id": INT, "sy_team_id": INT, "ug_team_id": INT},
         # trusted_add önerileri: hedef uygulama (app_id) + öneri türü (kind). Grain index'i
@@ -658,6 +662,7 @@ app.include_router(discovery.router)
 app.include_router(policy.router)
 app.include_router(jenkins.router)
 app.include_router(deployments.router)
+app.include_router(issuance.router)
 
 
 @app.exception_handler(IntegrityError)

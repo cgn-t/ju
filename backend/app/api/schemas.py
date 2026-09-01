@@ -247,6 +247,11 @@ class DomainBase(BaseModel):
     keystore: str | None = Field(default=None, max_length=500)
     servers_to_update: str | None = Field(default=None, max_length=500)
     notify_days: int | None = Field(default=None, ge=1, le=3650)  # süre-uyarı penceresi (gün); boş = global
+    # Otomatik CA sertifika alımı (issuance) — bkz. IssuanceProfile/IssuanceRequest.
+    issuance_profile_id: int | None = None
+    auto_issuance_enabled: bool = False
+    issuance_zero_touch: bool = False  # admin-only geçiş — bkz. api/domains.py update_domain
+    issuance_renew_before_days: int | None = Field(default=None, ge=1, le=365)
 
 
 class DomainCreate(DomainBase):
@@ -759,3 +764,86 @@ class DeploymentRunSummaryOut(ORMModel):
 
 class DeploymentRunOut(DeploymentRunSummaryOut):
     steps: list[DeploymentRunStepOut] = []
+
+
+# ---- Otomatik CA sertifika alımı (issuance) ----
+class IssuanceProfileBase(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    ca_type: Literal["vault_pki", "acme"]
+    enabled: bool = False
+    vault_mount: str | None = Field(default=None, max_length=100)
+    vault_role: str | None = Field(default=None, max_length=100)
+    acme_directory_url: str | None = Field(default=None, max_length=500)
+    eab_kid: str | None = Field(default=None, max_length=255)
+    proxy_url: str | None = Field(default=None, max_length=255)
+    timeout_seconds: int = Field(default=15, ge=1, le=120)
+    allow_key_return: bool = False
+
+
+class IssuanceProfileCreate(IssuanceProfileBase):
+    # Yalnız YAZMA alanları — Fernet ile şifrelenir, Out şemasında hiç dönmez (settings_service
+    # secret-masking felsefesiyle tutarlı: hassas değer bir kez yazılır, bir daha okunmaz).
+    acme_account_key: str | None = None
+    eab_hmac_key: str | None = None
+
+
+class IssuanceProfileUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    ca_type: Literal["vault_pki", "acme"] | None = None
+    enabled: bool | None = None
+    vault_mount: str | None = Field(default=None, max_length=100)
+    vault_role: str | None = Field(default=None, max_length=100)
+    acme_directory_url: str | None = Field(default=None, max_length=500)
+    acme_account_key: str | None = None
+    eab_kid: str | None = Field(default=None, max_length=255)
+    eab_hmac_key: str | None = None
+    proxy_url: str | None = Field(default=None, max_length=255)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=120)
+    allow_key_return: bool | None = None
+
+
+class IssuanceProfileOut(IssuanceProfileBase, ORMModel):
+    id: int
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class IssuanceRequestCreate(BaseModel):
+    domain_id: int
+    profile_id: int | None = None  # boşsa domain.issuance_profile_id, o da yoksa global varsayılan
+
+
+class IssuanceCsrSubmit(BaseModel):
+    csr_pem: str = Field(min_length=1)
+
+
+class IssuanceRequestOut(ORMModel):
+    id: int
+    domain_id: int
+    domain_name: str | None = None
+    profile_id: int
+    profile_name: str | None = None
+    sy_team_id: int | None = None
+    sy_team_name: str | None = None
+    status: str
+    method: str
+    common_name: str
+    sans: list[str] = []
+    has_csr: bool = False              # csr_pem'in KENDİSİ dönmez, yalnız varlığı
+    requested_ttl_hours: int | None = None
+    challenge_type: str | None = None
+    attempt_count: int = 0
+    last_error: str | None = None
+    result_cert_id: int | None = None
+    result_cert_name: str | None = None
+    trigger: str
+    zero_touch: bool = False
+    created_by: str | None = None
+    created_at: datetime
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    submitted_at: datetime | None = None
+    finished_at: datetime | None = None
+    note: str | None = None
+    can_decide: bool = False

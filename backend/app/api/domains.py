@@ -322,6 +322,9 @@ def create_domain(request: Request, body: DomainCreate, db: Session = Depends(ge
             and body.sy_team_id not in user_team_ids(db, user)):
         raise HTTPException(status_code=403,
                             detail="Domaini yalnız üye olduğunuz bir SY ekibine atayabilirsiniz")
+    if user.role != "admin" and body.issuance_zero_touch:
+        raise HTTPException(status_code=403,
+                            detail="Otomatik alımda zero-touch modunu yalnız admin açabilir")
     domain = Domain(**body.model_dump())
     db.add(domain)
     db.flush()
@@ -349,6 +352,11 @@ def update_domain(request: Request, domain_id: int, body: DomainUpdate,
             if owner_field in changes and changes[owner_field] != getattr(domain, owner_field):
                 raise HTTPException(status_code=403,
                                     detail="Domain sahipliğini (SY/UG ekip) yalnız admin değiştirebilir")
+        # ONAY MODELİ: zero-touch AÇMA/KAPAMA yalnız admin — SY editörünün kendi onay kapısını
+        # tek taraflı kaldırabilmesi "ikinci göz" ilkesini zayıflatır (bkz. clm-roadmap Faz B kararı).
+        if "issuance_zero_touch" in changes and changes["issuance_zero_touch"] != domain.issuance_zero_touch:
+            raise HTTPException(status_code=403,
+                                detail="Otomatik alımda zero-touch modunu yalnız admin değiştirebilir")
     # Öneri sahibi (sy_team_id) OLUŞTURULURKEN snapshot alınır; domaine sonradan sahip atanınca
     # zaten açık olan öneriler "sahipsiz" kalıp yalnız admin'e görünürdü → yeni sahip kendi
     # domaininin bekleyen önerisini onaylayamazdı. Değişikliği uygulamadan ÖNCE tespit et.

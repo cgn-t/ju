@@ -11,8 +11,9 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate, MailQueue,
-                            Notification, Team, TransferProposal, User)
+from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
+                            CertificateDomainMap, Domain, IssuanceProfile, IssuanceRequest,
+                            MailQueue, Notification, Team, TransferProposal, User)
 from app.db.session import SessionLocal
 from app.services.settings_service import get_category
 
@@ -333,6 +334,42 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
     message = f"Sertifika pasife alındı — {len(bound)} domain etkilendi; {note}."
     return {"bound_domains": bound, "recipients": to_addr, "teams": team_list,
             "mail_sent": mail_sent, "message": message}
+
+
+def notify_issuance_event(db: Session, req: IssuanceRequest, kind: str) -> dict:
+    """Otomatik CA sertifika alım isteğinin bir aşaması için domain'in SY ekibine bilgilendirme
+    gönderir. kind: created (yeni istek — onay bekliyor VEYA zero-touch tetiklendi) | issued
+    (CA'dan sertifika alındı, envantere işlendi) | failed (CA çağrısı/sonuç doğrulaması
+    başarısız). ŞEFFAFLIK İLKESİ: zero-touch'ta bile bu bildirim ZORUNLU çağrılır — onay atlanır
+    ama görünürlük atlanmaz (notify_certificate_deactivated ile aynı desen: best-effort mail +
+    her durumda in-app Notification kaydı, dedup YOK — her aşama ayrı bir olaydır)."""
+    domain = req.domain
+    team = req.sy_team
+    to_addr = _team_emails(team) if team else []
+
+    labels = {"created": "yeni istek", "issued": "sertifika alındı", "failed": "başarısız"}
+    domain_name = domain.domain if domain else f"domain#{req.domain_id}"
+    subject = f"[JUMBO] Otomatik sertifika alımı — {labels.get(kind, kind)}: {domain_name}"
+    lines = [f"Domain: {domain_name}", f"Talep durumu: {req.status}",
+            f"Tetikleyici: {req.trigger}", f"Zero-touch: {'evet' if req.zero_touch else 'hayır'}"]
+    if kind == "failed" and req.last_error:
+        lines.append(f"Hata: {req.last_error}")
+    if kind == "created" and not req.zero_touch:
+        lines.append("Bu istek onayınızı bekliyor — JUMBO > Sertifika Talepleri ekranından karar verebilirsiniz.")
+    body = _mail_text_wrap("Merhabalar,", "\n".join(lines))
+
+    mail_sent = False
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    if to_addr and cfg.get("enabled") and cfg.get("host"):
+        mail_sent, _note = _deliver(db, cfg, to_addr, subject, body, None,
+                                    certificate_id=req.result_cert_id, stakeholder="issuance",
+                                    days_left=None)
+
+    db.add(Notification(certificate_id=req.result_cert_id,
+                        recipient=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
+                        subject=subject, days_left=None))
+    db.commit()
+    return {"recipients": to_addr, "mail_sent": mail_sent}
 
 
 def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) -> list[dict]:
@@ -887,6 +924,72 @@ def _queue_interval() -> int:
         db.close()
 
 
+def scan_expiring_for_issuance() -> None:
+    """Süresi yaklaşan (`Domain.auto_issuance_enabled=True`) domainler için otomatik yenileme
+    isteği açar. CA'ya HİÇBİR ÇAĞRI yapmaz — yalnız `issuance.create_request()` çağırır (gerçek
+    çağrı `run_pending_issuance`'a bırakılır). Kendi SessionLocal'ını açar (istek bağlamı dışında
+    çalışır — deployment_engine.poll_running_runs deseni). Global kill-switch (`issuance.enabled`)
+    kapalıysa erken döner."""
+    from app.services import issuance as issuance_service
+
+    db: Session = SessionLocal()
+    try:
+        cfg = get_category(db, "issuance", mask_secrets=False)
+        if not cfg.get("enabled"):
+            return
+        default_days = int(cfg.get("default_renew_before_days") or 30)
+        default_profile_id = cfg.get("default_profile_id")
+        domains = db.query(Domain).filter(Domain.auto_issuance_enabled == True).all()
+        for dom in domains:
+            profile_id = dom.issuance_profile_id or default_profile_id
+            if not profile_id:
+                continue
+            profile = db.get(IssuanceProfile, profile_id)
+            if profile is None or not profile.enabled:
+                continue
+            mapping = (db.query(CertificateDomainMap)
+                      .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
+                      .filter(CertificateDomainMap.domain_id == dom.id,
+                              CertificateDomainMap.mapping_type == "server",
+                              Certificate.is_active == True)
+                      .first())
+            if mapping is None or mapping.certificate.valid_to is None:
+                continue
+            threshold = dom.issuance_renew_before_days or default_days
+            days_left = (mapping.certificate.valid_to - utcnow()).days
+            if days_left > threshold:
+                continue
+            if issuance_service.has_open_request(db, dom.id):
+                continue
+            issuance_service.create_request(db, dom, profile, username="system:scheduler",
+                                            trigger="scheduled_renewal")
+            db.commit()
+    except Exception:
+        logger.exception("scan_expiring_for_issuance hata")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def run_pending_issuance() -> None:
+    """`approved` durumundaki issuance isteklerini CA'ya gönderir — `deployment_engine.
+    poll_running_runs` ile AYNI desen (kendi SessionLocal, istek bağlamı dışında). Global
+    kill-switch ve profil-bazlı kontroller `issuance.execute_request()` içinde yapılır."""
+    from app.services import issuance as issuance_service
+
+    db: Session = SessionLocal()
+    try:
+        reqs = db.query(IssuanceRequest).filter(IssuanceRequest.status == "approved").all()
+        for req in reqs:
+            issuance_service.execute_request(db, req)
+            db.commit()
+    except Exception:
+        logger.exception("run_pending_issuance hata")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def start_scheduler() -> None:
     from app.services.ct_monitor import run_ct_scan_job
     from app.services.deployment_engine import poll_running_runs
@@ -918,4 +1021,11 @@ def start_scheduler() -> None:
         # bitenleri ilerletir. max_instances=1: bir poll uzun sürerse üst üste binmesin.
         scheduler.add_job(poll_running_runs, "interval", seconds=12,
                           id="deployment-poll", replace_existing=True, max_instances=1, coalesce=True)
+        # Otomatik CA sertifika alımı (issuance) — iş içinde 'issuance.enabled' kontrol edilir
+        # (kapalıysa atlar). Tarama gece; onaylanmış istekleri CA'ya gönderme sık aralıklı
+        # (Vault senkron, ACME Faz C'de ayrı bir poll job'ı gerektirecek).
+        scheduler.add_job(scan_expiring_for_issuance, "cron", hour=_schedule_hour("issuance", 6),
+                          minute=0, id="issuance-scan", replace_existing=True)
+        scheduler.add_job(run_pending_issuance, "interval", seconds=45,
+                          id="issuance-run", replace_existing=True, max_instances=1, coalesce=True)
         scheduler.start()

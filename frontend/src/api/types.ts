@@ -210,6 +210,11 @@ export interface Domain {
   keystore?: string | null
   servers_to_update?: string | null
   notify_days?: number | null
+  // Otomatik CA sertifika alımı (issuance) — bkz. IssuanceProfile/IssuanceRequest
+  issuance_profile_id?: number | null
+  auto_issuance_enabled: boolean
+  issuance_zero_touch: boolean          // admin-only geçiş
+  issuance_renew_before_days?: number | null
   ug_team?: Team | null
   sy_team?: Team | null
   server_days_left?: number | null
@@ -503,4 +508,59 @@ export interface DeploymentRunSummary {
 
 export interface DeploymentRun extends DeploymentRunSummary {
   steps: DeploymentRunStep[]
+}
+
+// ---- Otomatik CA sertifika alımı (issuance) ----
+export type IssuanceCaType = 'vault_pki' | 'acme'
+
+export interface IssuanceProfile {
+  id: number
+  name: string
+  ca_type: IssuanceCaType
+  enabled: boolean
+  vault_mount?: string | null
+  vault_role?: string | null
+  acme_directory_url?: string | null
+  eab_kid?: string | null
+  proxy_url?: string | null
+  timeout_seconds: number
+  allow_key_return: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type IssuanceRequestStatus =
+  | 'pending_approval' | 'approved' | 'submitted' | 'polling'
+  | 'issued' | 'failed' | 'rejected' | 'cancelled' | 'expired'
+
+export interface IssuanceRequest {
+  id: number
+  domain_id: number
+  domain_name?: string | null
+  profile_id: number
+  profile_name?: string | null
+  sy_team_id?: number | null
+  sy_team_name?: string | null
+  status: IssuanceRequestStatus
+  method: 'csr_sign' | 'issue' | 'acme'
+  common_name: string
+  sans: string[]
+  has_csr: boolean
+  requested_ttl_hours?: number | null
+  challenge_type?: string | null
+  attempt_count: number
+  last_error?: string | null
+  result_cert_id?: number | null
+  result_cert_name?: string | null
+  trigger: 'scheduled_renewal' | 'manual' | 'zero_touch'
+  zero_touch: boolean
+  created_by?: string | null
+  created_at: string
+  decided_by?: string | null
+  decided_at?: string | null
+  submitted_at?: string | null
+  finished_at?: string | null
+  note?: string | null
+  can_decide: boolean
 }

@@ -104,6 +104,7 @@ export function sourceLabel(source: string | null | undefined): string {
     case 'live': return 'Canlı'
     case 'discovery': return 'Ağ Keşfi'
     case 'ct': return 'CT Log'
+    case 'issuance': return 'Otomatik Alım'
     default: return 'Manuel'
   }
 }
@@ -128,6 +129,32 @@ export function mappingTypeLabel(mappingType: string | null | undefined): string
 
 export function environmentColor(environment: string | null | undefined): 'error' | 'default' {
   return environment === 'prod' ? 'error' : 'default'
+}
+
+/** Otomatik CA sertifika alım isteğinin (IssuanceRequest) durum etiketi/rengi. */
+export function issuanceStatusLabel(status: string): string {
+  switch (status) {
+    case 'pending_approval': return 'Onay Bekliyor'
+    case 'approved': return 'Onaylandı'
+    case 'submitted': return 'Gönderildi'
+    case 'polling': return 'İzleniyor'
+    case 'issued': return 'Alındı'
+    case 'failed': return 'Başarısız'
+    case 'rejected': return 'Reddedildi'
+    case 'cancelled': return 'İptal Edildi'
+    case 'expired': return 'Süresi Doldu'
+    default: return status
+  }
+}
+
+export function issuanceStatusColor(status: string): 'success' | 'warning' | 'error' | 'default' | 'info' {
+  switch (status) {
+    case 'issued': return 'success'
+    case 'failed': case 'expired': return 'error'
+    case 'rejected': case 'cancelled': return 'default'
+    case 'pending_approval': return 'warning'
+    default: return 'info'
+  }
 }
 
 export const nodeColors: Record<string, string> = {
