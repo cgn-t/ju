@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
 import type { TokenResponse } from '../api/types'
@@ -19,6 +20,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const [token, setToken] = useState(localStorage.getItem('jumbo_token'))
   const [username, setUsername] = useState(localStorage.getItem('jumbo_username'))
   const [role, setRole] = useState(localStorage.getItem('jumbo_role'))
@@ -27,6 +29,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (user: string, password: string) => {
     const { data } = await api.post<TokenResponse>('/auth/login-json', { username: user, password })
+    // Aynı sekmede önceki kullanıcının önbelleklenmiş sorguları (özellikle ['auth-me']
+    // page_access) yeni kullanıcıya SIZMASIN — staleTime (30sn) boyunca eski rolün
+    // gördüğü sayfalar navbar'da yanlışlıkla görünür kalabiliyordu.
+    queryClient.clear()
     localStorage.setItem('jumbo_token', data.access_token)
     localStorage.setItem('jumbo_username', data.username)
     localStorage.setItem('jumbo_role', data.role)
@@ -40,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = () => {
+    queryClient.clear()
     for (const k of ['jumbo_token', 'jumbo_username', 'jumbo_role', 'jumbo_fullname', 'jumbo_email'])
       localStorage.removeItem(k)
     setToken(null)
