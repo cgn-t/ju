@@ -74,8 +74,9 @@ export default function AppLayout() {
           : to === '/issuance' ? pendingIssuanceCount : 0
   const groupBadge = (g: NavGroup) => g.items.reduce((n, i) => n + badgeFor(i.to), 0)
   const groupActive = (g: NavGroup) => g.items.some((i) => isActive(i.to))
-  // Erişimi olmayan rotaları gizle (bkz. usePageAccess); boşalan grupları düş
-  const canSee = (to: string) => { const page = PAGE_FOR_PATH[to]; return !page || access[page] }
+  // Üst menüde erişimi olmayan rotaları gizle (bkz. usePageAccess `nav` — SY üyeliği carve-out'u
+  // burada UYGULANMAZ; rota erişimi/onay iş akışı bundan etkilenmez). Boşalan gruplar düşer.
+  const canSee = (to: string) => { const page = PAGE_FOR_PATH[to]; return !page || access.nav[page] }
   const navEntries: NavEntry[] = NAV
     .map((e) => (isGroup(e) ? { ...e, items: e.items.filter((i) => canSee(i.to)) } : e))
     .filter((e) => (isGroup(e) ? e.items.length > 0 : canSee(e.to)))

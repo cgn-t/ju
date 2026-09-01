@@ -217,6 +217,40 @@ def test_ug_team_membership_now_allowed(client, auth_headers):
     assert body["role"] == "viewer"  # UG üyeliği de rol vermez
 
 
+# --- nav_page_access: SY üyeliği carve-out'u üst menüde UYGULANMAZ (page_access'te uygulanır) ---
+def test_nav_page_access_hides_proposals_link_for_sy_member_when_switch_off(client, auth_headers):
+    """Ayarlar>Erişim'de proposals_all_roles/issuance_all_roles KAPALIYKEN, SY ekip üyesi editör
+    kendi bekleyen tekliflerini/isteklerini yine GÖREBİLİR/ONAYLAYABİLİR (page_access — route
+    erişimi, onay iş akışı bozulmaz) ama üst navigasyon linki artık GİZLİDİR (nav_page_access) —
+    kullanıcı isteği: switch kapalıyken navbar'da görünmesin."""
+    t = _team(client, auth_headers, "SY-NavHide", "SY")
+    uid = _mk_user(client, auth_headers, "rbac_nav_sy", role="editor")
+    _add_member(client, auth_headers, t["id"], uid)
+    h, _ = _login(client, "rbac_nav_sy")
+
+    me = client.get("/api/auth/me", headers=h).json()
+    # switch varsayılan KAPALI (bkz. settings_service DEFAULTS["access"])
+    assert me["page_access"]["proposals"] is True       # carve-out: SY üyesi hâlâ görür/onaylar
+    assert me["page_access"]["issuance"] is True
+    assert me["nav_page_access"]["proposals"] is False   # ama üst menüde gizli
+    assert me["nav_page_access"]["issuance"] is False
+    assert me["nav_page_access"]["policy"] is False
+    assert me["nav_page_access"]["discovery"] is False
+    # NOT: 'deployments' burada assert edilmiyor — test_deployment_engine.py başka bir testte
+    # deployments_all_roles'u kalıcı True bırakıyor (paylaşımlı session-scoped test DB'si).
+    # Rota (onay iş akışı) hâlâ erişilebilir — nav gizlenmesi işlevi bozmaz
+    assert client.get("/api/proposals", headers=h).status_code == 200
+
+    # Switch açılınca nav_page_access de True olur (admin/allviewer zaten her zaman True)
+    assert client.put("/api/settings/access", headers=auth_headers,
+                      json={"proposals_all_roles": True}).status_code == 200
+    me2 = client.get("/api/auth/me", headers=h).json()
+    assert me2["nav_page_access"]["proposals"] is True
+    # Diğer kullanıcıları etkilememesi için varsayılana geri al
+    assert client.put("/api/settings/access", headers=auth_headers,
+                      json={"proposals_all_roles": False}).status_code == 200
+
+
 # --- Break-glass: son aktif admin'in rolü/erişimi düşürülemez (EN SONDA çalışmalı) ---
 def test_zzz_break_glass_last_admin(client, auth_headers):
     # seed 'admin' dışındaki admin rolündeki kullanıcıları viewer'a düşür (her biri son değilken 200)

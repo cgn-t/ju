@@ -323,6 +323,8 @@ export interface AppUser {
   team_names?: string[]
   // Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü (bkz. usePageAccess)
   page_access?: Record<string, boolean>
+  // Üst navigasyon linki görünürlüğü — page_access'ten farkı: SY üyeliği carve-out'u yok
+  nav_page_access?: Record<string, boolean>
 }
 
 export interface TeamMember {

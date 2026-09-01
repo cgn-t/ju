@@ -231,6 +231,18 @@ def page_visible(db: Session, user: User, page: str) -> bool:
     return bool(get_category(db, "access").get(PAGE_SETTING_KEY[page]))
 
 
+def nav_visible(db: Session, user: User, page: str) -> bool:
+    """Üst navigasyon linkinin görünürlüğü. page_visible'dan TEK FARKI: SY üyeliği carve-out'u
+    UYGULANMAZ — onay iş akışı (route erişimi, require_page_access, DomainDetailDrawer'daki
+    'Onaya git' derin linki) page_visible ile AYNEN çalışmaya devam eder; bu yalnız üst menüde
+    switch kapalıyken SY üyeleri için de linkin gizlenmesini sağlayan bir UX kararı (kullanıcı
+    isteği: 'Erişim'de kapalıysa navbar'da görünmesin, ama onaylama fonksiyonu bozulmasın)."""
+    if user.role in ("admin", "allviewer"):
+        return True
+    from app.services.settings_service import get_category
+    return bool(get_category(db, "access").get(PAGE_SETTING_KEY[page]))
+
+
 def require_page_access(page: str, minimum: str = "viewer"):
     """require_role + page_visible birleşik dependency factory. `minimum`: sayfa içindeki belirli
     bir MUTASYON ucu (ör. Keşif adopt/ignore) için görünürlükten AYRI ikinci bir rol tabanı."""

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import LoginRequest, TokenResponse, UserOut
 from app.core.security import (PAGE_SETTING_KEY, create_access_token, effective_role,
-                                get_current_user, is_local_password, page_visible,
+                                get_current_user, is_local_password, nav_visible, page_visible,
                                 verify_password)
 from app.db.models import Team, User, UserTeam
 from app.db.session import get_db
@@ -87,4 +87,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     out.team_ids = [t.id for t in memberships]
     out.team_names = [t.name for t in memberships]
     out.page_access = {page: page_visible(db, user, page) for page in PAGE_SETTING_KEY}
+    # Üst navigasyon linki görünürlüğü — page_access'ten FARKI: SY üyeliği carve-out'u yok
+    # (bkz. nav_visible). Route erişimi/onay iş akışı page_access ile değişmeden çalışır.
+    out.nav_page_access = {page: nav_visible(db, user, page) for page in PAGE_SETTING_KEY}
     return out
