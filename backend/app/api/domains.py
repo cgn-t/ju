@@ -1,6 +1,7 @@
-import csv
 import io
 from datetime import datetime
+
+import openpyxl
 from app.core.timeutil import utcnow
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -119,21 +120,28 @@ CSV_PLAIN_FIELDS = ("external_address", "cert_owner", "lb_update", "env_update",
                     "ssl_pinning", "keystore", "servers_to_update")
 
 
-@router.post("/import-csv")
-def import_csv(request: Request, file: UploadFile = File(...),
-               db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
-    """Toplu domain yükleme. Zorunlu kolon: domain. Opsiyonel: sy, ug (takım adları),
-    external_address, cert_owner, mail_addresses, external_company, info, lb_update,
-    env_update, waf_update, action_required, ssl_pinning, keystore, servers_to_update.
-    Var olan domain adları atlanır; sy/ug takımları yoksa oluşturulur."""
+@router.post("/import-excel")
+def import_excel(request: Request, file: UploadFile = File(...),
+                 db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
+    """Toplu domain yükleme (.xlsx). 1. satır başlık, altındaki satırlar veri. Zorunlu kolon:
+    domain. Opsiyonel: sy, ug (takım adları), external_address, cert_owner, mail_addresses,
+    external_company, info, lb_update, env_update, waf_update, action_required, ssl_pinning,
+    keystore, servers_to_update. Var olan domain adları atlanır; sy/ug takımları yoksa oluşturulur."""
     try:
-        content = file.file.read().decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(content))
-        rows = list(reader)
+        wb = openpyxl.load_workbook(io.BytesIO(file.file.read()), read_only=True, data_only=True)
+        ws = wb.active
+        rows_iter = ws.iter_rows(values_only=True)
+        header_row = next(rows_iter, None)
+        headers = [str(h) if h is not None else "" for h in (header_row or ())]
+        rows = []
+        for values in rows_iter:
+            if values is None or all(v is None for v in values):
+                continue  # Excel'de sık görülen tamamen boş satır — atla
+            rows.append(dict(zip(headers, (("" if v is None else str(v)) for v in values))))
     except Exception:
-        raise HTTPException(status_code=400, detail="CSV okunamadı (UTF-8 olmalı)")
-    if not rows or "domain" not in {(f or "").strip().lower() for f in (reader.fieldnames or [])}:
-        raise HTTPException(status_code=400, detail="CSV'de 'domain' kolonu bulunamadı")
+        raise HTTPException(status_code=400, detail="Excel okunamadı (.xlsx olmalı)")
+    if not rows or "domain" not in {(h or "").strip().lower() for h in headers}:
+        raise HTTPException(status_code=400, detail="Excel'de 'domain' kolonu bulunamadı")
 
     def get_or_create_team(name: str | None, type_: str) -> int | None:
         name = (name or "").strip()

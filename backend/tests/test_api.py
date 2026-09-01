@@ -313,16 +313,33 @@ def test_certificate_import_source_tag(client, auth_headers, fixtures_dir):
         assert r.status_code == 409
 
 
-def test_domain_csv_import(client, auth_headers):
-    csv_content = (
-        "domain,sy,ug,mail_addresses,external_company\n"
-        "csv1.jumbo-test.com,MoneyTalks,Integral,ops@test.com,32bit\n"
-        "csv2.jumbo-test.com,IISAdmins,,iis@test.com,\n"
-        "csv1.jumbo-test.com,MoneyTalks,,,\n"  # mükerrer → atlanmalı... ilk satırla aynı isim
-        ",Bos,,,\n"  # domain boş → hata satırı
+def _xlsx_bytes(headers, rows):
+    import io as _io
+
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(headers)
+    for row in rows:
+        ws.append(row)
+    buf = _io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_domain_excel_import(client, auth_headers):
+    content = _xlsx_bytes(
+        ["domain", "sy", "ug", "mail_addresses", "external_company"],
+        [
+            ["excel1.jumbo-test.com", "MoneyTalks", "Integral", "ops@test.com", "32bit"],
+            ["excel2.jumbo-test.com", "IISAdmins", None, "iis@test.com", None],
+            ["excel1.jumbo-test.com", "MoneyTalks", None, None, None],  # mükerrer → atlanmalı
+            [None, "Bos", None, None, None],  # domain boş → hata satırı
+        ],
     )
-    r = client.post("/api/domains/import-csv", headers=auth_headers,
-                    files={"file": ("domains.csv", csv_content, "text/csv")})
+    r = client.post("/api/domains/import-excel", headers=auth_headers,
+                    files={"file": ("domains.xlsx", content,
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["created"] == 2
@@ -332,9 +349,17 @@ def test_domain_csv_import(client, auth_headers):
     teams = client.get("/api/teams", headers=auth_headers).json()
     assert {"MoneyTalks", "IISAdmins"} <= {t["name"] for t in teams if t["type"] == "SY"}
     # Aynı dosya tekrar → hepsi atlanır
-    r = client.post("/api/domains/import-csv", headers=auth_headers,
-                    files={"file": ("domains.csv", csv_content, "text/csv")})
+    r = client.post("/api/domains/import-excel", headers=auth_headers,
+                    files={"file": ("domains.xlsx", content,
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
     assert r.json()["created"] == 0
+
+
+def test_domain_excel_import_rejects_non_excel_file(client, auth_headers):
+    r = client.post("/api/domains/import-excel", headers=auth_headers,
+                    files={"file": ("domains.txt", b"not an excel file", "text/plain")})
+    assert r.status_code == 400
+    assert "Excel okunamadı" in r.json()["detail"]
 
 
 def test_certificate_soft_delete_filter(client, auth_headers):

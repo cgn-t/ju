@@ -1,6 +1,7 @@
 import AddIcon from '@mui/icons-material/Add'
 import BusinessIcon from '@mui/icons-material/Business'
 import DeleteIcon from '@mui/icons-material/Delete'
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import EditIcon from '@mui/icons-material/Edit'
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
@@ -82,7 +83,7 @@ export default function Domains() {
   const [deleteTarget, setDeleteTarget] = useState<Domain | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const syFilter = searchParams.get('sy')
-  const csvInput = useRef<HTMLInputElement>(null)
+  const excelInput = useRef<HTMLInputElement>(null)
 
   const { data: domains, isLoading, isError, error, refetch } = useQuery<Domain[]>({
     queryKey: ['domains', search],
@@ -100,24 +101,35 @@ export default function Domains() {
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
 
-  const csvImport = useMutation({
+  const excelImport = useMutation({
     mutationFn: async (file: File) => {
       const form = new FormData()
       form.append('file', file)
-      return (await api.post('/domains/import-csv', form)).data
+      return (await api.post('/domains/import-excel', form)).data
     },
     onSuccess: (d: { created: number; skipped: number; errors: string[] }) => {
       enqueueSnackbar(
         `${d.created} domain eklendi, ${d.skipped} atlandı${d.errors.length ? `, ${d.errors.length} hatalı satır` : ''}`,
         { variant: d.created > 0 ? 'success' : 'warning' },
       )
-      if (d.errors.length) console.warn('CSV import hataları:', d.errors)
+      if (d.errors.length) console.warn('Excel import hataları:', d.errors)
       queryClient.invalidateQueries({ queryKey: ['domains'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['teams'] })
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
+
+  const IMPORT_HEADERS = ['domain', 'sy', 'ug', 'external_address', 'cert_owner',
+    'mail_addresses', 'external_company', 'info', 'lb_update', 'env_update', 'waf_update',
+    'action_required', 'ssl_pinning', 'keystore', 'servers_to_update']
+  const handleTemplateDownload = () => {
+    exportSheet('domain-sablon.xlsx', IMPORT_HEADERS, [
+      ['ornek.jumbo.local', 'Açık Bankacılık SY', 'Ödeme UG', '10.0.0.1', 'ornek@jumbo.local',
+       'ops@jumbo.local', '', 'Örnek satır — silip kendi verinizi girin', 'Evet', 'Hayır',
+       'Evet', 'Hayır', 'Hayır', '', ''],
+    ])
+  }
 
   const filtered = useMemo(
     () => (domains ?? []).filter((d) =>
@@ -233,17 +245,26 @@ export default function Domains() {
                   onClick={handleExport}>Excel İndir</Button>
         </Tooltip>
         {canEdit && (
-          <Tooltip title="CSV'den toplu domain ekler (kolonlar: domain, sy, ug, mail_addresses, …)">
-            <Button size="small" variant="outlined" color="inherit" startIcon={<FileUploadIcon />}
-                    onClick={() => csvInput.current?.click()} disabled={csvImport.isPending}>
-              CSV Yükle
-            </Button>
-          </Tooltip>
+          <>
+            <Tooltip title="Boş şablonu (başlıklar + örnek satır) indirir">
+              <Button size="small" variant="outlined" color="inherit" startIcon={<DescriptionOutlinedIcon />}
+                      onClick={handleTemplateDownload}>
+                Şablon İndir
+              </Button>
+            </Tooltip>
+            <Tooltip title="Excel'den toplu domain ekler (1. satır başlık; şablonu doldurup yükleyin)">
+              <Button size="small" variant="outlined" color="inherit" startIcon={<FileUploadIcon />}
+                      onClick={() => excelInput.current?.click()} disabled={excelImport.isPending}>
+                Excel Yükle
+              </Button>
+            </Tooltip>
+          </>
         )}
-        <input ref={csvInput} type="file" hidden accept=".csv,text/csv"
+        <input ref={excelInput} type="file" hidden
+               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                onChange={(e) => {
                  const f = e.target.files?.[0]
-                 if (f) csvImport.mutate(f)
+                 if (f) excelImport.mutate(f)
                  e.target.value = ''
                }} />
         <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
