@@ -557,6 +557,15 @@ def backfill_prod_defaults() -> None:
         # kalır — şema (str, Optional değil) None'ı reddeder, 'manual' en makul geriye dönük varsayım.
         if "trigger_type" in cols("deployment_runs"):
             conn.execute(text("UPDATE [deployment_runs] SET trigger_type='manual' WHERE trigger_type IS NULL"))
+        # Otomatik CA alımı (issuance): bu kolonlardan ÖNCE oluşturulmuş domain satırlarında
+        # auto_issuance_enabled/issuance_zero_touch NULL kalır — şema (bool, Optional değil)
+        # None'ı reddeder (DomainOut 500 verirdi), server_default yalnız YENİ INSERT'lere işler.
+        if "auto_issuance_enabled" in dc:
+            conn.execute(text(
+                "UPDATE [domain_certificates] SET auto_issuance_enabled=0 WHERE auto_issuance_enabled IS NULL"))
+        if "issuance_zero_touch" in dc:
+            conn.execute(text(
+                "UPDATE [domain_certificates] SET issuance_zero_touch=0 WHERE issuance_zero_touch IS NULL"))
 
 
 def backfill_transfer_proposals() -> None:
