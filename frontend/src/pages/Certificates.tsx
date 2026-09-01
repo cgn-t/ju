@@ -31,7 +31,7 @@ import QueryError from '../components/QueryError'
 import SkiText from '../components/SkiText'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, nodeColors, sourceLabel } from '../theme'
-import { exportCsv } from '../utils/csv'
+import { exportSheet } from '../utils/exportSheet'
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
@@ -195,7 +195,7 @@ export default function Certificates() {
 
   const handleExport = () =>
     // DB'deki tüm sertifika kolonları (PEM gövdesi hariç) — eksiksiz dışa aktarım
-    exportCsv('sertifikalar.csv',
+    exportSheet('sertifikalar.xlsx',
       ['name', 'cert_type', 'serial_number', 'subject_key_identifier', 'authority_key_identifier',
        'fingerprint_sha256', 'subject', 'issuer', 'san', 'extended_key_usage',
        'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'halef', 'internal', 'ortam', 'kaynak', 'vault_path',
@@ -508,9 +508,9 @@ export default function Certificates() {
                            onChange={(e) => setShowInactive(e.target.checked)} />}
           label={<Typography variant="body2">Pasifleri göster</Typography>} sx={{ mr: 0.5 }} />
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-        <Tooltip title="Görünen listeyi CSV olarak indirir">
+        <Tooltip title="Görünen listeyi Excel (.xlsx) olarak indirir">
           <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon fontSize="small" />}
-                  onClick={handleExport}>CSV İndir</Button>
+                  onClick={handleExport}>Excel İndir</Button>
         </Tooltip>
       </Paper>
 
