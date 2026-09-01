@@ -132,6 +132,11 @@ GO
 -- DeploymentRun.app_id KASITLI FK'SİZ (mail_queue.certificate_id deseni) — Application
 -- (CASCADE)→Flow(SET NULL)→Run çoklu cascade yolunu MSSQL'de önlemek için.
 -- Taze DB'de gerekmez (create_all kurar); bu blok mevcut prod DB içindir.
+--
+-- 2026-09-01 HOTFIX: source_run_id'nin ON DELETE SET NULL'ı, deployment_run_steps.run_id'nin
+-- ON DELETE CASCADE'i ile birleşip MSSQL error 1785 (çoklu cascade yolu) fırlatıyordu — prod'da
+-- bu tablonun hiç kurulamamasının sebebi buydu. source_run_id artık ondelete VERMİYOR (NO ACTION),
+-- aşağıdaki DDL bunu yansıtır.
 -- -----------------------------------------------------------------------------
 IF OBJECT_ID('dbo.deployment_flows', 'U') IS NULL
 BEGIN
@@ -170,7 +175,10 @@ BEGIN
         finished_at          DATETIME       NULL,
         created_at           DATETIME       NOT NULL CONSTRAINT DF_deployment_runs_created DEFAULT (GETUTCDATE()),
         CONSTRAINT FK_deployment_runs_flow FOREIGN KEY (flow_id) REFERENCES dbo.deployment_flows(id) ON DELETE SET NULL,
-        CONSTRAINT FK_deployment_runs_source FOREIGN KEY (source_run_id) REFERENCES dbo.deployment_runs(id) ON DELETE SET NULL
+        -- source_run_id ondelete YOK (NO ACTION): self-ref FK + aşağıdaki run_steps CASCADE'i
+        -- birlikte MSSQL error 1785 (çoklu cascade yolu) fırlatıyordu — prod'da bu tabloyu hiç
+        -- kurdurmayan asıl sebep buydu. Temizlik (varsa) uygulama seviyesinde yapılmalı.
+        CONSTRAINT FK_deployment_runs_source FOREIGN KEY (source_run_id) REFERENCES dbo.deployment_runs(id)
     );
     CREATE INDEX IX_deployment_runs_status  ON dbo.deployment_runs(status);
     CREATE INDEX IX_deployment_runs_app     ON dbo.deployment_runs(app_id);
