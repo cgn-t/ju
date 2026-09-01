@@ -32,7 +32,7 @@ import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel } from '../theme'
-import { exportCsv } from '../utils/csv'
+import { exportSheet } from '../utils/exportSheet'
 
 type StatusFilter = 'all' | 'valid' | 'expiring' | 'expired' | 'nocert'
 
@@ -133,7 +133,7 @@ export default function Domains() {
 
   const handleExport = () => {
     // DB'deki tüm domain kolonları + türetilen alanlar — eksiksiz dışa aktarım
-    exportCsv('domainler.csv',
+    exportSheet('domainler.xlsx',
       ['domain', 'external_address', 'sy', 'ug', 'cert_owner', 'external_company',
        'mail_addresses', 'expire_date', 'lb_update', 'waf_update', 'env_update',
        'servers_to_update', 'action_required', 'ssl_pinning', 'keystore', 'info',
@@ -228,9 +228,9 @@ export default function Domains() {
         <Typography variant="body2" color="text.secondary">
           {visibleRows.length} / {counts.total} domain
         </Typography>
-        <Tooltip title="Görünen listeyi CSV olarak indirir">
+        <Tooltip title="Görünen listeyi Excel (.xlsx) olarak indirir">
           <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon />}
-                  onClick={handleExport}>CSV İndir</Button>
+                  onClick={handleExport}>Excel İndir</Button>
         </Tooltip>
         {canEdit && (
           <Tooltip title="CSV'den toplu domain ekler (kolonlar: domain, sy, ug, mail_addresses, …)">

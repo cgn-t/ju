@@ -22,7 +22,7 @@ import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel } from '../theme'
-import { exportCsv } from '../utils/csv'
+import { exportSheet } from '../utils/exportSheet'
 
 // ---------- Ortak kategori formu kancası ----------
 function useCategory(category: string) {
@@ -979,9 +979,9 @@ function MailHistoryTab() {
     queryFn: async () => (await api.get('/notifications/history', { params })).data,
   })
   const rows = entries ?? []
-  // Ekranda görünen = indirilen (aynı satırlar). CSV util'i \r-güvenli (çok-satırlı konu/hata bozmaz).
-  const onExport = () => exportCsv(
-    `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.csv`,
+  // Ekranda görünen = indirilen (aynı satırlar). .xlsx — çok-satırlı konu/hata metni hücrede bozulmaz.
+  const onExport = () => exportSheet(
+    `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`,
     ['Tarih', 'Alıcı', 'Sertifika', 'Konu', 'Kalan Gün', 'Kanal', 'Durum', 'Hata'],
     rows.map((r) => [
       r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '',
@@ -1017,7 +1017,7 @@ function MailHistoryTab() {
                    slotProps={{ inputLabel: { shrink: true } }} />
         <Box sx={{ flexGrow: 1 }} />
         <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={onExport}
-                disabled={!rows.length}>Dışa Aktar (CSV)</Button>
+                disabled={!rows.length}>Dışa Aktar (Excel)</Button>
       </Stack>
       <Typography variant="caption" color="text.secondary">
         Gönderilen bilgilendirme e-postaları <b>ve teslim edilemeyen</b> (kuyrukta/başarısız)
