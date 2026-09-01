@@ -621,8 +621,11 @@ class DeploymentRun(Base):
     # yeniden tetikle — rollback). retry AYRI bir mekanizma (mevcut run'ı günceller, yeni run
     # yaratmaz); bu alan yalnız start_run/rerun_run ile oluşan run'ları etiketler.
     trigger_type: Mapped[str] = mapped_column(Unicode(20), default="manual", server_default=text("'manual'"))
+    # ondelete YOK (SSLCertificates.parent_id / IssuanceRequest.previous_request_id ile aynı kısıt):
+    # self-ref FK + deployment_run_steps.run_id CASCADE birlikte MSSQL error 1785 (çoklu cascade
+    # yolu) fırlatıyordu. Temizlik (varsa) uygulama seviyesinde yapılmalı.
     source_run_id: Mapped[int | None] = mapped_column(
-        ForeignKey("deployment_runs.id", ondelete="SET NULL"))  # rerun'ın kaynağı olan run
+        ForeignKey("deployment_runs.id"))  # rerun'ın kaynağı olan run
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
