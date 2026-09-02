@@ -12,6 +12,11 @@ Kapsanan senaryolar:
   8. Süresi GEÇMİŞ akışı (send_expired_notifications).
   9. Günlük tarama KAPALI (auto_expiry_enabled=false): cron atlar AMA dış API yine gönderir.
  10. Domain başına notify_days penceresi: 60g açık → mail; 15g → aynı gün-kalanda mail YOK.
+ 11. Tekrar-önleme KAPALI: art arda iki tarama da gönderir.
+ 12. Bir domain'e Server + Trusted (client) FARKLI iki sertifika bağlıyken İKİSİ de bildirilir.
+ 13. Bir domain'e AYNI tipten (server) iki farklı sertifika bağlıyken (rotasyon) İKİSİ de bildirilir.
+ 14. Bir uygulamaya client bağımlılığı + trust store FARKLI iki sertifikayla bağlıyken İKİSİ de bildirilir.
+ 15. notify_days penceresi aynı domain'in birden fazla sertifikasına TUTARLI (sertifika bazında) uygulanır.
 """
 
 from datetime import datetime, timedelta
@@ -269,3 +274,115 @@ def test_scn_notify_days_window(client, auth_headers, monkeypatch):
     _run(force=True)
     assert _got(sent, "scn-wina@test"), "50g kalan, 60g penceresi → mail gitmeli"
     assert not _got(sent, "scn-winb@test"), "50g kalan, 15g penceresi → mail GİTMEMELİ (geçit)"
+
+
+# 12 — Bir domain'e BİRDEN FAZLA farklı sertifika (Server + Trusted/client) bağlıyken HER İKİSİ
+# için de ayrı bildirim gitmeli (dispatch sertifika bazında döner, domain bazında değil).
+def test_scn_domain_multiple_certs_server_and_trusted_both_notify(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _team(client, h, "SCN MultiType SY", "scn-multitype@test")
+    cid_server = _import_leaf(client, h, "scn-multitype-server.test")
+    cid_client = _import_leaf(client, h, "scn-multitype-client.test")
+
+    def seed(db):
+        db.get(Certificate, cid_server).creator = None
+        db.get(Certificate, cid_client).creator = None
+        d = Domain(domain="scn-multitype-dom.test", sy_team_id=tid)
+        db.add(d); db.flush()
+        db.add(CertificateDomainMap(certificate_id=cid_server, domain_id=d.id, mapping_type="server"))
+        db.add(CertificateDomainMap(certificate_id=cid_client, domain_id=d.id, mapping_type="client"))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    hits = [m for m in sent if "scn-multitype@test" in m["to"]]
+    subjects = {m["subject"] for m in hits}
+    assert any("scn-multitype-server.test" in s for s in subjects), \
+        f"Server sertifikası için mail gitmedi: {subjects}"
+    assert any("scn-multitype-client.test" in s for s in subjects), \
+        f"Trusted (client) sertifikası için mail gitmedi: {subjects}"
+    assert len(hits) == 2, f"2 farklı sertifika → 2 AYRI mail beklenirdi, {len(hits)} geldi"
+
+
+# 13 — Bir domain'e AYNI mapping_type'tan (server) BİRDEN FAZLA farklı sertifika bağlıyken
+# (ör. rotasyon sırasında eski+yeni birlikte) HER İKİSİ de bildirilmeli.
+def test_scn_domain_multiple_certs_same_type_both_notify(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _team(client, h, "SCN MultiSame SY", "scn-multisame@test")
+    cid_old = _import_leaf(client, h, "scn-multisame-old.test")
+    cid_new = _import_leaf(client, h, "scn-multisame-new.test")
+
+    def seed(db):
+        db.get(Certificate, cid_old).creator = None
+        db.get(Certificate, cid_new).creator = None
+        d = Domain(domain="scn-multisame-dom.test", sy_team_id=tid)
+        db.add(d); db.flush()
+        db.add(CertificateDomainMap(certificate_id=cid_old, domain_id=d.id, mapping_type="server"))
+        db.add(CertificateDomainMap(certificate_id=cid_new, domain_id=d.id, mapping_type="server"))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    hits = [m for m in sent if "scn-multisame@test" in m["to"]]
+    subjects = {m["subject"] for m in hits}
+    assert any("scn-multisame-old.test" in s for s in subjects)
+    assert any("scn-multisame-new.test" in s for s in subjects)
+    assert len(hits) == 2, f"aynı tipten 2 farklı sertifika → 2 AYRI mail beklenirdi, {len(hits)} geldi"
+
+
+# 14 — Bir uygulamaya HEM client bağımlılığı (AppDependency.client_cert) HEM trust store
+# (ApplicationTrustedCert) ile FARKLI iki sertifika bağlıyken ikisi de bildirilmeli.
+def test_scn_app_multiple_cert_bindings_both_notify(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _team(client, h, "SCN AppMulti SY", "scn-appmulti@test")
+    cid_dep = _import_leaf(client, h, "scn-appmulti-dep.test")
+    cid_trust = _import_leaf(client, h, "scn-appmulti-trust.test")
+
+    def seed(db):
+        db.get(Certificate, cid_dep).creator = None
+        db.get(Certificate, cid_trust).creator = None
+        d = Domain(domain="scn-appmulti-target.test")
+        db.add(d); db.flush()
+        app = Application(app_name="SCN AppMulti App", server_name="srv", sy_team_id=tid, status=True)
+        db.add(app); db.flush()
+        db.add(AppDependency(app_id=app.id, target_domain_id=d.id, client_cert_id=cid_dep))
+        db.add(ApplicationTrustedCert(app_id=app.id, cert_id=cid_trust))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    hits = [m for m in sent if "scn-appmulti@test" in m["to"]]
+    subjects = {m["subject"] for m in hits}
+    assert any("scn-appmulti-dep.test" in s for s in subjects), \
+        f"AppDependency (client_cert) sertifikası için mail gitmedi: {subjects}"
+    assert any("scn-appmulti-trust.test" in s for s in subjects), \
+        f"Trust store sertifikası için mail gitmedi: {subjects}"
+    assert len(hits) == 2, f"2 farklı bağlantı türü → 2 AYRI mail beklenirdi, {len(hits)} geldi"
+
+
+# 15 — notify_days penceresi, AYNI domain'in BİRDEN FAZLA sertifikasına TUTARLI uygulanır:
+# pencereye giren sertifika bildirilir, girmeyen (aynı domain/ekip olsa dahi) bildirilmez.
+def test_scn_notify_days_applies_per_cert_on_same_domain(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _team(client, h, "SCN PerCertWin SY", "scn-percertwin@test")
+    # 60 günlük pencere: ~10 gün kalan sertifika GİRER, ~50 gün kalan GİRMEZ (global 30 da girmez)
+    cid_soon = _import_leaf(client, h, "scn-percertwin-soon.test", days=40, nb_days_ago=30)  # ~10g kaldı
+    cid_far = _import_leaf(client, h, "scn-percertwin-far.test", days=75, nb_days_ago=25)    # ~50g kaldı
+
+    def seed(db):
+        db.get(Certificate, cid_soon).creator = None
+        db.get(Certificate, cid_far).creator = None
+        d = Domain(domain="scn-percertwin-dom.test", sy_team_id=tid, notify_days=15)
+        db.add(d); db.flush()
+        db.add(CertificateDomainMap(certificate_id=cid_soon, domain_id=d.id, mapping_type="server"))
+        db.add(CertificateDomainMap(certificate_id=cid_far, domain_id=d.id, mapping_type="client"))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    hits = [m for m in sent if "scn-percertwin@test" in m["to"]]
+    subjects = {m["subject"] for m in hits}
+    assert any("scn-percertwin-soon.test" in s for s in subjects), \
+        f"15g penceresi içindeki sertifika bildirilmedi: {subjects}"
+    assert not any("scn-percertwin-far.test" in s for s in subjects), \
+        f"15g penceresi DIŞINDAKİ sertifika yanlışlıkla bildirildi: {subjects}"
