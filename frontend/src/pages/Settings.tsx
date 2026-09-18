@@ -980,10 +980,10 @@ function MailHistoryTab() {
   // Ekranda görünen = indirilen (aynı satırlar). .xlsx — çok-satırlı konu/hata metni hücrede bozulmaz.
   const onExport = () => exportSheet(
     `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`,
-    ['Tarih', 'Alıcı', 'Sertifika', 'Konu', 'Kalan Gün', 'Kanal', 'Durum', 'Hata'],
+    ['Tarih', 'Alıcı', 'Sertifika / Domain', 'Konu', 'Kalan Gün', 'Kanal', 'Durum', 'Hata'],
     rows.map((r) => [
       r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '',
-      r.recipient ?? '', r.certificate_name ?? '', r.subject ?? '',
+      r.recipient ?? '', r.certificate_name ?? (r.domain_name ? `${r.domain_name} (domain)` : ''), r.subject ?? '',
       r.days_left ?? '', r.channel, MAIL_STATUS[r.status]?.label ?? r.status, r.error ?? '',
     ]),
   )
@@ -1026,7 +1026,7 @@ function MailHistoryTab() {
           <TableRow>
             <TableCell>Tarih</TableCell>
             <TableCell>Alıcı</TableCell>
-            <TableCell>Sertifika</TableCell>
+            <TableCell>Sertifika / Domain</TableCell>
             <TableCell>Konu</TableCell>
             <TableCell>Kalan Gün</TableCell>
             <TableCell>Kanal</TableCell>
@@ -1043,7 +1043,7 @@ function MailHistoryTab() {
               <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {r.recipient ?? '—'}
               </TableCell>
-              <TableCell>{r.certificate_name ?? '—'}</TableCell>
+              <TableCell>{r.certificate_name ?? (r.domain_name ? `${r.domain_name} (domain)` : '—')}</TableCell>
               <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {r.subject ?? '—'}
               </TableCell>

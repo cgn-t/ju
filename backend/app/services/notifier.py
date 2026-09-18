@@ -11,8 +11,9 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
-from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate, MailQueue,
-                            Notification, Team, TransferProposal, User)
+from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
+                            CertificateDomainMap, Domain, MailQueue, Notification, Team,
+                            TransferProposal, User)
 from app.db.session import SessionLocal
 from app.services.settings_service import get_category
 
@@ -409,6 +410,21 @@ def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) 
     return list(stakeholders.values())
 
 
+def _domain_expiry_stakeholder(domain: Domain, global_days: int = 30) -> dict | None:
+    """Sertifikasız (server tipi aktif sertifikası olmayan, yalnız manuel Bitiş Tarihi
+    girilmiş) domain için TEK paydaş: domainin kendi SY ekibi. sy_team yoksa ya da
+    e-postası tanımsızsa None (çağıran atlar — _expiry_stakeholders'ın aksine burada
+    birleştirilecek ikinci bir kaynak yok)."""
+    if domain.sy_team is None:
+        return None
+    emails = _team_emails(domain.sy_team)
+    if not emails:
+        return None
+    return {"label": domain.sy_team.name, "emails": emails,
+            "reasons": [f"Domain sahibi: {domain.domain} (sertifikasız, manuel bitiş tarihi)"],
+            "effective_days": domain.notify_days or global_days}
+
+
 def _doc_links_html(doc_links: str) -> str:
     """Ayarlardaki doküman bağlantılarını mailin altına HTML bölümü olarak render eder."""
     lines = [ln.strip() for ln in (doc_links or "").splitlines() if ln.strip()]
@@ -453,13 +469,15 @@ def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: 
 
 
 def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body: str,
-             html_body: str | None, *, certificate_id, stakeholder, days_left) -> tuple[bool, str]:
+             html_body: str | None, *, certificate_id, stakeholder, days_left,
+             domain_id=None) -> tuple[bool, str]:
     """queue_enabled ise mail'i mail_queue'ya YAZAR (drain job gönderir); değilse doğrudan
-    (fallback'li) gönderir. (ok, açıklama) döner — ok=True 'işlendi' (gönderildi veya kuyruğa alındı)."""
+    (fallback'li) gönderir. (ok, açıklama) döner — ok=True 'işlendi' (gönderildi veya kuyruğa alındı).
+    certificate_id VEYA domain_id verilir, ikisi birden değil."""
     if cfg.get("queue_enabled"):
         db.add(MailQueue(to_addresses=", ".join(to_addresses), subject=subject,
                          body_text=body, body_html=html_body, certificate_id=certificate_id,
-                         stakeholder=stakeholder, days_left=days_left))
+                         domain_id=domain_id, stakeholder=stakeholder, days_left=days_left))
         return True, "kuyruğa alındı"
     return _send_with_fallback(cfg, to_addresses, subject, body, html_body)
 
@@ -537,6 +555,67 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
             "message": f"{len(certs)} sertifika tarandı, {sent} mail gönderildi, {skipped} atlandı."}
 
 
+def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool,
+                           make_subject, make_body, make_html=None, global_days: int = 30) -> dict:
+    """_dispatch_cert_mails'in SERTİFİKASIZ DOMAIN karşılığı: her domain için TEK paydaş
+    (kendi SY ekibi — bkz. _domain_expiry_stakeholder), bu yüzden çoklu-paydaş birleştirme/
+    partial-failure-per-stakeholder karmaşıklığı yok. Aynı dedup/resend/queue/fallback
+    çekirdeğini (_deliver/_send_with_fallback) paylaşır; Notification/MailQueue satırları
+    certificate_id=NULL, domain_id=domain.id ile yazılır. Dönüş {checked, sent, skipped,
+    details} — enabled/message çağıran fonksiyonda (cert sonucuyla) birleştirilir."""
+    sent = skipped = 0
+    details: list[dict] = []
+    interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
+    dedup_enabled = cfg.get("resend_dedup_enabled", True)
+    for dom in domains:
+        p = _domain_expiry_stakeholder(dom, global_days)
+        if p is None:
+            skipped += 1
+            continue
+
+        days_left = (dom.expire_date - utcnow()).days
+        if days_left > p["effective_days"]:
+            skipped += 1
+            continue
+        subject = make_subject(dom, days_left)
+        recipient_str = ", ".join(p["emails"])
+        if not force and dedup_enabled:
+            recent = (db.query(Notification)
+                      .filter(Notification.domain_id == dom.id,
+                              Notification.channel == "email",
+                              Notification.recipient == recipient_str,
+                              Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
+                      .first())
+            if recent:
+                skipped += 1
+                continue
+        body = make_body(dom, days_left, p)
+        html_body = make_html(dom, days_left, p) if make_html else None
+        ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                            certificate_id=None, domain_id=dom.id,
+                            stakeholder=p["label"], days_left=days_left)
+        mails: list[dict] = []
+        if ok:
+            db.add(Notification(domain_id=dom.id, recipient=recipient_str,
+                                subject=f"{subject} → {p['label']}", days_left=days_left,
+                                channel="email"))
+            db.commit()
+            sent += 1
+            mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
+        else:
+            logger.warning("Domain bildirimi işlenemedi: %s → %s (%s)", dom.domain, p["label"], note)
+            if not cfg.get("queue_enabled"):
+                db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
+                                 body_text=body, body_html=html_body, domain_id=dom.id,
+                                 stakeholder=p["label"], days_left=days_left,
+                                 status="failed", last_error=(note or "")[:1000], attempts=1))
+                db.commit()
+            mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
+        details.append({"domain": dom.domain, "days_left": days_left, "mails": mails})
+
+    return {"checked": len(domains), "sent": sent, "skipped": skipped, "details": details}
+
+
 _SMTP_OFF = {"enabled": False, "checked": 0, "sent": 0, "skipped": 0, "details": [],
              "message": "SMTP kapalı veya sunucu tanımsız — mail gönderilmedi."}
 
@@ -554,7 +633,6 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
     # Bir domain kendi notify_days'iyle global default'tan ERKEN uyarı isteyebilir → aday
     # penceresini tüm domainlerin en büyük (MAX) isteğine kadar aç; asıl "kaç gün kala"
     # kararı paydaş/domain bazında _dispatch_cert_mails içindeki geçitte verilir.
-    from app.db.models import Domain
     row = (db.query(Domain.notify_days).filter(Domain.notify_days.isnot(None))
            .order_by(Domain.notify_days.desc()).first())
     scan_days = max(warn_days, int(row[0]) if row and row[0] else 0)
@@ -595,9 +673,66 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
         return _render_cert_mail_html(cert, days_left, p, expired=False,
                                       doc_links=cfg.get("doc_links") or "")
 
-    return _dispatch_cert_mails(db, cfg, expiring, force=force,
-                                make_subject=subject, make_body=body, make_html=html,
-                                global_days=warn_days)
+    cert_result = _dispatch_cert_mails(db, cfg, expiring, force=force,
+                                       make_subject=subject, make_body=body, make_html=html,
+                                       global_days=warn_days)
+
+    # Server tipi AKTİF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş domainler —
+    # bkz. _dispatch_domain_mails. Aktif-server-sertifikalı domainler zaten yukarıdaki cert
+    # akışıyla (bkz. _expiry_stakeholders bent 2) kapsanır; burada tekrar sayılmaz.
+    expiring_domains = (
+        db.query(Domain)
+        .filter(Domain.expire_date.isnot(None),
+                Domain.expire_date <= threshold,
+                Domain.expire_date >= utcnow(),
+                ~Domain.certificate_mappings.any(
+                    (CertificateDomainMap.mapping_type == "server")
+                    & CertificateDomainMap.certificate.has(Certificate.is_active == True)))
+        .all()
+    )
+
+    def dom_subject(dom, days_left):
+        return f"[JUMBO] Domain bitiş tarihi yaklaşıyor: {dom.domain} ({days_left} gün kaldı)"
+
+    def dom_body(dom, days_left, p):
+        return (
+            f"Domain: {dom.domain}\nBitiş Tarihi (manuel): {dom.expire_date:%Y-%m-%d}\n"
+            f"Kalan: {days_left} gün\n\n"
+            + _reason_block(p)
+            + "\nBu domain'e bağlı AKTİF bir sertifika bulunmuyor; bitiş tarihi manuel "
+              "girilmiştir. Lütfen yenileme sürecini başlatın ve yeni sertifikayı JUMBO'ya "
+              "ekleyip bu domain'e Server olarak bağlayın.\n"
+            + _doc_links_text(cfg.get("doc_links") or "")
+            + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+        )
+
+    def dom_html(dom, days_left, p):
+        body_html = (
+            _banner(f"Bu domain'in bitiş tarihi {days_left} gün içinde dolmaktadır!")
+            + _section("Domain Detay Bilgileri") + _kv_table(_domain_rows(dom))
+            + _section(f"Bu bildirimi alma nedeniniz ({p['label']})")
+            + "<ul style='margin:4px 0;font-size:14px'>"
+            + "".join(f"<li>{_esc(r)}</li>" for r in p["reasons"]) + "</ul>"
+            + '<p style="font-size:14px">Bu domain\'e bağlı AKTİF bir sertifika bulunmuyor; '
+              "bitiş tarihi manuel girilmiştir. Lütfen yenileme sürecini başlatın ve yeni "
+              "sertifikayı JUMBO'ya ekleyip bu domain'e Server olarak bağlayın.</p>"
+        )
+        return _mail_html_wrap("Merhabalar,", body_html, doc_links=cfg.get("doc_links") or "")
+
+    dom_result = _dispatch_domain_mails(db, cfg, expiring_domains, force=force,
+                                        make_subject=dom_subject, make_body=dom_body,
+                                        make_html=dom_html, global_days=warn_days)
+
+    return {
+        "enabled": True,
+        "checked": cert_result["checked"] + dom_result["checked"],
+        "sent": cert_result["sent"] + dom_result["sent"],
+        "skipped": cert_result["skipped"] + dom_result["skipped"],
+        "details": cert_result["details"] + dom_result["details"],
+        "message": (f"{cert_result['checked']} sertifika + {dom_result['checked']} domain "
+                    f"tarandı, {cert_result['sent'] + dom_result['sent']} mail gönderildi, "
+                    f"{cert_result['skipped'] + dom_result['skipped']} atlandı."),
+    }
 
 
 def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
@@ -643,24 +778,107 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
         return _render_cert_mail_html(cert, days_left, p, expired=True,
                                       doc_links=cfg.get("doc_links") or "")
 
-    return _dispatch_cert_mails(db, cfg, expired, force=force,
-                                make_subject=subject, make_body=body, make_html=html,
-                                global_days=int(cfg.get("expiry_warning_days") or 30))
+    global_days = int(cfg.get("expiry_warning_days") or 30)
+    cert_result = _dispatch_cert_mails(db, cfg, expired, force=force,
+                                       make_subject=subject, make_body=body, make_html=html,
+                                       global_days=global_days)
+
+    # Server tipi AKTİF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş ve süresi
+    # geçmiş domainler — bkz. _dispatch_domain_mails.
+    expired_domains = (
+        db.query(Domain)
+        .filter(Domain.expire_date.isnot(None),
+                Domain.expire_date < utcnow(),
+                ~Domain.certificate_mappings.any(
+                    (CertificateDomainMap.mapping_type == "server")
+                    & CertificateDomainMap.certificate.has(Certificate.is_active == True)))
+        .all()
+    )
+
+    def dom_subject(dom, days_left):
+        return (f"[JUMBO] SÜRESİ GEÇMİŞ domain: {dom.domain} "
+                f"({-days_left} gün önce doldu) — JUMBO'da güncelleme gerekli")
+
+    def dom_body(dom, days_left, p):
+        return (
+            f"Domain: {dom.domain}\nBitiş Tarihi (manuel): {dom.expire_date:%Y-%m-%d}\n"
+            f"Durum: SÜRESİ {-days_left} GÜN ÖNCE DOLDU.\n\n"
+            + _reason_block(p)
+            + "\nLütfen JUMBO envanterini güncelleyin:\n"
+              "  1) Yenilenen sertifikayı JUMBO'ya import edin ve bu domain'e Server olarak "
+              "bağlayın.\n"
+              "  2) Bu domain'in Manuel Bitiş Tarihi'ni güncelleyin ya da boşaltın.\n"
+            + _doc_links_text(cfg.get("doc_links") or "")
+            + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+        )
+
+    def dom_html(dom, days_left, p):
+        body_html = (
+            _banner(f"Bu domain'in bitiş tarihi {-days_left} gün önce doldu!")
+            + _section("Domain Detay Bilgileri") + _kv_table(_domain_rows(dom))
+            + _section(f"Bu bildirimi alma nedeniniz ({p['label']})")
+            + "<ul style='margin:4px 0;font-size:14px'>"
+            + "".join(f"<li>{_esc(r)}</li>" for r in p["reasons"]) + "</ul>"
+            + '<p style="font-size:14px">Lütfen JUMBO envanterini güncelleyin: yenilenen '
+              "sertifikayı import edip bu domain'e Server olarak bağlayın, ya da Manuel Bitiş "
+              "Tarihi'ni güncelleyin/boşaltın.</p>"
+        )
+        return _mail_html_wrap("Merhabalar,", body_html, doc_links=cfg.get("doc_links") or "")
+
+    dom_result = _dispatch_domain_mails(db, cfg, expired_domains, force=force,
+                                        make_subject=dom_subject, make_body=dom_body,
+                                        make_html=dom_html, global_days=global_days)
+
+    return {
+        "enabled": True,
+        "checked": cert_result["checked"] + dom_result["checked"],
+        "sent": cert_result["sent"] + dom_result["sent"],
+        "skipped": cert_result["skipped"] + dom_result["skipped"],
+        "details": cert_result["details"] + dom_result["details"],
+        "message": (f"{cert_result['checked']} sertifika + {dom_result['checked']} domain "
+                    f"tarandı, {cert_result['sent'] + dom_result['sent']} mail gönderildi, "
+                    f"{cert_result['skipped'] + dom_result['skipped']} atlandı."),
+    }
+
+
+def _proposal_location(p: TransferProposal) -> str:
+    """Bir devir önerisinin KONUM açıklaması — trust store | domain (bağlantı tipi) | mTLS
+    bağımlılığı | '-'. _proposal_rows'un 'Konum' satırında kullanılır."""
+    if p.kind == "trusted_add":
+        return f"Trust store: {p.app.app_name}" if p.app else "Uygulama trust store"
+    if p.domain is not None:
+        return f"{p.domain.domain} ({_mapping_label(p.mapping_type)})"
+    if p.app_dependency_id is not None:
+        return "mTLS bağımlılığı"
+    return "-"
 
 
 def _proposal_label(p: TransferProposal) -> str:
-    """Tek bir devir önerisinin insan-okur özeti (mail satırı)."""
+    """Tek bir devir önerisinin insan-okur ÖZETİ (bölüm başlığı) — konum bilgisi artık
+    _proposal_rows'un ayrı 'Konum' satırında, burada yalnız eski → yeni."""
     old = p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"
     new = p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"
-    if p.kind == "trusted_add":
-        where = f"trust store: {p.app.app_name}" if p.app else "uygulama trust store"
-    elif p.domain is not None:
-        where = f"domain {p.domain.domain} ({p.mapping_type})"
-    elif p.app_dependency_id is not None:
-        where = "mTLS bağımlılığı"
-    else:
-        where = "-"
-    return f"{old} → {new}  [{where}]"
+    return f"{old} → {new}"
+
+
+_PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Devri", "trusted_add": "Trust Store Ekleme"}
+_PROPOSAL_SIGNAL_LABELS = {"ski": "SubjectKeyIdentifier", "subject": "Subject"}
+
+
+def _proposal_rows(p: TransferProposal) -> list[tuple]:
+    """'Devir Önerisi Detayı' tablosu — _cert_rows/_domain_rows ile aynı alan:değer deseni."""
+    return [
+        ("Eski Sertifika", p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"),
+        ("Eski Sertifika Bitiş", p.old_cert.valid_to if p.old_cert else None),
+        ("Yeni Sertifika", p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"),
+        ("Yeni Sertifika Bitiş", p.new_cert.valid_to if p.new_cert else None),
+        ("Konum", _proposal_location(p)),
+        ("Öneri Türü", _PROPOSAL_KIND_LABELS.get(p.kind, p.kind)),
+        ("Sinyal Eşleşmesi", _PROPOSAL_SIGNAL_LABELS.get(p.signal, p.signal)),
+        ("Kaynak", p.via),
+        ("Oluşturulma Tarihi", p.created_at),
+        ("Not", p.note),
+    ]
 
 
 def _proposal_reminder_greeting(team: Team | None) -> str:
@@ -668,11 +886,14 @@ def _proposal_reminder_greeting(team: Team | None) -> str:
 
 
 def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
-    lines = "".join(f"  - {_proposal_label(p)}\n" for p in props)
+    blocks: list[str] = []
+    for i, p in enumerate(props, start=1):
+        blocks.append(f"\nDevir Önerisi {i}/{len(props)}: {_proposal_label(p)}\n"
+                     + "".join(f"  {k}: {_fmt(v)}\n" for k, v in _proposal_rows(p)))
     body = (
-        f"JUMBO'da onayınızı bekleyen {len(props)} devir önerisi var:\n\n"
-        f"{lines}\n"
-        "Lütfen JUMBO 'Devir Önerileri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
+        f"JUMBO'da onayınızı bekleyen {len(props)} devir önerisi var:\n"
+        + "".join(blocks)
+        + "\nLütfen JUMBO 'Devir Önerileri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
         "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
         "onay kuyruğu temizlenir."
     )
@@ -680,17 +901,18 @@ def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
 
 
 def _render_proposal_reminder_html(team: Team | None, props: list, cfg: dict) -> str:
-    rows = "".join(
-        f"<tr><td style='{_TD};font-family:monospace'>{_esc(_proposal_label(p))}</td></tr>"
-        for p in props)
-    body = (
-        f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>"
-        f"<table cellspacing='0' style='border-collapse:collapse;width:100%'>{rows}</table>"
-        "<p>Lütfen JUMBO <b>'Devir Önerileri'</b> ekranından bu önerileri gözden geçirip "
-        "<b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni sertifikayı devreye alır; "
-        "reddedilenler kapanır ve onay kuyruğu temizlenir.</p>"
-    )
-    return _mail_html_wrap(_proposal_reminder_greeting(team), body, doc_links=cfg.get("doc_links") or "")
+    parts: list[str] = [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>",
+                        _banner(f"{len(props)} devir önerisi onayınızı bekliyor — karar "
+                               "verilene kadar hatırlatma tekrarlanır.")]
+    for i, p in enumerate(props, start=1):
+        parts.append(_section(f"Devir Önerisi {i}/{len(props)}: {_proposal_label(p)}"))
+        parts.append(_kv_table(_proposal_rows(p)))
+    parts.append(
+        '<p style="font-size:14px">Lütfen JUMBO <b>\'Devir Önerileri\'</b> ekranından bu '
+        "önerileri gözden geçirip <b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni "
+        "sertifikayı devreye alır; reddedilenler kapanır ve onay kuyruğu temizlenir.</p>")
+    return _mail_html_wrap(_proposal_reminder_greeting(team), "".join(parts),
+                           doc_links=cfg.get("doc_links") or "")
 
 
 def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> dict:

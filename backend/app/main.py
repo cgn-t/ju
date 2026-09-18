@@ -270,7 +270,11 @@ def ensure_new_columns() -> None:
         "scan_runs": {"kind": V(20)},
         # notifications YENİ app tablosu; önceki sürümde kolonsuz kurulmuş DB'de kanal-bazlı dedup
         # kolonu additive eklenir (idempotent). channel: email|slack|teams|webhook|…
-        "notifications": {"channel": V(20)},
+        # domain_id: sertifikasız (yalnız manuel Bitiş Tarihi) domain bildirimleri için.
+        "notifications": {"channel": V(20), "domain_id": INT},
+        # mail_queue YENİ app tablosu; aynı domain_id additive eklemesi (aşağıdaki notifications
+        # ile aynı sebep) — önceki sürümde kolonsuz kurulmuş olabilecek DB'lere karşı defansif.
+        "mail_queue": {"domain_id": INT},
         # deployment_runs: rollback provenance — bu oturumda tablo ZATEN kurulduktan SONRA eklendi,
         # bu yüzden create_all'ın yeni kurulumlarda yaptığını burada additive tamamlıyoruz.
         # trigger_type: manual|retry|rerun; source_run_id: rerun'ın kaynağı olan run (FK yok,

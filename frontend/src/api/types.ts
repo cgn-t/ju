@@ -346,6 +346,8 @@ export interface MailHistoryEntry {
   source: 'notification' | 'queue'
   certificate_id?: number | null
   certificate_name?: string | null
+  domain_id?: number | null
+  domain_name?: string | null
   recipient?: string | null
   subject?: string | null
   days_left?: number | null

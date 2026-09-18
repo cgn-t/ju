@@ -210,3 +210,33 @@ BEGIN
     CREATE INDEX IX_deployment_run_steps_status ON dbo.deployment_run_steps(status);
 END
 GO
+
+-- -----------------------------------------------------------------------------
+-- 2026-09-18 · Sertifikasız domain hatırlatma maili
+--   [ models.py: Notification.domain_id, MailQueue.domain_id ]
+-- Server tipi AKTİF sertifikası olmayan, yalnız manuel "Bitiş Tarihi" (expire_date)
+-- girilmiş domainler için de süre-uyarı/süresi-geçmiş maili artık gönderiliyor.
+-- notifications/mail_queue satırları ya certificate_id ya da domain_id ile
+-- anahtarlanır (ikisi birden değil). mail_queue.certificate_id ile aynı sebeple
+-- domain_id de FK'siz (MSSQL çoklu-yol cascade'inden kaçınma).
+-- -----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.notifications', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.notifications', 'domain_id') IS NULL
+    ALTER TABLE dbo.notifications ADD domain_id INT NULL
+        CONSTRAINT FK_notifications_domain FOREIGN KEY REFERENCES dbo.domain_certificates(id) ON DELETE CASCADE;
+GO
+IF OBJECT_ID('dbo.notifications', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_notifications_domain_id'
+                   AND object_id = OBJECT_ID('dbo.notifications'))
+    CREATE INDEX ix_notifications_domain_id ON dbo.notifications(domain_id);
+GO
+
+IF OBJECT_ID('dbo.mail_queue', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.mail_queue', 'domain_id') IS NULL
+    ALTER TABLE dbo.mail_queue ADD domain_id INT NULL;  -- FK yok (certificate_id ile aynı desen)
+GO
+IF OBJECT_ID('dbo.mail_queue', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_mail_queue_domain_id'
+                   AND object_id = OBJECT_ID('dbo.mail_queue'))
+    CREATE INDEX ix_mail_queue_domain_id ON dbo.mail_queue(domain_id);
+GO

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import MailHistoryOut
 from app.core.security import ROLE_LEVELS, get_current_user, require_role
-from app.db.models import Certificate, MailQueue, Notification, User
+from app.db.models import Certificate, Domain, MailQueue, Notification, User
 from app.db.session import get_db
 from app.services import notifier
 from app.services.audit import log_action
@@ -185,8 +185,9 @@ def list_mail_history(
 
     # 1) notifications — gönderilen bildirimler
     if status in (None, "sent"):
-        q = (db.query(Notification, Certificate.name)
-             .outerjoin(Certificate, Certificate.id == Notification.certificate_id))
+        q = (db.query(Notification, Certificate.name, Domain.domain)
+             .outerjoin(Certificate, Certificate.id == Notification.certificate_id)
+             .outerjoin(Domain, Domain.id == Notification.domain_id))
         if channel:
             q = q.filter(Notification.channel == channel)
         if like is not None:
@@ -195,10 +196,11 @@ def list_mail_history(
             q = q.filter(Notification.sent_at >= start)
         if end is not None:
             q = q.filter(Notification.sent_at < end)
-        for n, cname in q.order_by(Notification.sent_at.desc()).limit(limit).all():
+        for n, cname, dname in q.order_by(Notification.sent_at.desc()).limit(limit).all():
             rows.append(MailHistoryOut(
                 id=n.id, source="notification", certificate_id=n.certificate_id,
-                certificate_name=cname, recipient=n.recipient, subject=n.subject,
+                certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
+                recipient=n.recipient, subject=n.subject,
                 days_left=n.days_left, channel=n.channel, status="sent",
                 error=None, attempts=None, sent_at=n.sent_at))
 
@@ -218,10 +220,15 @@ def list_mail_history(
         cids = {i.certificate_id for i in items if i.certificate_id}
         names = (dict(db.query(Certificate.id, Certificate.name)
                       .filter(Certificate.id.in_(cids)).all()) if cids else {})
+        dids = {i.domain_id for i in items if i.domain_id}
+        dnames = (dict(db.query(Domain.id, Domain.domain)
+                       .filter(Domain.id.in_(dids)).all()) if dids else {})
         for i in items:
             rows.append(MailHistoryOut(
                 id=i.id, source="queue", certificate_id=i.certificate_id,
-                certificate_name=names.get(i.certificate_id), recipient=i.to_addresses,
+                certificate_name=names.get(i.certificate_id),
+                domain_id=i.domain_id, domain_name=dnames.get(i.domain_id),
+                recipient=i.to_addresses,
                 subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
                 error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at))
 

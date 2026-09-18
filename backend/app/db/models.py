@@ -388,12 +388,15 @@ class AppSetting(Base):
 
 
 class Notification(Base):
-    """Gönderilen expiry uyarılarının geçmişi. YENİ tablo (prod'da yok)."""
+    """Gönderilen expiry uyarılarının geçmişi. YENİ tablo (prod'da yok).
+    certificate_id VEYA domain_id dolu olur, ikisi birden değil (domain_id: sertifikasız,
+    yalnız manuel Bitiş Tarihi girilmiş domainlerin bildirimi — bkz. notifier._dispatch_domain_mails)."""
 
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     certificate_id: Mapped[int | None] = mapped_column(ForeignKey("SSLCertificates.ID", ondelete="CASCADE"), index=True)
+    domain_id: Mapped[int | None] = mapped_column(ForeignKey("domain_certificates.id", ondelete="CASCADE"), index=True)
     recipient: Mapped[str | None] = mapped_column(Unicode(500))
     subject: Mapped[str | None] = mapped_column(Unicode(500))
     days_left: Mapped[int | None] = mapped_column(Integer)
@@ -407,7 +410,9 @@ class MailQueue(Base):
     """SMTP gönderim kuyruğu (outbox). smtp.queue_enabled iken mailler doğrudan gönderilmek
     yerine buraya yazılır; 'mail-queue-drain' job'ı hız-limitine (queue_batch_size /
     queue_interval_minutes) uyarak batch batch gönderir. YENİ tablo (prod'da yok).
-    certificate_id FK'siz tutulur (discovered_certificates deseni — MSSQL çoklu-yol cascade'inden kaçınma)."""
+    certificate_id FK'siz tutulur (discovered_certificates deseni — MSSQL çoklu-yol cascade'inden kaçınma).
+    domain_id de aynı sebeple FK'siz; certificate_id VEYA domain_id dolu olur, ikisi birden değil
+    (bkz. Notification.domain_id yorumu)."""
 
     __tablename__ = "mail_queue"
 
@@ -417,6 +422,7 @@ class MailQueue(Base):
     body_text: Mapped[str] = mapped_column(UnicodeText)
     body_html: Mapped[str | None] = mapped_column(UnicodeText)            # yoksa düz metin gider
     certificate_id: Mapped[int | None] = mapped_column(Integer, index=True)  # kayıt-bağı; FK yok
+    domain_id: Mapped[int | None] = mapped_column(Integer, index=True)    # kayıt-bağı; FK yok
     stakeholder: Mapped[str | None] = mapped_column(Unicode(255))         # alıcı paydaş etiketi (izleme)
     days_left: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Unicode(20), default="pending",

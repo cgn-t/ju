@@ -659,6 +659,8 @@ class MailHistoryOut(BaseModel):
     source: str                        # notification | queue
     certificate_id: int | None
     certificate_name: str | None
+    domain_id: int | None
+    domain_name: str | None
     recipient: str | None
     subject: str | None
     days_left: int | None
