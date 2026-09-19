@@ -412,3 +412,35 @@ def test_scn_cert_multiple_domains_different_teams_all_notified(client, auth_hea
     assert _got(sent, "scn-multidom-2@test"), "domain B'nin SY ekibi de (farklı ekip) mail almalı"
     hits = [m for m in sent if "scn-multidom-cert.test" in m["subject"]]
     assert len(hits) == 2, f"aynı sertifika, 2 farklı SY ekibi → 2 AYRI mail beklenirdi, {len(hits)} geldi"
+
+
+# 17 — Bir sertifikanın paydaş çözümlemesi BEKLENMEYEN bir hatayla patlarsa (SMTP hatası
+# DEĞİL — bozuk veri/programlama hatası benzeri bir durum), bu sertifika atlanmalı ama
+# taramadaki DİĞER sertifikalar yine de işlenmeli (dayanıklılık — bkz. _dispatch_cert_mails
+# içindeki per-item try/except).
+def test_scn_unexpected_error_on_one_cert_does_not_block_others(client, auth_headers, monkeypatch):
+    h = auth_headers
+    _team(client, h, "SCN Boom SY", "scn-boom@test")
+    _team(client, h, "SCN Ok SY", "scn-ok@test")
+    cid_boom = _import_leaf(client, h, "scn-boom-cert.test")
+    cid_ok = _import_leaf(client, h, "scn-ok-cert.test")
+
+    def seed(db):
+        db.get(Certificate, cid_boom).creator = "SCN Boom SY"
+        db.get(Certificate, cid_ok).creator = "SCN Ok SY"
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+
+    orig = notifier._expiry_stakeholders
+
+    def boom(db, cert, global_days=30):
+        if cert.name == "scn-boom-cert.test":
+            raise RuntimeError("beklenmeyen hata (test)")
+        return orig(db, cert, global_days)
+    monkeypatch.setattr(notifier, "_expiry_stakeholders", boom)
+
+    result = _run(force=True)  # patlamamalı — Exception fırlatmadan dönmeli
+    assert not _got(sent, "scn-boom@test"), "patlayan sertifikanın maili gitmemeli"
+    assert _got(sent, "scn-ok@test"), "diğer sertifikanın maili YİNE DE gitmeli (izolasyon)"
+    assert result["skipped"] >= 1

@@ -506,59 +506,70 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
     interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
     dedup_enabled = cfg.get("resend_dedup_enabled", True)  # kapalıysa her tarama gönderir
     for cert in certs:
-        parties = _expiry_stakeholders(db, cert, global_days)
-        if not parties:
-            skipped += 1
-            continue
-
-        days_left = (cert.valid_to - utcnow()).days  # geçmişse NEGATİF (gün önce doldu)
-        subject = make_subject(cert, days_left)
-        mails: list[dict] = []
-        for p in parties:  # HER paydaşa AYRI mail — kendi nedenleriyle
-            # per-domain geçit: paydaş kendi bildirim penceresine (effective_days) girmeden
-            # mail almaz. Süresi-geçmiş akışında days_left negatif → geçit hep geçer.
-            if days_left > p.get("effective_days", global_days):
+        try:
+            parties = _expiry_stakeholders(db, cert, global_days)
+            if not parties:
+                skipped += 1
                 continue
-            recipient_str = ", ".join(p["emails"])
-            if not force and dedup_enabled:
-                recent = (db.query(Notification)
-                          .filter(Notification.certificate_id == cert.id,
-                                  Notification.channel == "email",  # kanal bildirimleri maili engellemesin
-                                  Notification.recipient == recipient_str,  # paydaş bazlı dedup
-                                  Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
-                          .first())
-                if recent:
-                    skipped += 1
+
+            days_left = (cert.valid_to - utcnow()).days  # geçmişse NEGATİF (gün önce doldu)
+            subject = make_subject(cert, days_left)
+            mails: list[dict] = []
+            for p in parties:  # HER paydaşa AYRI mail — kendi nedenleriyle
+                # per-domain geçit: paydaş kendi bildirim penceresine (effective_days) girmeden
+                # mail almaz. Süresi-geçmiş akışında days_left negatif → geçit hep geçer.
+                if days_left > p.get("effective_days", global_days):
                     continue
-            body = make_body(cert, days_left, p)
-            html_body = make_html(cert, days_left, p) if make_html else None
-            ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
-                                               certificate_id=cert.id, stakeholder=p["label"],
-                                               days_left=days_left)
-            if ok:
-                # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı.
-                # mail_queue_id: kuyruğa alındıysa GERÇEK teslim durumu/zamanı oradan okunur.
-                db.add(Notification(certificate_id=cert.id, recipient=recipient_str,
-                                    subject=f"{subject} → {p['label']}", days_left=days_left,
-                                    channel="email", mail_queue_id=mail_queue_id))
-                db.commit()
-                sent += 1
-                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
-            else:
-                logger.warning("Bildirim işlenemedi: %s → %s (%s)", cert.name, p["label"], note)
-                # queue KAPALIYKEN doğrudan gönderim + fallback başarısız → mail geçmişinde
-                # görünsün diye mail_queue'ya 'failed' yaz. Notifications'a YAZMA (dedup açık
-                # kalsın → sonraki tarama yeniden dener). drain yalnız 'pending' işler; bu satır
-                # yeniden denenmez (zaten doğrudan denendi). queue AÇIKSA zaten _deliver kuyruğa
-                # yazmış olurdu (ok=True) → buraya düşmez; çift kayıt olmaz.
-                if not cfg.get("queue_enabled"):
-                    db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
-                                     body_text=body, body_html=html_body, certificate_id=cert.id,
-                                     stakeholder=p["label"], days_left=days_left,
-                                     status="failed", last_error=(note or "")[:1000], attempts=1))
+                recipient_str = ", ".join(p["emails"])
+                if not force and dedup_enabled:
+                    recent = (db.query(Notification)
+                              .filter(Notification.certificate_id == cert.id,
+                                      Notification.channel == "email",  # kanal bildirimleri maili engellemesin
+                                      Notification.recipient == recipient_str,  # paydaş bazlı dedup
+                                      Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
+                              .first())
+                    if recent:
+                        skipped += 1
+                        continue
+                body = make_body(cert, days_left, p)
+                html_body = make_html(cert, days_left, p) if make_html else None
+                ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                                                   certificate_id=cert.id, stakeholder=p["label"],
+                                                   days_left=days_left)
+                if ok:
+                    # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı.
+                    # mail_queue_id: kuyruğa alındıysa GERÇEK teslim durumu/zamanı oradan okunur.
+                    db.add(Notification(certificate_id=cert.id, recipient=recipient_str,
+                                        subject=f"{subject} → {p['label']}", days_left=days_left,
+                                        channel="email", mail_queue_id=mail_queue_id))
                     db.commit()
-                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
-        details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
+                    sent += 1
+                    mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
+                else:
+                    logger.warning("Bildirim işlenemedi: %s → %s (%s)", cert.name, p["label"], note)
+                    # queue KAPALIYKEN doğrudan gönderim + fallback başarısız → mail geçmişinde
+                    # görünsün diye mail_queue'ya 'failed' yaz. Notifications'a YAZMA (dedup açık
+                    # kalsın → sonraki tarama yeniden dener). drain yalnız 'pending' işler; bu satır
+                    # yeniden denenmez (zaten doğrudan denendi). queue AÇIKSA zaten _deliver kuyruğa
+                    # yazmış olurdu (ok=True) → buraya düşmez; çift kayıt olmaz.
+                    if not cfg.get("queue_enabled"):
+                        db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
+                                         body_text=body, body_html=html_body, certificate_id=cert.id,
+                                         stakeholder=p["label"], days_left=days_left,
+                                         status="failed", last_error=(note or "")[:1000], attempts=1))
+                        db.commit()
+                    mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
+            details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
+        except Exception:
+            # Beklenmeyen bir hata (ör. bozuk veri, şablon hatası) BU sertifikayı atlar ama
+            # taramanın geri kalanını (diğer sertifikalar) durdurmaz — bkz. run_mail_queue_drain
+            # ile aynı dayanıklılık ilkesi. SMTP gönderim hataları zaten _send_with_fallback
+            # içinde ayrıca yakalanır; bu except yalnız BEKLENMEYEN programlama/veri hatalarınadır.
+            db.rollback()
+            logger.exception("Sertifika bildirimi işlenemedi (atlanıyor): %s", getattr(cert, "name", cert))
+            skipped += 1
+            details.append({"certificate": getattr(cert, "name", str(cert)), "days_left": None,
+                            "mails": [], "error": "beklenmeyen hata — atlandı"})
 
     return {"enabled": True, "checked": len(certs), "sent": sent, "skipped": skipped,
             "details": details,
@@ -578,50 +589,59 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
     interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
     dedup_enabled = cfg.get("resend_dedup_enabled", True)
     for dom in domains:
-        p = _domain_expiry_stakeholder(dom, global_days)
-        if p is None:
-            skipped += 1
-            continue
-
-        days_left = (dom.expire_date - utcnow()).days
-        if days_left > p["effective_days"]:
-            skipped += 1
-            continue
-        subject = make_subject(dom, days_left)
-        recipient_str = ", ".join(p["emails"])
-        if not force and dedup_enabled:
-            recent = (db.query(Notification)
-                      .filter(Notification.domain_id == dom.id,
-                              Notification.channel == "email",
-                              Notification.recipient == recipient_str,
-                              Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
-                      .first())
-            if recent:
+        try:
+            p = _domain_expiry_stakeholder(dom, global_days)
+            if p is None:
                 skipped += 1
                 continue
-        body = make_body(dom, days_left, p)
-        html_body = make_html(dom, days_left, p) if make_html else None
-        ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
-                                           certificate_id=None, domain_id=dom.id,
-                                           stakeholder=p["label"], days_left=days_left)
-        mails: list[dict] = []
-        if ok:
-            db.add(Notification(domain_id=dom.id, recipient=recipient_str,
-                                subject=f"{subject} → {p['label']}", days_left=days_left,
-                                channel="email", mail_queue_id=mail_queue_id))
-            db.commit()
-            sent += 1
-            mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
-        else:
-            logger.warning("Domain bildirimi işlenemedi: %s → %s (%s)", dom.domain, p["label"], note)
-            if not cfg.get("queue_enabled"):
-                db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
-                                 body_text=body, body_html=html_body, domain_id=dom.id,
-                                 stakeholder=p["label"], days_left=days_left,
-                                 status="failed", last_error=(note or "")[:1000], attempts=1))
+
+            days_left = (dom.expire_date - utcnow()).days
+            if days_left > p["effective_days"]:
+                skipped += 1
+                continue
+            subject = make_subject(dom, days_left)
+            recipient_str = ", ".join(p["emails"])
+            if not force and dedup_enabled:
+                recent = (db.query(Notification)
+                          .filter(Notification.domain_id == dom.id,
+                                  Notification.channel == "email",
+                                  Notification.recipient == recipient_str,
+                                  Notification.sent_at >= utcnow() - timedelta(hours=interval_hours))
+                          .first())
+                if recent:
+                    skipped += 1
+                    continue
+            body = make_body(dom, days_left, p)
+            html_body = make_html(dom, days_left, p) if make_html else None
+            ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                                               certificate_id=None, domain_id=dom.id,
+                                               stakeholder=p["label"], days_left=days_left)
+            mails: list[dict] = []
+            if ok:
+                db.add(Notification(domain_id=dom.id, recipient=recipient_str,
+                                    subject=f"{subject} → {p['label']}", days_left=days_left,
+                                    channel="email", mail_queue_id=mail_queue_id))
                 db.commit()
-            mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
-        details.append({"domain": dom.domain, "days_left": days_left, "mails": mails})
+                sent += 1
+                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
+            else:
+                logger.warning("Domain bildirimi işlenemedi: %s → %s (%s)", dom.domain, p["label"], note)
+                if not cfg.get("queue_enabled"):
+                    db.add(MailQueue(to_addresses=", ".join(p["emails"]), subject=subject,
+                                     body_text=body, body_html=html_body, domain_id=dom.id,
+                                     stakeholder=p["label"], days_left=days_left,
+                                     status="failed", last_error=(note or "")[:1000], attempts=1))
+                    db.commit()
+                mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
+            details.append({"domain": dom.domain, "days_left": days_left, "mails": mails})
+        except Exception:
+            # Bkz. _dispatch_cert_mails'teki aynı korumanın gerekçesi: bu domain'i atla,
+            # taramanın geri kalanını durdurma.
+            db.rollback()
+            logger.exception("Domain bildirimi işlenemedi (atlanıyor): %s", getattr(dom, "domain", dom))
+            skipped += 1
+            details.append({"domain": getattr(dom, "domain", str(dom)), "days_left": None,
+                            "mails": [], "error": "beklenmeyen hata — atlandı"})
 
     return {"checked": len(domains), "sent": sent, "skipped": skipped, "details": details}
 
@@ -952,37 +972,49 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
 
     sent = skipped = 0
     for team_id, props in by_team.items():
-        team = db.get(Team, team_id)
-        emails = ([a.strip() for a in (team.email or "").replace(";", ",").split(",") if a.strip()]
-                  if team else [])
-        if not emails:
+        try:
+            team = db.get(Team, team_id)
+            emails = ([a.strip() for a in (team.email or "").replace(";", ",").split(",") if a.strip()]
+                      if team else [])
+            if not emails:
+                skipped += len(props)
+                continue
+            subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
+            ok, note, _mqid = _deliver(db, cfg, emails, subject,
+                                       _proposal_reminder_text(team, props, cfg),
+                                       _render_proposal_reminder_html(team, props, cfg),
+                                       certificate_id=None, stakeholder=(team.name if team else None),
+                                       days_left=None)
+            if ok:
+                sent += 1
+            else:
+                skipped += len(props)
+                logger.warning("Devir hatırlatması gönderilemedi: %s (%s)",
+                               team.name if team else team_id, note)
+        except Exception:
+            # Bkz. _dispatch_cert_mails'teki aynı korumanın gerekçesi: bu ekibi atla,
+            # diğer ekiplerin hatırlatmasını engelleme.
+            db.rollback()
+            logger.exception("Devir hatırlatması işlenemedi (atlanıyor): team_id=%s", team_id)
             skipped += len(props)
-            continue
-        subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
-        ok, note, _mqid = _deliver(db, cfg, emails, subject,
-                                   _proposal_reminder_text(team, props, cfg),
-                                   _render_proposal_reminder_html(team, props, cfg),
-                                   certificate_id=None, stakeholder=(team.name if team else None),
-                                   days_left=None)
-        if ok:
-            sent += 1
-        else:
-            skipped += len(props)
-            logger.warning("Devir hatırlatması gönderilemedi: %s (%s)",
-                           team.name if team else team_id, note)
 
     # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
     if ownerless:
-        fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
-              if a.strip()]
-        if fb:
-            ok, _note, _mqid = _deliver(db, cfg, fb,
-                                        f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
-                                        _proposal_reminder_text(None, ownerless, cfg), None,
-                                        certificate_id=None, stakeholder="ownerless", days_left=None)
-            if ok:
-                sent += 1
-        else:
+        try:
+            fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
+                  if a.strip()]
+            if fb:
+                ok, _note, _mqid = _deliver(db, cfg, fb,
+                                            f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
+                                            _proposal_reminder_text(None, ownerless, cfg), None,
+                                            certificate_id=None, stakeholder="ownerless", days_left=None)
+                if ok:
+                    sent += 1
+            else:
+                skipped += len(ownerless)
+        except Exception:
+            db.rollback()
+            logger.exception("Sahipsiz devir hatırlatması işlenemedi (atlanıyor)")
             skipped += len(ownerless)
 
     return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
@@ -1002,6 +1034,11 @@ def check_pending_proposals() -> None:
         result = send_pending_proposal_notifications(db, force=False)
         if result["sent"]:
             logger.info("Devir hatırlatması: %s", result["message"])
+    except Exception:
+        # Öğe-bazlı hatalar send_pending_proposal_notifications içinde zaten yakalanıp
+        # atlanıyor; bu yalnız döngüye girmeden ÖNCEKİ (ör. sorgu) beklenmeyen hatalar
+        # için son güvenlik ağı — run_mail_queue_drain ile aynı ilke.
+        logger.exception("Devir hatırlatması job'ı başarısız")
     finally:
         db.close()
 
@@ -1032,6 +1069,11 @@ def check_expiring_certificates() -> None:
         result = send_expiry_notifications(db, force=False)
         if result["sent"]:
             logger.info("Süre uyarısı: %s", result["message"])
+    except Exception:
+        # Bkz. check_pending_proposals'taki aynı gerekçe: öğe-bazlı hatalar zaten
+        # _dispatch_cert_mails/_dispatch_domain_mails içinde yakalanıyor; bu yalnız
+        # döngüye girmeden önceki beklenmeyen hatalar için son güvenlik ağı.
+        logger.exception("Süre uyarısı job'ı başarısız")
     finally:
         db.close()
 
