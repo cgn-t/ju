@@ -240,3 +240,22 @@ IF OBJECT_ID('dbo.mail_queue', 'U') IS NOT NULL
                    AND object_id = OBJECT_ID('dbo.mail_queue'))
     CREATE INDEX ix_mail_queue_domain_id ON dbo.mail_queue(domain_id);
 GO
+
+-- -----------------------------------------------------------------------------
+-- 2026-09-19 · Mail Gönderim Geçmişi: gerçek kuyruk/teslim zaman çizelgesi
+--   [ models.py: Notification.mail_queue_id ]
+-- notifications.sent_at yalnız "karar/kuyruğa alınma anı"dır — queue_enabled iken GERÇEK
+-- teslim (mail_queue.sent_at) çok sonra gerçekleşebilir, hatta hiç gerçekleşmeyip 'failed'
+-- olabilir. mail_queue_id, hangi notifications satırının hangi mail_queue satırına karşılık
+-- geldiğini bağlar; admin ekranı artık gerçek durumu/zamanı gösterebilir. FK yok (mail_queue
+-- ile aynı desen — MSSQL çoklu-yol cascade'inden kaçınma).
+-- -----------------------------------------------------------------------------
+IF OBJECT_ID('dbo.notifications', 'U') IS NOT NULL
+   AND COL_LENGTH('dbo.notifications', 'mail_queue_id') IS NULL
+    ALTER TABLE dbo.notifications ADD mail_queue_id INT NULL;
+GO
+IF OBJECT_ID('dbo.notifications', 'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_notifications_mail_queue_id'
+                   AND object_id = OBJECT_ID('dbo.notifications'))
+    CREATE INDEX ix_notifications_mail_queue_id ON dbo.notifications(mail_queue_id);
+GO

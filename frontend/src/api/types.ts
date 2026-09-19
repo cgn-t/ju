@@ -355,7 +355,14 @@ export interface MailHistoryEntry {
   status: 'sent' | 'pending' | 'failed'
   error?: string | null
   attempts?: number | null
-  sent_at?: string | null
+  sent_at?: string | null      // en son bilinen an: delivered_at varsa o, yoksa queued_at
+  queued_at?: string | null    // karar/kuyruğa alınma anı
+  delivered_at?: string | null // GERÇEK teslim anı — henüz teslim edilmediyse null
+}
+
+export interface MailHistoryDetail extends MailHistoryEntry {
+  body_text?: string | null
+  body_html?: string | null
 }
 
 // ---- Ağ keşfi (discovery) ----

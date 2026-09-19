@@ -144,3 +144,27 @@ def test_dom_notify_days_window(client, auth_headers, monkeypatch):
     _run(force=True)
     assert _got(sent, "dom-wina@test"), "50g kalan, 60g penceresi → mail gitmeli"
     assert not _got(sent, "dom-winb@test"), "50g kalan, 15g penceresi → mail GİTMEMELİ (geçit)"
+
+
+# 8 — Domain'e server eşlemesi VAR ama sertifika PASİF (is_active=False) → dışlama
+# kriteri sağlanmaz (yalnız AKTİF server sertifikası dışlar), domain-only akış manuel
+# Bitiş Tarihi ile yine bildirmeli.
+def test_dom_with_inactive_server_cert_not_excluded(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _team(client, h, "DOM InactiveCert SY", "dom-inactivecert@test")
+    cid = _import_leaf(client, h, "dom-inactivecert-cert.test")
+
+    def seed(db):
+        cert = db.get(Certificate, cid)
+        cert.creator = None
+        cert.is_active = False
+        d = Domain(domain="dom-inactivecert.test", sy_team_id=tid,
+                   expire_date=datetime.utcnow() + timedelta(days=5))
+        db.add(d); db.flush()
+        db.add(CertificateDomainMap(certificate_id=cid, domain_id=d.id, mapping_type="server"))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    assert _got(sent, "dom-inactivecert@test"), \
+        "server eşlemesi PASİF sertifikaya aitse domain hâlâ 'sertifikasız' sayılmalı ve manuel tarihle bildirilmeli"

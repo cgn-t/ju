@@ -668,7 +668,17 @@ class MailHistoryOut(BaseModel):
     status: str                        # sent | pending | failed
     error: str | None
     attempts: int | None
-    sent_at: datetime | None
+    sent_at: datetime | None       # en son bilinen an: delivered_at varsa o, yoksa queued_at
+    queued_at: datetime | None     # karar/kuyruğa alınma anı (mail_queue.created_at ya da doğrudan gönderimde sent_at ile aynı)
+    delivered_at: datetime | None  # GERÇEK teslim anı (mail_queue.sent_at) — henüz teslim edilmediyse None
+
+
+class MailHistoryDetailOut(MailHistoryOut):
+    """MailHistoryOut + tam gövde. body_text/body_html yalnız source='queue' için doludur —
+    'notification' (başarıyla gönderilmiş) kayıtlar mail gövdesini SAKLAMAZ, yalnız
+    özet alanları (recipient/subject/days_left) tutulur."""
+    body_text: str | None
+    body_html: str | None
 
 
 # ---- Dağıtım akışı (Jenkins DAG editörü) ----

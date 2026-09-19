@@ -390,13 +390,19 @@ class AppSetting(Base):
 class Notification(Base):
     """Gönderilen expiry uyarılarının geçmişi. YENİ tablo (prod'da yok).
     certificate_id VEYA domain_id dolu olur, ikisi birden değil (domain_id: sertifikasız,
-    yalnız manuel Bitiş Tarihi girilmiş domainlerin bildirimi — bkz. notifier._dispatch_domain_mails)."""
+    yalnız manuel Bitiş Tarihi girilmiş domainlerin bildirimi — bkz. notifier._dispatch_domain_mails).
+    mail_queue_id: queue_enabled iken bu satırı kuyruğa yazılan mail_queue satırına bağlar (bkz.
+    notifier._deliver) — böylece admin mail geçmişinde GERÇEK teslim durumu/zamanı (mail_queue.
+    status/sent_at) gösterilebilir; bu satırın kendi sent_at'i yalnız 'karar/kuyruğa alınma anı'dır,
+    gerçek teslim değil. FK yok (mail_queue.certificate_id/domain_id ile aynı desen — MSSQL
+    çoklu-yol cascade'inden kaçınma)."""
 
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     certificate_id: Mapped[int | None] = mapped_column(ForeignKey("SSLCertificates.ID", ondelete="CASCADE"), index=True)
     domain_id: Mapped[int | None] = mapped_column(ForeignKey("domain_certificates.id", ondelete="CASCADE"), index=True)
+    mail_queue_id: Mapped[int | None] = mapped_column(Integer, index=True)
     recipient: Mapped[str | None] = mapped_column(Unicode(500))
     subject: Mapped[str | None] = mapped_column(Unicode(500))
     days_left: Mapped[int | None] = mapped_column(Integer)

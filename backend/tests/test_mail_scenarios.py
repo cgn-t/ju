@@ -386,3 +386,29 @@ def test_scn_notify_days_applies_per_cert_on_same_domain(client, auth_headers, m
         f"15g penceresi içindeki sertifika bildirilmedi: {subjects}"
     assert not any("scn-percertwin-far.test" in s for s in subjects), \
         f"15g penceresi DIŞINDAKİ sertifika yanlışlıkla bildirildi: {subjects}"
+
+
+# 16 — Bir sertifika BİRDEN FAZLA domaine bağlıyken, domainlerin SY ekipleri FARKLIYSA
+# HER İKİ ekip de kendi mailini almalı (tek ekipte birleşme değil, gerçekten farklı ekip
+# sayısı kadar AYRI mail — bkz. _expiry_stakeholders'ın domain-mapping döngüsü, key=team:id).
+def test_scn_cert_multiple_domains_different_teams_all_notified(client, auth_headers, monkeypatch):
+    h = auth_headers
+    t1 = _team(client, h, "SCN MultiDom SY1", "scn-multidom-1@test")
+    t2 = _team(client, h, "SCN MultiDom SY2", "scn-multidom-2@test")
+    cid = _import_leaf(client, h, "scn-multidom-cert.test")
+
+    def seed(db):
+        db.get(Certificate, cid).creator = None
+        d1 = Domain(domain="scn-multidom-a.test", sy_team_id=t1)
+        d2 = Domain(domain="scn-multidom-b.test", sy_team_id=t2)
+        db.add_all([d1, d2]); db.flush()
+        db.add(CertificateDomainMap(certificate_id=cid, domain_id=d1.id, mapping_type="server"))
+        db.add(CertificateDomainMap(certificate_id=cid, domain_id=d2.id, mapping_type="client"))
+    _seed(seed)
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _run(force=True)
+    assert _got(sent, "scn-multidom-1@test"), "domain A'nın SY ekibi mail almalı"
+    assert _got(sent, "scn-multidom-2@test"), "domain B'nin SY ekibi de (farklı ekip) mail almalı"
+    hits = [m for m in sent if "scn-multidom-cert.test" in m["subject"]]
+    assert len(hits) == 2, f"aynı sertifika, 2 farklı SY ekibi → 2 AYRI mail beklenirdi, {len(hits)} geldi"

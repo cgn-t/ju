@@ -271,7 +271,7 @@ def ensure_new_columns() -> None:
         # notifications YENİ app tablosu; önceki sürümde kolonsuz kurulmuş DB'de kanal-bazlı dedup
         # kolonu additive eklenir (idempotent). channel: email|slack|teams|webhook|…
         # domain_id: sertifikasız (yalnız manuel Bitiş Tarihi) domain bildirimleri için.
-        "notifications": {"channel": V(20), "domain_id": INT},
+        "notifications": {"channel": V(20), "domain_id": INT, "mail_queue_id": INT},
         # mail_queue YENİ app tablosu; aynı domain_id additive eklemesi (aşağıdaki notifications
         # ile aynı sebep) — önceki sürümde kolonsuz kurulmuş olabilecek DB'lere karşı defansif.
         "mail_queue": {"domain_id": INT},

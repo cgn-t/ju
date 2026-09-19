@@ -72,6 +72,155 @@ def test_mail_history_merges_and_filters(client, auth_headers):
     assert {r["recipient"] for r in failed} == {"failed-b@test"}
 
 
+def test_mail_history_queued_notification_reflects_real_queue_status(client, auth_headers):
+    """notifications.mail_queue_id ile bağlı bir satır, kendi sabit 'sent' değeri yerine
+    ilişkili mail_queue satırının GERÇEK durumunu/zamanını göstermeli — kuyruğa girip
+    SONRADAN gerçekten başarısız olan bir mail artık 'Gönderildi' görünmemeli."""
+    h = auth_headers
+    db = SessionLocal()
+    try:
+        mq = MailQueue(to_addresses="linked-failed@test", subject="MHIST linked failed",
+                       body_text="gövde", days_left=4, status="failed",
+                       last_error="SMTP 550 5.1.1", attempts=5)
+        db.add(mq)
+        db.commit()
+        n = Notification(recipient="linked-failed@test", subject="MHIST linked failed",
+                         days_left=4, channel="email", mail_queue_id=mq.id)
+        db.add(n)
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/api/notifications/history", headers=h,
+                      params={"search": "MHIST linked failed"}).json()
+    assert len(rows) == 1, "bağlı mail_queue satırı AYRICA (mükerrer) gösterilmemeli"
+    row = rows[0]
+    assert row["source"] == "notification"
+    assert row["status"] == "failed", "sabit 'sent' değil, GERÇEK kuyruk durumu gösterilmeli"
+    assert row["error"] == "SMTP 550 5.1.1"
+    assert row["attempts"] == 5
+    assert row["delivered_at"] is None, "hiç teslim edilmediyse delivered_at boş olmalı"
+    assert row["queued_at"] is not None
+
+    # status=failed filtresi artık bu (notification kaynaklı) satırı da bulmalı
+    failed = client.get("/api/notifications/history", headers=h,
+                        params={"status": "failed", "search": "MHIST linked failed"}).json()
+    assert len(failed) == 1
+    # status=sent filtresi ARTIK bu satırı GETİRMEMELİ (gerçek durumu failed)
+    sent = client.get("/api/notifications/history", headers=h,
+                      params={"status": "sent", "search": "MHIST linked failed"}).json()
+    assert sent == []
+
+
+def test_mail_history_detail_linked_notification_shows_queue_body(client, auth_headers):
+    h = auth_headers
+    db = SessionLocal()
+    try:
+        mq = MailQueue(to_addresses="linked-pending@test", subject="MHIST linked pending",
+                       body_text="düz metin", body_html="<p>html</p>", days_left=2, status="pending")
+        db.add(mq)
+        db.commit()
+        n = Notification(recipient="linked-pending@test", subject="MHIST linked pending",
+                         days_left=2, channel="email", mail_queue_id=mq.id)
+        db.add(n)
+        db.commit()
+        nid = n.id
+    finally:
+        db.close()
+
+    r = client.get(f"/api/notifications/history/notification/{nid}", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["status"] == "pending"
+    assert d["body_text"] == "düz metin"
+    assert d["body_html"] == "<p>html</p>"
+    assert d["delivered_at"] is None
+    assert d["queued_at"] is not None
+
+
+def test_mail_history_queued_notification_delivered(client, auth_headers):
+    """Kuyruğa girip GERÇEKTEN teslim edilmiş (drain job status='sent' yazmış) bir mail:
+    delivered_at dolu, status='sent', tek satır (mükerrer yok)."""
+    h = auth_headers
+    now = datetime.utcnow()
+    db = SessionLocal()
+    try:
+        mq = MailQueue(to_addresses="linked-sent@test", subject="MHIST linked sent",
+                       body_text="x", days_left=1, status="sent", sent_at=now)
+        db.add(mq)
+        db.commit()
+        n = Notification(recipient="linked-sent@test", subject="MHIST linked sent",
+                         days_left=1, channel="email", mail_queue_id=mq.id)
+        db.add(n)
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/api/notifications/history", headers=h,
+                      params={"search": "MHIST linked sent"}).json()
+    assert len(rows) == 1
+    assert rows[0]["status"] == "sent"
+    assert rows[0]["delivered_at"] is not None
+
+
+def test_mail_history_detail_queue_has_body(client, auth_headers):
+    """queue kaynaklı kayıtta body_text/body_html DOLU döner (kuyrukta saklanır)."""
+    h = auth_headers
+    db = SessionLocal()
+    try:
+        q = MailQueue(to_addresses="detail-queue@test", subject="MHIST detay queue",
+                      body_text="düz metin gövde", body_html="<p>html gövde</p>",
+                      days_left=5, status="failed", last_error="SMTP 550", attempts=2)
+        db.add(q)
+        db.commit()
+        qid = q.id
+    finally:
+        db.close()
+
+    r = client.get(f"/api/notifications/history/queue/{qid}", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["body_text"] == "düz metin gövde"
+    assert d["body_html"] == "<p>html gövde</p>"
+    assert d["recipient"] == "detail-queue@test"
+    assert d["status"] == "failed"
+
+
+def test_mail_history_detail_notification_has_no_body(client, auth_headers):
+    """notification kaynaklı kayıtta body_text/body_html hep None döner (gövde saklanmaz)."""
+    h = auth_headers
+    leaf_id = _import_leaf(client, h, "detail-notif-leaf.test")
+    db = SessionLocal()
+    try:
+        n = Notification(certificate_id=leaf_id, recipient="detail-notif@test",
+                         subject="MHIST detay notif", days_left=7, channel="email")
+        db.add(n)
+        db.commit()
+        nid = n.id
+    finally:
+        db.close()
+
+    r = client.get(f"/api/notifications/history/notification/{nid}", headers=h)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["body_text"] is None and d["body_html"] is None
+    assert d["certificate_name"] == "detail-notif-leaf.test"
+    assert d["status"] == "sent"
+
+
+def test_mail_history_detail_not_found_and_invalid_source(client, auth_headers):
+    h = auth_headers
+    assert client.get("/api/notifications/history/queue/999999", headers=h).status_code == 404
+    assert client.get("/api/notifications/history/bogus/1", headers=h).status_code == 400
+
+
+def test_mail_history_detail_admin_only(client, auth_headers):
+    tok = _editor_token(client, auth_headers, "mailhist_detail_editor")
+    r = client.get("/api/notifications/history/queue/1",
+                   headers={"Authorization": f"Bearer {tok}"})
+    assert r.status_code == 403, r.text
+
+
 def test_mail_history_admin_only(client, auth_headers):
     tok = _editor_token(client, auth_headers, "mailhist_editor")
     r = client.get("/api/notifications/history", headers={"Authorization": f"Bearer {tok}"})

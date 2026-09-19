@@ -315,14 +315,16 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
     html_body = _render_deactivation_html(cert, actor, bound, team_list)
 
     mail_sent = False
+    mail_queue_id = None
     cfg = get_category(db, "smtp", mask_secrets=False)
     if to_addr and cfg.get("enabled") and cfg.get("host"):
-        mail_sent, _note = _deliver(db, cfg, to_addr, subject, body, html_body,
-                                    certificate_id=cert.id, stakeholder="deactivation", days_left=None)
+        mail_sent, _note, mail_queue_id = _deliver(db, cfg, to_addr, subject, body, html_body,
+                                                    certificate_id=cert.id, stakeholder="deactivation",
+                                                    days_left=None)
 
     db.add(Notification(certificate_id=cert.id,
                         recipient=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
-                        subject=subject, days_left=None))
+                        subject=subject, days_left=None, mail_queue_id=mail_queue_id))
     db.commit()
 
     if not to_addr:
@@ -470,16 +472,22 @@ def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: 
 
 def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body: str,
              html_body: str | None, *, certificate_id, stakeholder, days_left,
-             domain_id=None) -> tuple[bool, str]:
+             domain_id=None) -> tuple[bool, str, int | None]:
     """queue_enabled ise mail'i mail_queue'ya YAZAR (drain job gönderir); değilse doğrudan
-    (fallback'li) gönderir. (ok, açıklama) döner — ok=True 'işlendi' (gönderildi veya kuyruğa alındı).
+    (fallback'li) gönderir. (ok, açıklama, mail_queue_id) döner — ok=True 'işlendi' (gönderildi
+    veya kuyruğa alındı). mail_queue_id yalnız kuyruğa yazıldığında dolu — çağıran, yazacağı
+    Notification satırını buna bağlayıp (Notification.mail_queue_id) GERÇEK teslim durumunu/
+    zamanını sonradan mail_queue'dan okuyabilsin diye (bkz. api/notifications.py mail geçmişi).
     certificate_id VEYA domain_id verilir, ikisi birden değil."""
     if cfg.get("queue_enabled"):
-        db.add(MailQueue(to_addresses=", ".join(to_addresses), subject=subject,
-                         body_text=body, body_html=html_body, certificate_id=certificate_id,
-                         domain_id=domain_id, stakeholder=stakeholder, days_left=days_left))
-        return True, "kuyruğa alındı"
-    return _send_with_fallback(cfg, to_addresses, subject, body, html_body)
+        mq = MailQueue(to_addresses=", ".join(to_addresses), subject=subject,
+                       body_text=body, body_html=html_body, certificate_id=certificate_id,
+                       domain_id=domain_id, stakeholder=stakeholder, days_left=days_left)
+        db.add(mq)
+        db.flush()  # id'yi ata (henüz commit değil — çağıran kendi Notification'ıyla birlikte commit eder)
+        return True, "kuyruğa alındı", mq.id
+    ok, note = _send_with_fallback(cfg, to_addresses, subject, body, html_body)
+    return ok, note, None
 
 
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
@@ -524,13 +532,15 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                     continue
             body = make_body(cert, days_left, p)
             html_body = make_html(cert, days_left, p) if make_html else None
-            ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
-                                certificate_id=cert.id, stakeholder=p["label"], days_left=days_left)
+            ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                                               certificate_id=cert.id, stakeholder=p["label"],
+                                               days_left=days_left)
             if ok:
-                # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı
+                # işlendi (doğrudan gönderildi ya da kuyruğa alındı) → tekrar-önleme kaydı.
+                # mail_queue_id: kuyruğa alındıysa GERÇEK teslim durumu/zamanı oradan okunur.
                 db.add(Notification(certificate_id=cert.id, recipient=recipient_str,
                                     subject=f"{subject} → {p['label']}", days_left=days_left,
-                                    channel="email"))
+                                    channel="email", mail_queue_id=mail_queue_id))
                 db.commit()
                 sent += 1
                 mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
@@ -591,14 +601,14 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
                 continue
         body = make_body(dom, days_left, p)
         html_body = make_html(dom, days_left, p) if make_html else None
-        ok, note = _deliver(db, cfg, p["emails"], subject, body, html_body,
-                            certificate_id=None, domain_id=dom.id,
-                            stakeholder=p["label"], days_left=days_left)
+        ok, note, mail_queue_id = _deliver(db, cfg, p["emails"], subject, body, html_body,
+                                           certificate_id=None, domain_id=dom.id,
+                                           stakeholder=p["label"], days_left=days_left)
         mails: list[dict] = []
         if ok:
             db.add(Notification(domain_id=dom.id, recipient=recipient_str,
                                 subject=f"{subject} → {p['label']}", days_left=days_left,
-                                channel="email"))
+                                channel="email", mail_queue_id=mail_queue_id))
             db.commit()
             sent += 1
             mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": True, "note": note})
@@ -949,11 +959,11 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             skipped += len(props)
             continue
         subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
-        ok, note = _deliver(db, cfg, emails, subject,
-                            _proposal_reminder_text(team, props, cfg),
-                            _render_proposal_reminder_html(team, props, cfg),
-                            certificate_id=None, stakeholder=(team.name if team else None),
-                            days_left=None)
+        ok, note, _mqid = _deliver(db, cfg, emails, subject,
+                                   _proposal_reminder_text(team, props, cfg),
+                                   _render_proposal_reminder_html(team, props, cfg),
+                                   certificate_id=None, stakeholder=(team.name if team else None),
+                                   days_left=None)
         if ok:
             sent += 1
         else:
@@ -966,10 +976,10 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
         fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
               if a.strip()]
         if fb:
-            ok, _ = _deliver(db, cfg, fb,
-                             f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
-                             _proposal_reminder_text(None, ownerless, cfg), None,
-                             certificate_id=None, stakeholder="ownerless", days_left=None)
+            ok, _note, _mqid = _deliver(db, cfg, fb,
+                                        f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
+                                        _proposal_reminder_text(None, ownerless, cfg), None,
+                                        certificate_id=None, stakeholder="ownerless", days_left=None)
             if ok:
                 sent += 1
         else:

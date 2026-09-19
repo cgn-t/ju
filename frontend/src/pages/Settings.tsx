@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { AppUser, AuditEntry, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import MailHistoryDetailDrawer from '../components/MailHistoryDetailDrawer'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel } from '../theme'
@@ -968,6 +969,7 @@ function MailHistoryTab() {
   const [channel, setChannel] = useState('email')  // vars. mail; 'Tümü' → tüm kanallar
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [detail, setDetail] = useState<{ source: string; id: number } | null>(null)
   const params = {
     search: search || undefined, status: status || undefined, channel: channel || undefined,
     date_from: dateFrom || undefined, date_to: dateTo || undefined,
@@ -1020,6 +1022,7 @@ function MailHistoryTab() {
       <Typography variant="caption" color="text.secondary">
         Gönderilen bilgilendirme e-postaları <b>ve teslim edilemeyen</b> (kuyrukta/başarısız)
         kayıtlar. Tarihler <b>dâhil</b>dir; liste en çok 1000 satır gösterir. Boş tarih = sınırsız uç.
+        Detayını görmek için bir satıra tıklayın.
       </Typography>
       <Table size="small">
         <TableHead>
@@ -1036,7 +1039,8 @@ function MailHistoryTab() {
         </TableHead>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={`${r.source}-${r.id}`} hover>
+            <TableRow key={`${r.source}-${r.id}`} hover sx={{ cursor: 'pointer' }}
+                      onClick={() => setDetail({ source: r.source, id: r.id })}>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
                 {r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '—'}
               </TableCell>
@@ -1074,6 +1078,7 @@ function MailHistoryTab() {
           )}
         </TableBody>
       </Table>
+      <MailHistoryDetailDrawer item={detail} onClose={() => setDetail(null)} />
     </Stack>
   )
 }

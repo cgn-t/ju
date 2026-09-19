@@ -24,7 +24,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.schemas import MailHistoryOut
+from app.api.schemas import MailHistoryDetailOut, MailHistoryOut
 from app.core.security import ROLE_LEVELS, get_current_user, require_role
 from app.db.models import Certificate, Domain, MailQueue, Notification, User
 from app.db.session import get_db
@@ -174,49 +174,67 @@ def list_mail_history(
         db: Session = Depends(get_db),
         _: User = Depends(require_role("admin"))):
     """Admin MAIL GÖNDERİM GEÇMİŞİ — iki kaynak birleşik, tarih-desc:
-      • notifications: gönderilen bildirimler (status='sent').
-      • mail_queue: teslim edilmemişler (status pending|failed) + hata mesajı; 'sent' kuyruk
-        satırları ATLANIR (zaten notifications'ta 'gönderildi' olarak var → mükerrer olmasın).
+      • notifications: karar/kuyruğa alınma anında yazılan kayıtlar. mail_queue_id doluysa
+        (queue_enabled akışı) GERÇEK durum/zaman ilişkili mail_queue satırından okunur — böylece
+        kuyruğa girip SONRADAN gerçekten başarısız olan bir mail artık yanlışlıkla 'Gönderildi'
+        görünmez. mail_queue_id NULL ise doğrudan gönderim başarılıdır (status='sent').
+      • mail_queue: yukarıdaki gibi bir notifications satırına BAĞLI OLMAYAN pending/failed
+        satırlar (bağlı olanlar zaten yukarıda GERÇEK durumuyla gösterildi — mükerrer olmasın).
     Salt-okunur, admin-only (require_role). Audit'teki limit-only sayfalama deseni."""
     like = f"%{search}%" if search else None
     start = datetime(date_from.year, date_from.month, date_from.day) if date_from else None
     end = (datetime(date_to.year, date_to.month, date_to.day) + timedelta(days=1)) if date_to else None
     rows: list[MailHistoryOut] = []
+    linked_queue_ids: set[int] = set()
 
-    # 1) notifications — gönderilen bildirimler
-    if status in (None, "sent"):
-        q = (db.query(Notification, Certificate.name, Domain.domain)
-             .outerjoin(Certificate, Certificate.id == Notification.certificate_id)
-             .outerjoin(Domain, Domain.id == Notification.domain_id))
-        if channel:
-            q = q.filter(Notification.channel == channel)
-        if like is not None:
-            q = q.filter(Notification.recipient.ilike(like) | Notification.subject.ilike(like))
-        if start is not None:
-            q = q.filter(Notification.sent_at >= start)
-        if end is not None:
-            q = q.filter(Notification.sent_at < end)
-        for n, cname, dname in q.order_by(Notification.sent_at.desc()).limit(limit).all():
-            rows.append(MailHistoryOut(
-                id=n.id, source="notification", certificate_id=n.certificate_id,
-                certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
-                recipient=n.recipient, subject=n.subject,
-                days_left=n.days_left, channel=n.channel, status="sent",
-                error=None, attempts=None, sent_at=n.sent_at))
+    # 1) notifications — ilişkili mail_queue satırıyla (varsa) birlikte
+    q = (db.query(Notification, Certificate.name, Domain.domain, MailQueue)
+         .outerjoin(Certificate, Certificate.id == Notification.certificate_id)
+         .outerjoin(Domain, Domain.id == Notification.domain_id)
+         .outerjoin(MailQueue, MailQueue.id == Notification.mail_queue_id))
+    if channel:
+        q = q.filter(Notification.channel == channel)
+    if like is not None:
+        q = q.filter(Notification.recipient.ilike(like) | Notification.subject.ilike(like))
+    if start is not None:
+        q = q.filter(Notification.sent_at >= start)
+    if end is not None:
+        q = q.filter(Notification.sent_at < end)
+    for n, cname, dname, mq in q.order_by(Notification.sent_at.desc()).limit(limit).all():
+        if mq is not None:
+            linked_queue_ids.add(mq.id)
+            eff_status = mq.status
+            queued_at, delivered_at = mq.created_at, mq.sent_at
+            error, attempts = mq.last_error, mq.attempts
+        else:
+            eff_status = "sent"
+            queued_at = delivered_at = n.sent_at
+            error = attempts = None
+        if status is not None and eff_status != status:
+            continue
+        rows.append(MailHistoryOut(
+            id=n.id, source="notification", certificate_id=n.certificate_id,
+            certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
+            recipient=n.recipient, subject=n.subject,
+            days_left=n.days_left, channel=n.channel, status=eff_status,
+            error=error, attempts=attempts, sent_at=delivered_at or queued_at,
+            queued_at=queued_at, delivered_at=delivered_at))
 
-    # 2) mail_queue — teslim edilmemişler (kanal e-posta; 'sent' hariç)
+    # 2) mail_queue — bir notifications satırına bağlı OLMAYAN pending/failed satırlar
     if channel in (None, "email") and status in (None, "pending", "failed"):
         ts = func.coalesce(MailQueue.sent_at, MailQueue.created_at)  # gönderilmemişte created_at
-        q = db.query(MailQueue).filter(MailQueue.status.in_(["pending", "failed"]))
+        q2 = db.query(MailQueue).filter(MailQueue.status.in_(["pending", "failed"]))
+        if linked_queue_ids:
+            q2 = q2.filter(MailQueue.id.notin_(linked_queue_ids))
         if status in ("pending", "failed"):
-            q = q.filter(MailQueue.status == status)
+            q2 = q2.filter(MailQueue.status == status)
         if like is not None:
-            q = q.filter(MailQueue.to_addresses.ilike(like) | MailQueue.subject.ilike(like))
+            q2 = q2.filter(MailQueue.to_addresses.ilike(like) | MailQueue.subject.ilike(like))
         if start is not None:
-            q = q.filter(ts >= start)
+            q2 = q2.filter(ts >= start)
         if end is not None:
-            q = q.filter(ts < end)
-        items = q.order_by(ts.desc()).limit(limit).all()
+            q2 = q2.filter(ts < end)
+        items = q2.order_by(ts.desc()).limit(limit).all()
         cids = {i.certificate_id for i in items if i.certificate_id}
         names = (dict(db.query(Certificate.id, Certificate.name)
                       .filter(Certificate.id.in_(cids)).all()) if cids else {})
@@ -230,8 +248,55 @@ def list_mail_history(
                 domain_id=i.domain_id, domain_name=dnames.get(i.domain_id),
                 recipient=i.to_addresses,
                 subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
-                error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at))
+                error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at,
+                queued_at=i.created_at, delivered_at=i.sent_at))
 
     # birleşik: zaman-desc (naive-UTC), limit'e kırp
     rows.sort(key=lambda r: r.sent_at or datetime.min, reverse=True)
     return rows[:limit]
+
+
+@router.get("/history/{source}/{item_id}", response_model=MailHistoryDetailOut)
+def get_mail_history_detail(source: str, item_id: int, db: Session = Depends(get_db),
+                            _: User = Depends(require_role("admin"))):
+    """Tek bir mail geçmişi kaydının TAM detayı — liste ekranındaki satıra tıklanınca çağrılır.
+    source='notification' → mail_queue_id doluysa (queue_enabled akışı) GERÇEK durum/zaman ve
+    gövde ilişkili mail_queue satırından okunur; NULL ise doğrudan gönderim başarılıdır (gövde
+    saklanmaz, yalnız özet alanları kalıcıdır). source='queue' → doğrudan mail_queue satırı,
+    gövde her zaman dolu (henüz teslim edilmemiş/başarısız mail kuyrukta saklanır)."""
+    if source == "notification":
+        n = db.get(Notification, item_id)
+        if n is None:
+            raise HTTPException(status_code=404, detail="Kayıt bulunamadı")
+        cname = db.get(Certificate, n.certificate_id).name if n.certificate_id else None
+        dname = db.get(Domain, n.domain_id).domain if n.domain_id else None
+        mq = db.get(MailQueue, n.mail_queue_id) if n.mail_queue_id else None
+        if mq is not None:
+            status, error, attempts = mq.status, mq.last_error, mq.attempts
+            queued_at, delivered_at = mq.created_at, mq.sent_at
+            body_text, body_html = mq.body_text, mq.body_html
+        else:
+            status, error, attempts = "sent", None, None
+            queued_at = delivered_at = n.sent_at
+            body_text = body_html = None
+        return MailHistoryDetailOut(
+            id=n.id, source="notification", certificate_id=n.certificate_id,
+            certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
+            recipient=n.recipient, subject=n.subject, days_left=n.days_left,
+            channel=n.channel, status=status, error=error, attempts=attempts,
+            sent_at=delivered_at or queued_at, queued_at=queued_at, delivered_at=delivered_at,
+            body_text=body_text, body_html=body_html)
+    if source == "queue":
+        i = db.get(MailQueue, item_id)
+        if i is None:
+            raise HTTPException(status_code=404, detail="Kayıt bulunamadı")
+        cname = db.get(Certificate, i.certificate_id).name if i.certificate_id else None
+        dname = db.get(Domain, i.domain_id).domain if i.domain_id else None
+        return MailHistoryDetailOut(
+            id=i.id, source="queue", certificate_id=i.certificate_id, certificate_name=cname,
+            domain_id=i.domain_id, domain_name=dname, recipient=i.to_addresses,
+            subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
+            error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at,
+            queued_at=i.created_at, delivered_at=i.sent_at,
+            body_text=i.body_text, body_html=i.body_html)
+    raise HTTPException(status_code=400, detail="Geçersiz source (notification|queue olmalı)")
