@@ -22,7 +22,7 @@ Kapsanan senaryolar:
 from datetime import datetime, timedelta
 
 from app.db.models import (AppDependency, Application, ApplicationTrustedCert, Certificate,
-                           CertificateDomainMap, Domain)
+                           CertificateDomainMap, Domain, MailQueue)
 from app.db.session import SessionLocal
 from app.services import notifier
 from tests import certgen
@@ -444,3 +444,19 @@ def test_scn_unexpected_error_on_one_cert_does_not_block_others(client, auth_hea
     assert not _got(sent, "scn-boom@test"), "patlayan sertifikanın maili gitmemeli"
     assert _got(sent, "scn-ok@test"), "diğer sertifikanın maili YİNE DE gitmeli (izolasyon)"
     assert result["skipped"] >= 1
+
+    # Beklenmeyen hata sessizce loglanıp kaybolmamalı — Mail Gönderim Geçmişi'nde 'failed'
+    # olarak GÖRÜNMELİ, tam hata mesajıyla (bkz. _record_dispatch_error).
+    def find_error_row(db):
+        return (db.query(MailQueue)
+                .filter(MailQueue.certificate_id == cid_boom, MailQueue.status == "failed")
+                .first())
+    row = _seed(find_error_row)
+    assert row is not None, "beklenmeyen hata mail_queue'ya 'failed' olarak yazılmalı"
+    assert row.last_error == "RuntimeError: beklenmeyen hata (test)"
+
+    hist = client.get("/api/notifications/history", headers=h,
+                      params={"status": "failed", "search": "scn-boom-cert.test"}).json()
+    assert len(hist) == 1, "geçmişte tam olarak bir 'failed' kaydı görünmeli"
+    assert hist[0]["certificate_name"] == "scn-boom-cert.test"
+    assert "RuntimeError" in hist[0]["error"]

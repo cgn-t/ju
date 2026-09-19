@@ -7,7 +7,7 @@ sürümünde vardı) kilitler."""
 
 from datetime import datetime, timedelta
 
-from app.db.models import Certificate, CertificateDomainMap, Domain, Team, TransferProposal
+from app.db.models import Certificate, CertificateDomainMap, Domain, MailQueue, Team, TransferProposal
 from app.db.session import SessionLocal
 from app.services import notifier
 from tests import certgen
@@ -183,3 +183,47 @@ def test_all_scenario_subjects_have_jumbo_prefix(client, auth_headers, monkeypat
     finally:
         db.close()
     assert sent and all(m["subject"].startswith("[JUMBO]") for m in sent)
+
+
+def test_proposal_reminder_unexpected_error_visible_in_history_and_isolated(client, auth_headers, monkeypatch):
+    """Bir ekibin devir-hatırlatması render edilirken BEKLENMEYEN bir hata olursa (SMTP hatası
+    DEĞİL): 1) diğer ekip yine de hatırlatmasını almalı (izolasyon), 2) hata sessizce
+    kaybolmamalı — Mail Gönderim Geçmişi'nde 'failed' olarak, tam hata mesajıyla görünmeli
+    (bkz. notifier._record_dispatch_error, send_pending_proposal_notifications)."""
+    h = auth_headers
+    _set_smtp(client, h)
+    sent = _capture(monkeypatch)
+    _, tid_boom, _, _ = _setup_cert_domain_proposal(client, h, "boomteam")
+    _, tid_ok, _, _ = _setup_cert_domain_proposal(client, h, "okteam")
+
+    orig = notifier._render_proposal_reminder_html
+
+    def boom(team, props, cfg):
+        if team is not None and team.id == tid_boom:
+            raise RuntimeError("kasıtlı render hatası (test)")
+        return orig(team, props, cfg)
+    monkeypatch.setattr(notifier, "_render_proposal_reminder_html", boom)
+
+    db = SessionLocal()
+    try:
+        result = notifier.send_pending_proposal_notifications(db, force=True)  # patlamamalı
+    finally:
+        db.close()
+
+    assert not any("tc-boomteam@test" in m["to"] for m in sent), "patlayan ekibin maili gitmemeli"
+    assert any("tc-okteam@test" in m["to"] for m in sent), "diğer ekip yine de almalı (izolasyon)"
+    assert result["skipped"] >= 1
+
+    db = SessionLocal()
+    try:
+        row = (db.query(MailQueue)
+               .filter(MailQueue.status == "failed", MailQueue.stakeholder == "TC boomteam SY")
+               .first())
+    finally:
+        db.close()
+    assert row is not None, "beklenmeyen hata mail_queue'ya 'failed' olarak yazılmalı"
+    assert row.last_error == "RuntimeError: kasıtlı render hatası (test)"
+
+    hist = client.get("/api/notifications/history", headers=h,
+                      params={"status": "failed", "search": "Devir hatırlatması işlenemedi"}).json()
+    assert any("kasıtlı render hatası" in (r["error"] or "") for r in hist)

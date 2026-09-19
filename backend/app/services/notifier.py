@@ -490,6 +490,38 @@ def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body
     return ok, note, None
 
 
+def _record_dispatch_error(db: Session, context: str, exc: Exception, *, certificate_id=None,
+                           domain_id=None, label: str | None = None,
+                           valid_to: datetime | None = None) -> None:
+    """Döngü içinde SMTP DIŞI, beklenmeyen bir hata (bkz. _dispatch_cert_mails/_dispatch_domain_mails/
+    send_pending_proposal_notifications'daki per-item except blokları) yalnız loglanırsa admin
+    bunu Mail Gönderim Geçmişi'nde HİÇ göremez — mail hiç denenmediği için ne Notification ne
+    normal mail_queue kaydı oluşur. Bu fonksiyon, elimizdeki en az bilgiyle bile olsa bir
+    'failed' mail_queue satırı yazar ki geçmiş ekranında (kaynak='queue') görünsün ve detay
+    panelinde tam hata mesajı okunabilsin. Bu yazma işleminin KENDİSİ başarısız olursa (ör. DB
+    o an erişilemez), yalnız loglanır — çağıran döngüyü asla bloke etmez."""
+    try:
+        days_left = None
+        if valid_to is not None:
+            try:
+                days_left = (valid_to - utcnow()).days
+            except Exception:
+                days_left = None
+        db.add(MailQueue(
+            to_addresses="(bilinmiyor — mail hiç denenemedi)",
+            subject=f"[JUMBO] {context}{': ' + label if label else ''}",
+            body_text=(f"{context}{(' — ' + label) if label else ''} sırasında beklenmeyen bir "
+                       f"hata oluştu; bu mail HİÇ GÖNDERİLMEDİ (denenmedi bile):\n\n"
+                       f"{type(exc).__name__}: {exc}"),
+            certificate_id=certificate_id, domain_id=domain_id, stakeholder=label,
+            days_left=days_left, status="failed", last_error=f"{type(exc).__name__}: {exc}"[:1000],
+            attempts=1))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Hata kaydı (mail_queue) da yazılamadı: %s (%s)", context, label)
+
+
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                          make_subject, make_body, make_html=None, global_days: int = 30) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
@@ -560,16 +592,22 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                         db.commit()
                     mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
             details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
-        except Exception:
+        except Exception as exc:
             # Beklenmeyen bir hata (ör. bozuk veri, şablon hatası) BU sertifikayı atlar ama
             # taramanın geri kalanını (diğer sertifikalar) durdurmaz — bkz. run_mail_queue_drain
             # ile aynı dayanıklılık ilkesi. SMTP gönderim hataları zaten _send_with_fallback
             # içinde ayrıca yakalanır; bu except yalnız BEKLENMEYEN programlama/veri hatalarınadır.
+            # Sessizce loglamak YETMEZ — admin'in Mail Gönderim Geçmişi'nde GÖRMESİ gerekir,
+            # bu yüzden en az bilgiyle bile olsa bir 'failed' mail_queue kaydı yazılır.
             db.rollback()
-            logger.exception("Sertifika bildirimi işlenemedi (atlanıyor): %s", getattr(cert, "name", cert))
+            cert_name = getattr(cert, "name", str(cert))
+            logger.exception("Sertifika bildirimi işlenemedi (atlanıyor): %s", cert_name)
             skipped += 1
-            details.append({"certificate": getattr(cert, "name", str(cert)), "days_left": None,
-                            "mails": [], "error": "beklenmeyen hata — atlandı"})
+            _record_dispatch_error(db, "Sertifika bildirimi işlenemedi", exc,
+                                   certificate_id=getattr(cert, "id", None), label=cert_name,
+                                   valid_to=getattr(cert, "valid_to", None))
+            details.append({"certificate": cert_name, "days_left": None,
+                            "mails": [], "error": f"beklenmeyen hata — atlandı: {exc}"})
 
     return {"enabled": True, "checked": len(certs), "sent": sent, "skipped": skipped,
             "details": details,
@@ -634,14 +672,18 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
                     db.commit()
                 mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
             details.append({"domain": dom.domain, "days_left": days_left, "mails": mails})
-        except Exception:
+        except Exception as exc:
             # Bkz. _dispatch_cert_mails'teki aynı korumanın gerekçesi: bu domain'i atla,
-            # taramanın geri kalanını durdurma.
+            # taramanın geri kalanını durdurma. Yine de Mail Gönderim Geçmişi'nde görünsün.
             db.rollback()
-            logger.exception("Domain bildirimi işlenemedi (atlanıyor): %s", getattr(dom, "domain", dom))
+            dom_name = getattr(dom, "domain", str(dom))
+            logger.exception("Domain bildirimi işlenemedi (atlanıyor): %s", dom_name)
             skipped += 1
-            details.append({"domain": getattr(dom, "domain", str(dom)), "days_left": None,
-                            "mails": [], "error": "beklenmeyen hata — atlandı"})
+            _record_dispatch_error(db, "Domain bildirimi işlenemedi", exc,
+                                   domain_id=getattr(dom, "id", None), label=dom_name,
+                                   valid_to=getattr(dom, "expire_date", None))
+            details.append({"domain": dom_name, "days_left": None,
+                            "mails": [], "error": f"beklenmeyen hata — atlandı: {exc}"})
 
     return {"checked": len(domains), "sent": sent, "skipped": skipped, "details": details}
 
@@ -980,9 +1022,9 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 skipped += len(props)
                 continue
             subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
-            ok, note, _mqid = _deliver(db, cfg, emails, subject,
-                                       _proposal_reminder_text(team, props, cfg),
-                                       _render_proposal_reminder_html(team, props, cfg),
+            body_text = _proposal_reminder_text(team, props, cfg)
+            body_html = _render_proposal_reminder_html(team, props, cfg)
+            ok, note, _mqid = _deliver(db, cfg, emails, subject, body_text, body_html,
                                        certificate_id=None, stakeholder=(team.name if team else None),
                                        days_left=None)
             if ok:
@@ -991,12 +1033,22 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 skipped += len(props)
                 logger.warning("Devir hatırlatması gönderilemedi: %s (%s)",
                                team.name if team else team_id, note)
-        except Exception:
+                # queue KAPALIYKEN doğrudan gönderim başarısız → Mail Gönderim Geçmişi'nde
+                # görünsün diye 'failed' yaz (bkz. _dispatch_cert_mails'teki aynı desen).
+                if not cfg.get("queue_enabled"):
+                    db.add(MailQueue(to_addresses=", ".join(emails), subject=subject,
+                                     body_text=body_text, body_html=body_html,
+                                     stakeholder=team.name if team else None,
+                                     status="failed", last_error=(note or "")[:1000], attempts=1))
+                    db.commit()
+        except Exception as exc:
             # Bkz. _dispatch_cert_mails'teki aynı korumanın gerekçesi: bu ekibi atla,
-            # diğer ekiplerin hatırlatmasını engelleme.
+            # diğer ekiplerin hatırlatmasını engelleme. Yine de geçmişte görünsün.
             db.rollback()
-            logger.exception("Devir hatırlatması işlenemedi (atlanıyor): team_id=%s", team_id)
+            team_label = getattr(db.get(Team, team_id), "name", None) or f"team_id={team_id}"
+            logger.exception("Devir hatırlatması işlenemedi (atlanıyor): %s", team_label)
             skipped += len(props)
+            _record_dispatch_error(db, "Devir hatırlatması işlenemedi", exc, label=team_label)
 
     # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
     if ownerless:
@@ -1004,17 +1056,28 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
                   if a.strip()]
             if fb:
-                ok, _note, _mqid = _deliver(db, cfg, fb,
-                                            f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)",
-                                            _proposal_reminder_text(None, ownerless, cfg), None,
-                                            certificate_id=None, stakeholder="ownerless", days_left=None)
+                subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)"
+                body_text = _proposal_reminder_text(None, ownerless, cfg)
+                ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, None,
+                                           certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:
                     sent += 1
+                else:
+                    skipped += len(ownerless)
+                    logger.warning("Sahipsiz devir hatırlatması gönderilemedi: %s", note)
+                    if not cfg.get("queue_enabled"):
+                        db.add(MailQueue(to_addresses=", ".join(fb), subject=subject, body_text=body_text,
+                                         stakeholder="ownerless", status="failed",
+                                         last_error=(note or "")[:1000], attempts=1))
+                        db.commit()
             else:
                 skipped += len(ownerless)
-        except Exception:
+        except Exception as exc:
             db.rollback()
             logger.exception("Sahipsiz devir hatırlatması işlenemedi (atlanıyor)")
+            skipped += len(ownerless)
+            _record_dispatch_error(db, "Sahipsiz devir hatırlatması işlenemedi", exc,
+                                   label="ownerless")
             skipped += len(ownerless)
 
     return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
