@@ -4,6 +4,12 @@ SSL sertifikalarını, domainleri ve bağımlılıklarını yöneten kurumsal pl
 React + FastAPI + MSSQL. LDAP/Active Directory kimlik doğrulama, rol bazlı yetki,
 audit log, e-posta expiry uyarıları ve Vault entegrasyonuna hazır mimari.
 
+## Dokümantasyon
+
+- **[Kullanıcı Kılavuzu](docs/KULLANICI-KILAVUZU.md)** — JUMBO'yu nasıl kullanırım? (sayfa sayfa)
+- **[Teknik Doküman](docs/TEKNIK-DOKUMAN.md)** — kod yapısı, mimari, "bir sorun olursa
+  nereye bakmalıyım?" haritası
+
 ## Mimari
 
 ```
@@ -164,5 +170,7 @@ zamanlanmış yenileme; velayet yine JUMBO'ya girmez.
 cd backend && ./.venv/bin/python -m pytest tests/ -q
 ```
 
-Test zinciri (`tests/fixtures/`) openssl ile üretilmiş gerçek root→intermediate→leaf
-sertifikalarıdır; import, hiyerarşi kurma, rol yaptırımı, ayar maskeleme ve audit test edilir.
+265 test (31 dosya), pytest **SQLite** kullanır (`conftest.py` `DATABASE_URL`'i override
+eder — MSSQL gerekmez). Test zinciri (`tests/fixtures/`) openssl ile üretilmiş gerçek
+root→intermediate→leaf sertifikalarıdır. Ayrıntılı test/sorun-giderme rehberi:
+[`docs/TEKNIK-DOKUMAN.md`](docs/TEKNIK-DOKUMAN.md).
