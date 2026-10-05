@@ -155,6 +155,15 @@ Aynı ekip birden fazla nedenle alıcıysa TEK mail alır, gövdede tüm nedenle
 konu için kısa sürede tekrar mail gönderilmez (tekrar-önleme penceresi Ayarlar>SMTP'de
 ayarlanır).
 
+Mail içeriğinde ayrıca:
+- Sertifikanın **Açıklama**'sı (SSL Sertifikalar ekranındaki not alanı) ve domainin **Detay**
+  bilgisi gösterilir — sertifikaya birden fazla domain bağlıysa her domain'in Detay'ı özet
+  tabloda ayrı sütunda görünür.
+- Bir domain'in **Aksiyon Alma** alanı "Evet" ise, o domain'in mail içindeki satırı/satırları
+  **kırmızı** vurgulanır — dikkat gerektiren domainler tek bakışta ayırt edilir.
+- Mail tablolarının genişliği sabit değildir; mail istemcinizin okuma penceresini
+  büyüttüğünüzde tablo da genişler (istemciye bağlı olarak değişebilir).
+
 ### Mail Gönderim Geçmişi (Ayarlar, yalnız yönetici)
 
 Gönderilen/gönderilemeyen tüm bildirim maillerinin kaydı burada tutulur — durum (Gönderildi/

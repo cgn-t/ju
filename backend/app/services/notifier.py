@@ -60,6 +60,9 @@ def _team_emails(team) -> list[str]:
 _esc = html_mod.escape
 _TD = "padding:6px 10px;border:1px solid #d9d9d9;vertical-align:top;font-size:14px"
 _TH = _TD + ";background:#f2f2f2;font-weight:bold;width:220px"
+# "Aksiyon Alma: Evet" vurgusu — domain satırlarını/kolonunu bu renkle işaretler.
+_ACTION_BORDER = "#c62828"
+_ACTION_BG = "#ffebee"
 
 
 def _fmt(value) -> str:
@@ -127,6 +130,21 @@ def _domain_rows(dom) -> list[tuple]:
     ]
 
 
+def _domain_table_html(dom) -> str:
+    """'Domain Detay Bilgileri' tablosu — Aksiyon Alma='Evet' ise TÜM satırlar kırmızı vurgulanır
+    (o domain'in dikkat gerektirdiği tek bakışta görülsün)."""
+    highlight = dom.action_required == "Evet"
+    trs = ""
+    for k, v in _domain_rows(dom):
+        if highlight:
+            th = _TH + f";border-left:4px solid {_ACTION_BORDER};background:{_ACTION_BG}"
+            td = _TD + f";background:{_ACTION_BG}"
+        else:
+            th, td = _TH, _TD
+        trs += f'<tr><td style="{th}">{_esc(k)}</td><td style="{td}">{_esc(_fmt(v))}</td></tr>'
+    return f'<table cellspacing="0" style="border-collapse:collapse;width:100%">{trs}</table>'
+
+
 def _cert_rows(cert: Certificate) -> list[tuple]:
     """'SSL Sertifika Detayı' tablosu — eski sistemdeki alan sırasıyla."""
     return [
@@ -138,16 +156,18 @@ def _cert_rows(cert: Certificate) -> list[tuple]:
         ("SubjectKeyIdentifier", cert.subject_key_identifier),
         ("ValidFrom", cert.valid_from),
         ("ValidTo", cert.valid_to),
-        ("Notes", cert.notes),
+        ("Açıklama", cert.notes),
         ("Satın Alım Yapan Ekip/Kişi", cert.purchased_by),
         ("Internal", cert.is_internal),
     ]
 
 
 def _related_domains_table(mappings) -> str:
-    """Çok domainli sertifikada özet: Domain | Bağlantı Tipi | UG | SY | Sertifika Sahibi."""
+    """Çok domainli sertifikada özet: Domain | Bağlantı Tipi | UG | SY | Sertifika Sahibi | Detay |
+    Aksiyon Alma. Aksiyon Alma='Evet' olan domainin satırı kırmızı vurgulanır."""
     head = "".join(f'<td style="{_TH};width:auto">{_esc(h)}</td>'
-                   for h in ("Domain", "Bağlantı Tipi", "UG", "SY", "Sertifika Sahibi"))
+                   for h in ("Domain", "Bağlantı Tipi", "UG", "SY", "Sertifika Sahibi", "Detay",
+                             "Aksiyon Alma"))
     body = ""
     for m in mappings:
         dom = m.domain
@@ -155,8 +175,17 @@ def _related_domains_table(mappings) -> str:
                  _mapping_label(m.mapping_type),
                  dom.ug_team.name if dom.ug_team else dom.ug_team_name,
                  dom.sy_team.name if dom.sy_team else None,
-                 dom.cert_owner)
-        body += "<tr>" + "".join(f'<td style="{_TD}">{_esc(_fmt(c))}</td>' for c in cells) + "</tr>"
+                 dom.cert_owner,
+                 dom.info,
+                 dom.action_required)
+        highlight = dom.action_required == "Evet"
+        tds = ""
+        for i, c in enumerate(cells):
+            td = _TD + f";background:{_ACTION_BG}" if highlight else _TD
+            if highlight and i == 0:
+                td += f";border-left:4px solid {_ACTION_BORDER}"
+            tds += f'<td style="{td}">{_esc(_fmt(c))}</td>'
+        body += f"<tr>{tds}</tr>"
     return (f'<table cellspacing="0" style="border-collapse:collapse;width:100%">'
             f"<tr>{head}</tr>{body}</table>")
 
@@ -168,16 +197,16 @@ def _related_domains_table(mappings) -> str:
 # ---------------------------------------------------------------------------
 _MAIL_FONT = "Arial,Helvetica,sans-serif"
 _MAIL_COLOR = "#222"
-_MAIL_MAX_WIDTH = "860px"
 _MAIL_FOOTER = ('<p style="color:#888;font-size:12px;margin-top:20px">İyi çalışmalar,<br>'
                 "JUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir.</p>")
 _MAIL_FOOTER_TEXT = "\nİyi çalışmalar,\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
 
 
 def _mail_html_wrap(greeting: str, body_html: str, *, doc_links: str = "") -> str:
-    """4 mail türünün ORTAK dış iskeleti: font/renk/genişlik + selamlama + [gövde] +
-    [doc_links varsa] + footer. Gövde HTML'i senaryoya özgü (tablo/liste/paragraf) kalır."""
-    parts = [f'<div style="font-family:{_MAIL_FONT};color:{_MAIL_COLOR};max-width:{_MAIL_MAX_WIDTH}">',
+    """4 mail türünün ORTAK dış iskeleti: font/renk/selamlama + [gövde] + [doc_links varsa] +
+    footer. Gövde genişliği sabit değil (width:100%) — mail istemcisinin penceresi büyüdükçe
+    tablo da büyür. Gövde HTML'i senaryoya özgü (tablo/liste/paragraf) kalır."""
+    parts = [f'<div style="font-family:{_MAIL_FONT};color:{_MAIL_COLOR};width:100%">',
              f"<p>{_esc(greeting)}</p>", body_html]
     if doc_links:
         parts.append(_doc_links_html(doc_links))
@@ -226,7 +255,7 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
 
     if len(mappings) == 1:
         parts.append(_section("Domain Detay Bilgileri"))
-        parts.append(_kv_table(_domain_rows(mappings[0].domain)))
+        parts.append(_domain_table_html(mappings[0].domain))
         parts.append(_type_strip(mappings[0].mapping_type))
 
     parts.append(_section("SSL Sertifika Detayı"))
@@ -267,13 +296,17 @@ def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], tea
 
 
 def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], team_list: list[str]) -> str:
+    """Diğer mail türleriyle aynı iskelet: banner + 'SSL Sertifika Detayı' tablosu (_cert_rows)."""
     body = (
-        f"<p><b>'{_esc(cert.name)}'</b> sertifikası <b>{_esc(actor)}</b> tarafından pasife alındı.</p>"
-        "<p>Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:</p>"
-        "<ul style='font-size:14px'>" + "".join(f"<li>{_esc(d)}</li>" for d in bound) + "</ul>"
-        f"<p>İlgili SY ekipleri: {_esc(', '.join(team_list) if team_list else '—')}</p>"
-        "<p>Domaininizin yerine geçecek sertifikayı JUMBO'da <b>'Devir Önerileri'</b> üzerinden "
-        "onaylamanız gerekir — JUMBO kendiliğinden bir değişiklik yapmaz.</p>"
+        _banner(f"'{cert.name}' sertifikası {actor} tarafından PASİFE ALINDI — hâlâ "
+               f"{len(bound)} domain'e bağlı görünüyor!")
+        + _section("SSL Sertifika Detayı") + _kv_table(_cert_rows(cert))
+        + _section("Hâlâ Bağlı Olduğu Domainler")
+        + "<ul style='margin:4px 0;font-size:14px'>" + "".join(f"<li>{_esc(d)}</li>" for d in bound) + "</ul>"
+        + f'<p style="font-size:14px">İlgili SY ekipleri: {_esc(", ".join(team_list) if team_list else "—")}</p>'
+        + '<p style="font-size:14px">Domaininizin yerine geçecek sertifikayı JUMBO\'da '
+          "<b>'Devir Önerileri'</b> üzerinden onaylamanız gerekir — JUMBO kendiliğinden bir "
+          "değişiklik yapmaz.</p>"
     )
     return _mail_html_wrap("Merhabalar,", body)
 
@@ -781,7 +814,7 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
     def dom_html(dom, days_left, p):
         body_html = (
             _banner(f"Bu domain'in bitiş tarihi {days_left} gün içinde dolmaktadır!")
-            + _section("Domain Detay Bilgileri") + _kv_table(_domain_rows(dom))
+            + _section("Domain Detay Bilgileri") + _domain_table_html(dom)
             + _section(f"Bu bildirimi alma nedeniniz ({p['label']})")
             + "<ul style='margin:4px 0;font-size:14px'>"
             + "".join(f"<li>{_esc(r)}</li>" for r in p["reasons"]) + "</ul>"
@@ -887,7 +920,7 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
     def dom_html(dom, days_left, p):
         body_html = (
             _banner(f"Bu domain'in bitiş tarihi {-days_left} gün önce doldu!")
-            + _section("Domain Detay Bilgileri") + _kv_table(_domain_rows(dom))
+            + _section("Domain Detay Bilgileri") + _domain_table_html(dom)
             + _section(f"Bu bildirimi alma nedeniniz ({p['label']})")
             + "<ul style='margin:4px 0;font-size:14px'>"
             + "".join(f"<li>{_esc(r)}</li>" for r in p["reasons"]) + "</ul>"
@@ -953,11 +986,7 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
     ]
 
 
-def _proposal_reminder_greeting(team: Team | None) -> str:
-    return f"Sayın {team.name} ekibi," if team else "Sayın Yetkili,"
-
-
-def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
+def _proposal_reminder_text(props: list, cfg: dict) -> str:
     blocks: list[str] = []
     for i, p in enumerate(props, start=1):
         blocks.append(f"\nDevir Önerisi {i}/{len(props)}: {_proposal_label(p)}\n"
@@ -969,10 +998,10 @@ def _proposal_reminder_text(team: Team | None, props: list, cfg: dict) -> str:
         "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
         "onay kuyruğu temizlenir."
     )
-    return _mail_text_wrap(_proposal_reminder_greeting(team), body, doc_links=cfg.get("doc_links") or "")
+    return _mail_text_wrap("Merhabalar,", body, doc_links=cfg.get("doc_links") or "")
 
 
-def _render_proposal_reminder_html(team: Team | None, props: list, cfg: dict) -> str:
+def _render_proposal_reminder_html(props: list, cfg: dict) -> str:
     parts: list[str] = [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>",
                         _banner(f"{len(props)} devir önerisi onayınızı bekliyor — karar "
                                "verilene kadar hatırlatma tekrarlanır.")]
@@ -983,8 +1012,7 @@ def _render_proposal_reminder_html(team: Team | None, props: list, cfg: dict) ->
         '<p style="font-size:14px">Lütfen JUMBO <b>\'Devir Önerileri\'</b> ekranından bu '
         "önerileri gözden geçirip <b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni "
         "sertifikayı devreye alır; reddedilenler kapanır ve onay kuyruğu temizlenir.</p>")
-    return _mail_html_wrap(_proposal_reminder_greeting(team), "".join(parts),
-                           doc_links=cfg.get("doc_links") or "")
+    return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=cfg.get("doc_links") or "")
 
 
 def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> dict:
@@ -1022,8 +1050,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 skipped += len(props)
                 continue
             subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
-            body_text = _proposal_reminder_text(team, props, cfg)
-            body_html = _render_proposal_reminder_html(team, props, cfg)
+            body_text = _proposal_reminder_text(props, cfg)
+            body_html = _render_proposal_reminder_html(props, cfg)
             ok, note, _mqid = _deliver(db, cfg, emails, subject, body_text, body_html,
                                        certificate_id=None, stakeholder=(team.name if team else None),
                                        days_left=None)
@@ -1057,7 +1085,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                   if a.strip()]
             if fb:
                 subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)"
-                body_text = _proposal_reminder_text(None, ownerless, cfg)
+                body_text = _proposal_reminder_text(ownerless, cfg)
                 ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, None,
                                            certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:

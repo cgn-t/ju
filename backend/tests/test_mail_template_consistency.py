@@ -94,8 +94,8 @@ def _setup_cert_domain_proposal(client, h, tag):
 
 def test_all_render_functions_share_footer_and_width(client, auth_headers):
     """4 render fonksiyonunun da (süre-uyarı/süresi-geçmiş/devir-hatırlatma/pasife-alma)
-    aynı ortak footer'ı ve aynı max-width'i ürettiğini doğrular — Faz 2 öncesi bu üçü
-    (özellikle devir-hatırlatma ve pasife-alma) birbirinden farklıydı."""
+    aynı ortak footer'ı ve aynı (dinamik) genişlik stilini ürettiğini doğrular — Faz 2 öncesi
+    bu üçü (özellikle devir-hatırlatma ve pasife-alma) birbirinden farklıydı."""
     h = auth_headers
     cid, tid, domain_name, proposal_id = _setup_cert_domain_proposal(client, h, "footer")
 
@@ -109,13 +109,13 @@ def test_all_render_functions_share_footer_and_width(client, auth_headers):
                 "effective_days": 30}
         html_expiry = notifier._render_cert_mail_html(cert, 5, party, expired=False)
         html_expired = notifier._render_cert_mail_html(cert, -3, party, expired=True)
-        html_proposal = notifier._render_proposal_reminder_html(team, [proposal], {"doc_links": ""})
+        html_proposal = notifier._render_proposal_reminder_html([proposal], {"doc_links": ""})
         html_deact = notifier._render_deactivation_html(cert, "admin", [domain_name], [team.name])
 
         for name, html in (("expiry", html_expiry), ("expired", html_expired),
                            ("proposal", html_proposal), ("deactivation", html_deact)):
             assert notifier._MAIL_FOOTER in html, f"{name}: ortak footer eksik"
-            assert notifier._MAIL_MAX_WIDTH in html, f"{name}: ortak genişlik eksik"
+            assert f"color:{notifier._MAIL_COLOR};width:100%" in html, f"{name}: ortak dinamik genişlik eksik"
     finally:
         db.close()
 
@@ -127,10 +127,9 @@ def test_proposal_reminder_html_includes_doc_links(client, auth_headers):
     cid, tid, domain_name, proposal_id = _setup_cert_domain_proposal(client, h, "doclinks")
     db = SessionLocal()
     try:
-        team = db.get(Team, tid)
         proposal = db.get(TransferProposal, proposal_id)
         cfg = {"doc_links": "https://wiki.test/devir-onay-rehberi"}
-        html = notifier._render_proposal_reminder_html(team, [proposal], cfg)
+        html = notifier._render_proposal_reminder_html([proposal], cfg)
         assert "https://wiki.test/devir-onay-rehberi" in html
     finally:
         db.close()
@@ -198,10 +197,10 @@ def test_proposal_reminder_unexpected_error_visible_in_history_and_isolated(clie
 
     orig = notifier._render_proposal_reminder_html
 
-    def boom(team, props, cfg):
-        if team is not None and team.id == tid_boom:
+    def boom(props, cfg):
+        if any(p.sy_team_id == tid_boom for p in props):
             raise RuntimeError("kasıtlı render hatası (test)")
-        return orig(team, props, cfg)
+        return orig(props, cfg)
     monkeypatch.setattr(notifier, "_render_proposal_reminder_html", boom)
 
     db = SessionLocal()

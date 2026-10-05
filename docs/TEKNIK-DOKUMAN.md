@@ -154,8 +154,24 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
 - `drain_mail_queue()` — kuyruktaki `pending` satırları gerçekten gönderen arka plan işi;
   başarısızlıkta `attempts`/`last_error` günceller, `failed` yazar.
 - Mail HTML şablonları: `_banner()`, `_section()`, `_kv_table()`, `_mail_html_wrap()` — 4 mail
-  türü (süresi yaklaşan/geçen sertifika, domain hatırlatma, devir onayı) bu ortak
-  bileşenleri paylaşır. Body'yi değiştirirken bu yardımcıları kullan, HTML'i elle yazma.
+  türü (süresi yaklaşan/geçen sertifika, domain hatırlatma, devir onayı, pasife alma) bu ortak
+  bileşenleri paylaşır; hepsi `"Merhabalar,"` ile başlar. Body'yi değiştirirken bu yardımcıları
+  kullan, HTML'i elle yazma.
+  - `_mail_html_wrap` gövdesi `width:100%` (sabit `max-width` YOK) — mail istemcisinin okuma
+    paneli büyüdükçe tablolar da genişler; bazı webmail istemcileri (örn. Gmail web) kendi
+    panel genişliğini sabit tuttuğu için bu her istemcide aynı görünmez.
+  - `_cert_rows()`'taki "Açıklama" satırı → `Certificate.notes`. `_domain_rows()`'taki "Detay"
+    satırı → `Domain.info`.
+  - `_domain_table_html(dom)` — `_domain_rows()`'u tabloya çevirir; `dom.action_required ==
+    "Evet"` ise TÜM satırlar `_ACTION_BORDER`/`_ACTION_BG` (kırmızı) ile vurgulanır. Tek-domainli
+    sertifika maili ve domain-only (sertifikasız, manuel bitiş) hatırlatmaları bunu kullanır.
+  - `_related_domains_table(mappings)` — çok domainli sertifikanın özet tablosu; "Detay" ve
+    "Aksiyon Alma" kolonlarını içerir, `action_required == "Evet"` olan domainin satırı aynı
+    kırmızı vurguyla işaretlenir.
+  - `_render_deactivation_html()` artık diğerleriyle aynı iskelet: banner + "SSL Sertifika
+    Detayı" tablosu (`_cert_rows`), domain listesi düz paragraf değil ayrı `_section` altında.
+  - `_proposal_reminder_text()`/`_render_proposal_reminder_html()` artık `team` parametresi
+    almıyor (selamlama sabit `"Merhabalar,"` — eski ekip-adına-özel "Sayın X ekibi," kaldırıldı).
 - **Semptom → dosya haritası**:
   - "Mail hiç gitmiyor" → önce Ayarlar>SMTP `enabled`+host, sonra `send_expiry_notifications`/
     `send_expired_notifications` giriş noktaları.
