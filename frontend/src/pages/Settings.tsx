@@ -8,7 +8,7 @@ import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, ButtonBase, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, FormControlLabel, Grid, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody,
-  TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
+  TableCell, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { Autocomplete } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -970,6 +970,8 @@ function MailHistoryTab() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [detail, setDetail] = useState<{ source: string; id: number } | null>(null)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(50)
   const params = {
     search: search || undefined, status: status || undefined, channel: channel || undefined,
     date_from: dateFrom || undefined, date_to: dateTo || undefined,
@@ -979,6 +981,9 @@ function MailHistoryTab() {
     queryFn: async () => (await api.get('/notifications/history', { params })).data,
   })
   const rows = entries ?? []
+  // Filtre değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
+  useEffect(() => setPage(0), [search, status, channel, dateFrom, dateTo])
+  const pageRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
   // Ekranda görünen = indirilen (aynı satırlar). .xlsx — çok-satırlı konu/hata metni hücrede bozulmaz.
   const onExport = () => exportSheet(
     `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`,
@@ -1038,7 +1043,7 @@ function MailHistoryTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((r) => (
+          {pageRows.map((r) => (
             <TableRow key={`${r.source}-${r.id}`} hover sx={{ cursor: 'pointer' }}
                       onClick={() => setDetail({ source: r.source, id: r.id })}>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
@@ -1078,6 +1083,17 @@ function MailHistoryTab() {
           )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={rows.length}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
       <MailHistoryDetailDrawer item={detail} onClose={() => setDetail(null)} />
     </Stack>
   )
