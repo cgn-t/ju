@@ -156,7 +156,7 @@ def _cert_rows(cert: Certificate) -> list[tuple]:
         ("SubjectKeyIdentifier", cert.subject_key_identifier),
         ("ValidFrom", cert.valid_from),
         ("ValidTo", cert.valid_to),
-        ("Açıklama", cert.notes),
+        ("Notlar", cert.notes),
         ("Satın Alım Yapan Ekip/Kişi", cert.purchased_by),
         ("Internal", cert.is_internal),
     ]

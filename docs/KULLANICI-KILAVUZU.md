@@ -156,7 +156,7 @@ konu için kısa sürede tekrar mail gönderilmez (tekrar-önleme penceresi Ayar
 ayarlanır).
 
 Mail içeriğinde ayrıca:
-- Sertifikanın **Açıklama**'sı (SSL Sertifikalar ekranındaki not alanı) ve domainin **Detay**
+- Sertifikanın **Notlar**'ı (SSL Sertifikalar ekranındaki not alanı) ve domainin **Detay**
   bilgisi gösterilir — sertifikaya birden fazla domain bağlıysa her domain'in Detay'ı özet
   tabloda ayrı sütunda görünür.
 - Bir domain'in **Aksiyon Alma** alanı "Evet" ise, o domain'in mail içindeki satırı/satırları

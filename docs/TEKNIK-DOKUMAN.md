@@ -160,7 +160,7 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
   - `_mail_html_wrap` gövdesi `width:100%` (sabit `max-width` YOK) — mail istemcisinin okuma
     paneli büyüdükçe tablolar da genişler; bazı webmail istemcileri (örn. Gmail web) kendi
     panel genişliğini sabit tuttuğu için bu her istemcide aynı görünmez.
-  - `_cert_rows()`'taki "Açıklama" satırı → `Certificate.notes`. `_domain_rows()`'taki "Detay"
+  - `_cert_rows()`'taki "Notlar" satırı → `Certificate.notes`. `_domain_rows()`'taki "Detay"
     satırı → `Domain.info`.
   - `_domain_table_html(dom)` — `_domain_rows()`'u tabloya çevirir; `dom.action_required ==
     "Evet"` ise TÜM satırlar `_ACTION_BORDER`/`_ACTION_BG` (kırmızı) ile vurgulanır. Tek-domainli
