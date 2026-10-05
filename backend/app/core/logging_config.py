@@ -11,11 +11,13 @@ Kurallar:
   • uvicorn.access → WARNING: istek satırlarını nginx ön kapı zaten loglar; uvicorn'un
     aynı isteği ikinci kez yazması çift satır üretiyordu.
   • apscheduler → WARNING: "Adding job tentatively..." gibi iç detaylar gürültü.
-  • Seviye LOG_LEVEL ortam değişkeniyle değiştirilebilir (varsayılan INFO).
+  • Seviye LOG_LEVEL ortam değişkeniyle değiştirilebilir (varsayılan INFO). AYNI değişken
+    nginx'in erişim-log hacmini de belirler (bkz. deploy/nginx-entrypoint.sh): DEBUG → nginx
+    TÜM istekleri loglar; diğer her değer → yalnız 2xx/3xx DIŞI (hata) istekler loglanır.
       - Docker'dan yönetim:  docker run ... -e LOG_LEVEL=DEBUG   (veya INFO / ERROR)
-      - DEBUG  → LDAP sorgusu dahil ayrıntılı iz (aşağıya bkz.)
-      - INFO   → durum satırları (başlangıç, giriş denemesi/başarısı)
-      - ERROR  → yalnız hatalar
+      - DEBUG  → LDAP sorgusu dahil ayrıntılı iz (aşağıya bkz.), nginx TÜM istekleri loglar
+      - INFO   → durum satırları (başlangıç, giriş denemesi/başarısı), nginx yalnız hataları loglar
+      - ERROR  → yalnız hatalar (backend VE nginx)
   • DEBUG, uygulamanın KENDİ okunur LDAP izini verir (app.services.ldap_auth): hedef sunucu,
     TLS politikası, bind DN, base DN, arama filtresi, bulunan DN, istenen nitelikler ve bind
     sonucu — hepsi şifresiz. "Sorgu nasıl gidiyor" sorusunu bu iz cevaplar.

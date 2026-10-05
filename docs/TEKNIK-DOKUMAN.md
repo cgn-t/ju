@@ -91,7 +91,9 @@ Dış istek ─▶ nginx :8080 ─┤ /api/*  ─▶ uvicorn :5000    │  (tek 
   **RBAC ile ilgili HER ŞEY burada başlar.**
 - `certtype.py` — sertifika türü (Root/Intermediate/Leaf) belirleme mantığı.
 - `timeutil.py` — zaman dilimi/`utcnow` yardımcıları.
-- `logging_config.py` — log formatı/seviyesi.
+- `logging_config.py` — log formatı/seviyesi. `LOG_LEVEL` aynı zamanda nginx'in erişim-log
+  hacmini belirler (bkz. `deploy/nginx-entrypoint.sh`): `DEBUG` → nginx TÜM istekleri loglar;
+  diğer her değer (varsayılan `INFO` dahil) → yalnız 2xx/3xx DIŞI (hata) istekler loglanır.
 
 ## 3. Veritabanı modelleri (`backend/app/db/models.py`)
 

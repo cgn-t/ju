@@ -50,6 +50,9 @@ docker run -d --name jumbo --user 1000670000:0 -p 8080:8080 -p 9080:9080 \
 > Not: İmajdaki varsayılan MSSQL_* değerleri **yerel dev içindir** (dev şifresi dahil). Prod'da
 > `jumbo-k8s.yaml` env + Secret bunların HEPSİNİ ezer.
 Loglar: `docker logs jumbo` — hem `[program:api]` (uvicorn) hem `[program:web]` (nginx) tek stdout'ta.
+`LOG_LEVEL` (varsayılan `INFO`) nginx'in erişim-log hacmini de belirler: `DEBUG` → TÜM istekler
+loglanır; diğer her değer → yalnız 2xx/3xx DIŞI (hata) istekler loglanır (bkz.
+`deploy/nginx-entrypoint.sh`). Örn: `docker run ... -e LOG_LEVEL=DEBUG jumbo:latest`.
 
 ### OpenShift / Kubernetes
 ```bash

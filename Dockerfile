@@ -30,8 +30,10 @@ RUN pip install -r requirements.txt && pip install supervisor
 
 COPY backend/ ./
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY deploy/nginx-allinone.conf /etc/nginx/nginx.conf
-COPY deploy/supervisord.conf    /etc/supervisord.conf
+COPY deploy/nginx-allinone.conf  /etc/nginx/nginx.conf
+COPY deploy/supervisord.conf     /etc/supervisord.conf
+COPY deploy/nginx-entrypoint.sh  /usr/local/bin/nginx-entrypoint.sh
+RUN chmod 755 /usr/local/bin/nginx-entrypoint.sh
 
 # MSSQL bağlantısı ENV'den kurulur (kod: config.effective_database_url → mssql+pymssql://...).
 # VARSAYILAN = yerel dev veritabanı (jumbo-mssql). Böylece ekstra -e olmadan MSSQL'e bağlanır:
