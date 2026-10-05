@@ -164,6 +164,9 @@ Mail içeriğinde ayrıca:
 - Mail tablolarının genişliği sabit değildir; mail istemcinizin okuma penceresini
   büyüttüğünüzde tablo da genişler (istemciye bağlı olarak değişebilir).
 
+Tüm mail türlerinin (süre-uyarı, süresi geçmiş, domain-only hatırlatma, devir önerisi, pasife
+alma) örnek görünümleri için bkz. [MAIL-BILDIRIM-ORNEKLERI.pdf](MAIL-BILDIRIM-ORNEKLERI.pdf).
+
 ### Mail Gönderim Geçmişi (Ayarlar, yalnız yönetici)
 
 Gönderilen/gönderilemeyen tüm bildirim maillerinin kaydı burada tutulur — durum (Gönderildi/
