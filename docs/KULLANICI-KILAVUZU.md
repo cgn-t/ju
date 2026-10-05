@@ -165,7 +165,9 @@ Mail içeriğinde ayrıca:
   büyüttüğünüzde tablo da genişler (istemciye bağlı olarak değişebilir).
 
 Tüm mail türlerinin (süre-uyarı, süresi geçmiş, domain-only hatırlatma, devir önerisi, pasife
-alma) örnek görünümleri için bkz. [MAIL-BILDIRIM-ORNEKLERI.pdf](MAIL-BILDIRIM-ORNEKLERI.pdf).
+alma) örnek görünümleri için bkz. [MAIL-BILDIRIM-ORNEKLERI.pdf](MAIL-BILDIRIM-ORNEKLERI.pdf)
+(yazdırmaya uygun) veya [MAIL-BILDIRIM-ORNEKLERI.html](MAIL-BILDIRIM-ORNEKLERI.html)
+(tarayıcıda doğrudan açılır, pencere genişletildiğinde tabloların dinamik büyümesi görülür).
 
 ### Mail Gönderim Geçmişi (Ayarlar, yalnız yönetici)
 
