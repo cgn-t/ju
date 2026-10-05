@@ -54,6 +54,12 @@ Loglar: `docker logs jumbo` — hem `[program:api]` (uvicorn) hem `[program:web]
 loglanır; diğer her değer → yalnız 2xx/3xx DIŞI (hata) istekler loglanır (bkz.
 `deploy/nginx-entrypoint.sh`). Örn: `docker run ... -e LOG_LEVEL=DEBUG jumbo:latest`.
 
+`supervisord` `api` (uvicorn) ve `web` (nginx) süreçlerini PARALEL başlatır; backend DB şeması/
+migration işi nedeniyle portu (`:5000`) birkaç saniye geç açar. `nginx-entrypoint.sh` nginx'i
+başlatmadan ÖNCE bu portun açılmasını bekler (azami 30sn) — böylece container ayağa kalkarken
+`/api/*` isteklerine geçici `502 Bad Gateway` dönme riski ortadan kalkar (nginx backend hazır
+olana kadar hiç bağlantı kabul etmez).
+
 ### OpenShift / Kubernetes
 ```bash
 # Secret içindeki database-url / jwt-secret / fernet-key değerlerini doldur:
