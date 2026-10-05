@@ -1086,7 +1086,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             if fb:
                 subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)"
                 body_text = _proposal_reminder_text(ownerless, cfg)
-                ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, None,
+                body_html = _render_proposal_reminder_html(ownerless, cfg)
+                ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, body_html,
                                            certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:
                     sent += 1
@@ -1094,7 +1095,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                     skipped += len(ownerless)
                     logger.warning("Sahipsiz devir hatırlatması gönderilemedi: %s", note)
                     if not cfg.get("queue_enabled"):
-                        db.add(MailQueue(to_addresses=", ".join(fb), subject=subject, body_text=body_text,
+                        db.add(MailQueue(to_addresses=", ".join(fb), subject=subject,
+                                         body_text=body_text, body_html=body_html,
                                          stakeholder="ownerless", status="failed",
                                          last_error=(note or "")[:1000], attempts=1))
                         db.commit()

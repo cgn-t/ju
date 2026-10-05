@@ -172,6 +172,9 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
     Detayı" tablosu (`_cert_rows`), domain listesi düz paragraf değil ayrı `_section` altında.
   - `_proposal_reminder_text()`/`_render_proposal_reminder_html()` artık `team` parametresi
     almıyor (selamlama sabit `"Merhabalar,"` — eski ekip-adına-özel "Sayın X ekibi," kaldırıldı).
+  - `send_pending_proposal_notifications()`'taki **sahipsiz (ownerless) öneri** yolu artık
+    `body_html` da üretip gönderiyor — önceden yalnız düz metin gidiyordu (diğer devir
+    hatırlatmalarıyla aynı tablo artık burada da var).
 - **Semptom → dosya haritası**:
   - "Mail hiç gitmiyor" → önce Ayarlar>SMTP `enabled`+host, sonra `send_expiry_notifications`/
     `send_expired_notifications` giriş noktaları.
