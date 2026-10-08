@@ -384,11 +384,23 @@ function UsersTab() {
   // Takım düzenleme diyaloğu: hangi kullanıcı + seçili takım id'leri
   const [teamEdit, setTeamEdit] = useState<AppUser | null>(null)
   const [teamSel, setTeamSel] = useState<number[]>([])
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(25)
 
   const { data: users } = useQuery<AppUser[]>({
     queryKey: ['users'],
     queryFn: async () => (await api.get('/users')).data,
   })
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return users ?? []
+    return (users ?? []).filter((u) => [u.username, u.full_name, u.email]
+      .some((v) => (v ?? '').toLowerCase().includes(q)))
+  }, [users, search])
+  // Arama değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
+  useEffect(() => setPage(0), [search])
+  const pageUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
   const { data: teams } = useQuery<Team[]>({
     queryKey: ['teams', 'all'],
     queryFn: async () => (await api.get('/teams')).data,
@@ -456,11 +468,14 @@ function UsersTab() {
         {' '}<b>Ekip İzleyici</b> takım-kapsamlıdır — kapsamı belirlemek için ayrıca bir <b>SY takımına</b>
         {' '}(Takımlar sütunu) ekleyin. Rolü <b>Yetkisiz</b> olan hiçbir şey göremez.
       </Alert>
-      <Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
         <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
           Kullanıcı Ekle
         </Button>
-      </Box>
+        <Box sx={{ flexGrow: 1 }} />
+        <TextField size="small" label="Kullanıcı / ad / e-posta ara" value={search}
+                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 240 }} />
+      </Stack>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -476,7 +491,7 @@ function UsersTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(users ?? []).map((u) => (
+          {pageUsers.map((u) => (
             <TableRow key={u.id} hover>
               <TableCell sx={{ fontWeight: 600 }}>{u.username}</TableCell>
               <TableCell>{u.full_name ?? '—'}</TableCell>
@@ -506,22 +521,42 @@ function UsersTab() {
                         onChange={(e) => update.mutate({ id: u.id, body: { is_active: e.target.checked } })} />
               </TableCell>
               <TableCell>{u.last_login ? new Date(u.last_login).toLocaleString('tr-TR') : '—'}</TableCell>
-              <TableCell align="right">
-                <Tooltip title="Takımları Düzenle">
-                  <IconButton size="small" color="primary" onClick={() => openTeamEdit(u)}>
-                    <GroupsIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Sil">
-                  <IconButton size="small" color="error" onClick={() => remove.mutate(u.id)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>
+                <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25 }}>
+                  <Tooltip title="Takımları Düzenle">
+                    <IconButton size="small" color="primary" onClick={() => openTeamEdit(u)}>
+                      <GroupsIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Sil">
+                    <IconButton size="small" color="error" onClick={() => remove.mutate(u.id)}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </TableCell>
             </TableRow>
           ))}
+          {filteredUsers.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                {search ? 'Aramayla eşleşen kullanıcı yok' : 'Henüz kullanıcı yok'}
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={filteredUsers.length}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Kullanıcı Ekle</DialogTitle>
@@ -611,11 +646,21 @@ function TeamsTab() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Team | null>(null)
   const [form, setForm] = useState({ name: '', type: 'SY', email: '' })
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(25)
 
   const { data: teams } = useQuery<Team[]>({
     queryKey: ['teams', 'all'],
     queryFn: async () => (await api.get('/teams')).data,
   })
+  const filteredTeams = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return teams ?? []
+    return (teams ?? []).filter((t) => [t.name, t.email].some((v) => (v ?? '').toLowerCase().includes(q)))
+  }, [teams, search])
+  useEffect(() => setPage(0), [search])
+  const pageTeams = filteredTeams.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['teams'] })
 
@@ -652,9 +697,12 @@ function TeamsTab() {
         buradan gelir); <b>UG</b> yalnız etikettir. <b>Yönetici</b> ve <b>İzleyici</b> sistem tekilidir —
         silinemez, tipi değişmez. Üyeleri <b>Ekip Üyelikleri</b> sekmesinden yönetin.
       </Alert>
-      <Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
         <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>Ekip Ekle</Button>
-      </Box>
+        <Box sx={{ flexGrow: 1 }} />
+        <TextField size="small" label="Ekip / e-posta ara" value={search}
+                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 220 }} />
+      </Stack>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -665,7 +713,7 @@ function TeamsTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(teams ?? []).map((t) => (
+          {pageTeams.map((t) => (
             <TableRow key={t.id} hover>
               <TableCell sx={{ fontWeight: 600 }}>{t.name}</TableCell>
               <TableCell>
@@ -673,26 +721,41 @@ function TeamsTab() {
                       label={TEAM_TYPE_LABEL[t.type] ?? t.type} />
               </TableCell>
               <TableCell sx={{ color: t.email ? 'inherit' : 'text.disabled' }}>{t.email ?? '—'}</TableCell>
-              <TableCell align="right">
-                <Tooltip title="Düzenle">
-                  <IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton>
-                </Tooltip>
-                <Tooltip title={isSingleton(t) ? 'Sistem takımı — silinemez' : 'Sil'}>
-                  <span>
-                    <IconButton size="small" color="error" disabled={isSingleton(t) || remove.isPending}
-                                onClick={() => remove.mutate(t.id)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </span>
-                </Tooltip>
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>
+                <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25 }}>
+                  <Tooltip title="Düzenle">
+                    <IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton>
+                  </Tooltip>
+                  <Tooltip title={isSingleton(t) ? 'Sistem takımı — silinemez' : 'Sil'}>
+                    <span>
+                      <IconButton size="small" color="error" disabled={isSingleton(t) || remove.isPending}
+                                  onClick={() => remove.mutate(t.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
               </TableCell>
             </TableRow>
           ))}
-          {teams && teams.length === 0 && (
-            <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4 }}>Henüz ekip yok</TableCell></TableRow>
+          {filteredTeams.length === 0 && (
+            <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+              {search ? 'Aramayla eşleşen ekip yok' : 'Henüz ekip yok'}
+            </TableCell></TableRow>
           )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={filteredTeams.length}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{editTarget ? `Ekip Düzenle — ${editTarget.name}` : 'Ekip Ekle'}</DialogTitle>
@@ -736,6 +799,8 @@ function MembershipsTab() {
   const [teamId, setTeamId] = useState<number | null>(null)
   const [toAdd, setToAdd] = useState<AppUser | null>(null)
   const [emailDraft, setEmailDraft] = useState('')
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(25)
 
   const { data: teams } = useQuery<Team[]>({
     queryKey: ['teams', 'all'],
@@ -761,6 +826,9 @@ function MembershipsTab() {
 
   // Seçili ekip değişince e-posta taslağını ekibin kayıtlı adresiyle senkronla
   useEffect(() => { setEmailDraft(selectedTeam?.email ?? '') }, [selectedTeam?.id, selectedTeam?.email])
+  // Ekip değişince eski sayfa numarası yeni üye listesinde boş kalabilir — başa dön.
+  useEffect(() => setPage(0), [effectiveTeam])
+  const pageMembers = (members ?? []).slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['team-members'] })
@@ -845,12 +913,12 @@ function MembershipsTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(members ?? []).map((m) => (
+          {pageMembers.map((m) => (
             <TableRow key={m.id} hover>
               <TableCell sx={{ fontWeight: 600 }}>{m.username}</TableCell>
               <TableCell>{m.full_name ?? '—'}</TableCell>
               <TableCell>{m.email ?? '—'}</TableCell>
-              <TableCell align="right">
+              <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>
                 <Tooltip title="Üyelikten çıkar">
                   <IconButton size="small" color="error" onClick={() => remove.mutate(m.id)}>
                     <DeleteIcon fontSize="small" />
@@ -868,6 +936,17 @@ function MembershipsTab() {
           )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={members?.length ?? 0}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
     </Box>
   )
 }
@@ -878,6 +957,8 @@ function AuditTab() {
   const [filterUser, setFilterUser] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(50)
   // Aynı parametreler hem listeyi filtreler hem export'a gider → ekranda gördüğün = indirdiğin.
   const params = {
     username: filterUser || undefined,
@@ -888,6 +969,10 @@ function AuditTab() {
     queryKey: ['audit', filterUser, dateFrom, dateTo],
     queryFn: async () => (await api.get('/audit', { params })).data,
   })
+  const rows = entries ?? []
+  // Filtre değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
+  useEffect(() => setPage(0), [filterUser, dateFrom, dateTo])
+  const pageRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
   const exportCsv = useMutation({
     mutationFn: async () => {
       const res = await api.get('/audit/export', { params, responseType: 'blob' })
@@ -937,7 +1022,7 @@ function AuditTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(entries ?? []).map((e) => (
+          {pageRows.map((e) => (
             <TableRow key={e.id} hover>
               <TableCell>{new Date(e.created_at).toLocaleString('tr-TR')}</TableCell>
               <TableCell>{e.username}</TableCell>
@@ -950,8 +1035,26 @@ function AuditTab() {
               <TableCell sx={{ fontFamily: 'monospace', fontSize: 11 }}>{e.ip_address ?? '—'}</TableCell>
             </TableRow>
           ))}
+          {!rows.length && (
+            <TableRow>
+              <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                Kayıt yok
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={rows.length}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
     </Stack>
   )
 }
@@ -1112,7 +1215,10 @@ function TagsTab() {
   const [editTarget, setEditTarget] = useState<Tag | null>(null)
   const [editForm, setEditForm] = useState({ category: '', name: '', color: '' })
   const [deleteTarget, setDeleteTarget] = useState<Tag | null>(null)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(25)
   const categories = useMemo(() => Array.from(new Set((tags ?? []).map((t) => t.category))), [tags])
+  const pageTags = (tags ?? []).slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['tags'] })
 
   const addMutation = useMutation({
@@ -1187,7 +1293,7 @@ function TagsTab() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {(tags ?? []).map((t) => (
+          {pageTags.map((t) => (
             <TableRow key={t.id} hover>
               <TableCell>{t.category}</TableCell>
               <TableCell>
@@ -1223,6 +1329,17 @@ function TagsTab() {
           )}
         </TableBody>
       </Table>
+      <TablePagination
+        component="div"
+        count={(tags ?? []).length}
+        page={page}
+        onPageChange={(_e, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
+        rowsPerPageOptions={[10, 25, 50, 100]}
+        labelRowsPerPage="Sayfa başına satır"
+        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
+      />
 
       <Dialog open={!!editTarget} onClose={() => setEditTarget(null)}>
         <DialogTitle>Etiket Düzenle</DialogTitle>
