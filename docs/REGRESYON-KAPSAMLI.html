@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JUMBO Regresyon Testleri — Kapsamlı</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#f3f6fb; --surface:#ffffff; --surface-2:#eef2f8;
+    --ink:#182133; --ink-dim:#5a6680; --line:#dbe3ee;
+    --accent:#1657c7; --accent-ink:#0d3c93; --accent-soft:#e8eefc;
+    --good:#1f8a5c; --good-ink:#0f6b45; --good-soft:#e5f6ee;
+    --danger:#c23c2d; --danger-ink:#9a2e22; --danger-soft:#fbeae7;
+    --chip-bg:#eef1f6;
+    --shadow: 0 1px 2px rgba(20,30,50,.04), 0 8px 24px -12px rgba(20,30,50,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c121d; --surface:#131b29; --surface-2:#182333;
+      --ink:#e7ecf5; --ink-dim:#95a4c0; --line:#263248;
+      --accent:#6fa0ff; --accent-ink:#9dc0ff; --accent-soft:#17233b;
+      --good:#5fd8a0; --good-ink:#8fe6bc; --good-soft:#102a20;
+      --danger:#ff8a78; --danger-ink:#ffb3a5; --danger-soft:#2c1a1c;
+      --chip-bg:#1b2536;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c121d; --surface:#131b29; --surface-2:#182333;
+    --ink:#e7ecf5; --ink-dim:#95a4c0; --line:#263248;
+    --accent:#6fa0ff; --accent-ink:#9dc0ff; --accent-soft:#17233b;
+    --good:#5fd8a0; --good-ink:#8fe6bc; --good-soft:#102a20;
+    --danger:#ff8a78; --danger-ink:#ffb3a5; --danger-soft:#2c1a1c;
+    --chip-bg:#1b2536;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;padding-inline:16px;padding-block:32px 48px}
+  .page{max-width:920px;margin:0 auto}
+  .eyebrow{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);font-weight:600;margin:0 0 10px}
+  h1{font-family:"Fraunces",serif;font-weight:600;font-size:clamp(26px,5vw,34px);line-height:1.15;letter-spacing:-.01em;text-wrap:balance;margin:0 0 10px}
+  .lede{color:var(--ink-dim);font-size:15px;line-height:1.6;max-width:72ch;margin:0 0 28px}
+  h2{font-family:"Fraunces",serif;font-weight:600;font-size:20px;margin:0 0 4px;scroll-margin-top:16px}
+  h2 .idx{color:var(--accent);font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:600;margin-right:8px}
+  .section-note{color:var(--ink-dim);font-size:13.5px;margin:0 0 14px;line-height:1.55;max-width:78ch}
+  .section-note code{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:var(--chip-bg);border-radius:5px;padding:1px 5px}
+  section{margin-bottom:42px}
+
+  .callout{background:var(--surface-2);border:1px dashed var(--line);border-radius:12px;padding:14px 18px;font-size:13.5px;line-height:1.6;color:var(--ink-dim);margin-bottom:16px}
+  .callout b{color:var(--ink)}
+  .callout.warn{background:var(--danger-soft);border:1px solid color-mix(in srgb, var(--danger) 35%, var(--line));color:var(--danger-ink)}
+  .callout.warn b{color:var(--danger-ink)}
+  .callout.link{background:var(--accent-soft);border:1px solid color-mix(in srgb, var(--accent) 35%, var(--line));color:var(--accent-ink)}
+  .callout.link a{color:var(--accent-ink);font-weight:600}
+  .callout.note{background:var(--accent-soft);border:1px solid color-mix(in srgb, var(--accent) 35%, var(--line));color:var(--accent-ink);font-size:13px}
+  .callout.note b{color:var(--accent-ink)}
+
+  .toc{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px 20px;margin-bottom:36px}
+  .toc p.setup-label{margin:0 0 10px}
+  .toc ol{margin:0;padding-left:20px;columns:2;column-gap:28px;font-size:13px;line-height:1.85}
+  .toc a{color:var(--accent-ink);text-decoration:none;font-weight:500}
+  .toc a:hover{text-decoration:underline}
+
+  .setup-label{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-dim);font-weight:600;margin:0 0 4px}
+
+  table.cert-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;margin-bottom:14px}
+  table.cert-table th,table.cert-table td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  table.cert-table th{background:var(--surface-2);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-dim);font-weight:600}
+  table.cert-table tr:last-child td{border-bottom:none}
+  table.cert-table code{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--accent-ink)}
+  table.cert-table a{color:var(--accent-ink)}
+
+  .mtest{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+  .mtest-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .mtest-num{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;background:var(--accent-soft);color:var(--accent-ink);border-radius:7px;padding:3px 8px;flex:0 0 auto}
+  .mtest-title{font-weight:600;font-size:15px}
+  .steps{margin:0 0 12px;padding-left:22px;font-size:13.5px;line-height:1.75}
+  .steps li{margin-bottom:5px}
+  .steps code{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:var(--chip-bg);border-radius:5px;padding:1px 6px;color:var(--accent-ink)}
+  .expect{background:var(--good-soft);border:1px solid color-mix(in srgb, var(--good) 35%, var(--line));border-radius:10px;padding:10px 14px;font-size:13px;line-height:1.55;color:var(--good-ink);margin-bottom:10px}
+  .expect b{color:var(--good-ink)}
+  .ref{display:inline-block;font-size:11.5px;font-family:"JetBrains Mono",monospace;background:var(--chip-bg);border:1px solid var(--line);border-radius:7px;padding:4px 9px;color:var(--ink-dim);line-height:1.5}
+
+  .row{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:13px 16px;margin-bottom:10px}
+  .row .row-title{font-weight:600;font-size:13.5px;margin:0 0 4px}
+  .row .row-desc{font-size:13px;color:var(--ink-dim);line-height:1.55;margin:0 0 8px}
+
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-dim);line-height:1.7}
+  footer code{font-family:"JetBrains Mono",monospace;background:var(--chip-bg);border-radius:5px;padding:1px 6px}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="eyebrow">JUMBO &middot; Regresyon Test Dokümanı — Kapsamlı</p>
+  <h1>Platformun tamamı: 15 bölümde elle (manuel) regresyon senaryoları</h1>
+  <p class="lede">Bu doküman, JUMBO arayüzünün <b>gerçek sayfa/buton adlarını</b> kullanarak bir test ekibinin adım adım izleyebileceği, platformun tüm fonksiyonel alanlarını (mail, devir önerisi, sertifika import, trust store, ağ keşfi/CT, dağıtım/Jenkins, politika motoru, iptal kontrolü, etiketler, RBAC/güvenlik) kapsayan manuel regresyon senaryolarını içerir. Arayüzde karşılığı bulunmayan bazı kontroller (örn. öneri iptali, IDOR denemesi) için bu açıkça belirtilmiş ve API ile nasıl test edileceği gösterilmiştir — var olmayan bir buton icat edilmemiştir.</p>
+
+  <div class="callout link">
+    En kritik 7 akışın (sertifika import, devir önerisi 8 senaryo, pasife alma, trust store, mail temel akış, RBAC) <b>tam adım adım</b> açıklaması için → <a href="REGRESYON-KRITIK-FONKSIYONLAR.html">REGRESYON-KRITIK-FONKSIYONLAR.html</a>. Bu doküman onun üzerine platformun <b>geri kalanını</b> ekler.
+  </div>
+
+  <div class="callout warn">
+    <b>Sertifika materyali hakkında:</b> Aşağıdaki tüm sertifika/anahtar dosyaları (<code>regresyon-sertifikalari/</code>) <b>sahte, yalnız test amaçlı</b> üretilmiştir, gerçek bir CA tarafından imzalanmamıştır ve hiçbir ortamda güvenlik amaçlı kullanılmamalıdır.
+  </div>
+
+  <h2 style="font-size:16px;margin-bottom:10px">Sertifika Materyali</h2>
+  <table class="cert-table">
+    <tr><th>Dosya</th><th>Açıklama</th><th>Kullanıldığı bölüm</th></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v1-fullchain.pem"><code>leaf-v1-fullchain.pem</code></a></td><td>İlk sertifika (v1) + kök CA — ilk import için</td><td>1, 3, 5, 6</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v2.pem"><code>leaf-v2.pem</code></a></td><td>v1 ile <b>aynı anahtar</b> → 1. yenileme (halef)</td><td>3, 4, 6</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v3.pem"><code>leaf-v3.pem</code></a></td><td>v1/v2 ile aynı anahtar → 2. yenileme (rakip halef)</td><td>3</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-expiring-soon.pem"><code>leaf-expiring-soon.pem</code></a></td><td>~10 gün içinde dolacak — süre uyarısı demoları için</td><td>7, 10</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-expired.pem"><code>leaf-expired.pem</code></a></td><td>Süresi geçmiş — süresi geçmiş demoları için</td><td>7, 10</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-weak-key.pem"><code>leaf-weak-key.pem</code></a></td><td>1024-bit RSA — politika motoru "zayıf anahtar" demosu için</td><td>13</td></tr>
+    <tr><td><a href="../backend/tests/fixtures/leaf.der"><code>backend/tests/fixtures/leaf.der</code></a> / <a href="../backend/tests/fixtures/chain.p7b"><code>chain.p7b</code></a></td><td>DER / PKCS7 format demoları</td><td>2</td></tr>
+  </table>
+
+  <div class="toc">
+    <p class="setup-label">İçindekiler</p>
+    <ol>
+      <li><a href="#s1">Genel API &amp; Sertifika Yaşam Döngüsü</a></li>
+      <li><a href="#s2">Sertifika Ayrıştırma</a></li>
+      <li><a href="#s3">Devir Önerisi — 8 Senaryo</a></li>
+      <li><a href="#s4">Devir Önerisi — Yetkilendirme &amp; Edge Case'ler</a></li>
+      <li><a href="#s5">Pasife Alma Kuralları</a></li>
+      <li><a href="#s6">Trust Store</a></li>
+      <li><a href="#s7">Mail Senaryoları</a></li>
+      <li><a href="#s8">Mail Geçmişi &amp; Şablon Tutarlılığı</a></li>
+      <li><a href="#s9">Devir Hatırlatma Maili</a></li>
+      <li><a href="#s10">Bildirim Kanalları</a></li>
+      <li><a href="#s11">Ağ Keşfi, CT İzleme &amp; Canlı Kontrol</a></li>
+      <li><a href="#s12">Dağıtım Motoru &amp; Jenkins</a></li>
+      <li><a href="#s13">Politika Motoru</a></li>
+      <li><a href="#s14">İptal (Revocation) Kontrolü</a></li>
+      <li><a href="#s15">Etiketler &amp; RBAC/Güvenlik</a></li>
+    </ol>
+  </div>
+
+  <section id="s1">
+    <h2><span class="idx">1</span>Genel API &amp; Sertifika Yaşam Döngüsü</h2>
+    <p class="section-note">Sertifika import/ayrıştırmanın temel akışı için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s1">kritik doküman bölüm 1</a>'e bakın. Burada platformun geri kalan genel API davranışları var — <code>test_api.py</code>.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.1</span><span class="mtest-title">Domain toplu import (Excel)</span></div>
+      <ol class="steps">
+        <li>"Domainler" sayfasında <b>"Excel İndir"</b> ile mevcut listeyi indirin (şablon olarak).</li>
+        <li>İndirilen dosyaya 1-2 yeni domain satırı ekleyin, kaydedin.</li>
+        <li><b>"Excel Yükle"</b> butonuna basıp bu dosyayı seçin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Yeni domainler listeye eklenir; hatalı satır varsa (örn. eksik SY ekibi) o satır atlanır ve hata bildirimi gösterilir.</div>
+      <ol class="steps" start="4">
+        <li>Excel olmayan bir dosyayı (örn. <code>.txt</code>) "Excel Yükle" ile göndermeyi deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Dosya türü reddedilir, hata bildirimi gösterilir.</div>
+      <span class="ref">test_domain_excel_import · test_domain_excel_import_rejects_non_excel_file</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.2</span><span class="mtest-title">Canlı TLS zinciri çekme (domain oluşturma sırasında)</span></div>
+      <ol class="steps">
+        <li>"Domainler" → "Yeni Ekle" → Domain alanına gerçekten erişilebilir bir host (örn. şirket içi bir web sunucusu adresi) yazın, alandan çıkın (fokus kaybı).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Canlı Sertifika Zinciri" otomatik sorgulanır ve bulunan sertifikalar listelenir; "Zinciri Sertifikalar'a aktar ve uç sertifikayı bu domain'e server olarak bağla" seçeneği işaretliyken kaydedince otomatik eşleme yapılır, toast: "Zincir aktarıldı: … server olarak bağlandı".</div>
+      <ol class="steps" start="2">
+        <li>Bir wildcard domain (<code>*.ornek.local</code>) için aynı akışı deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Wildcard host kontrol edilemediği için canlı zincir sorgusu/import'u reddedilir.</div>
+      <span class="ref">test_probe_and_import_chain_live_tls · test_import_chain_wildcard_rejected</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.3</span><span class="mtest-title">Audit Log</span></div>
+      <ol class="steps">
+        <li>Settings → <b>"Audit Log"</b> sekmesine gidin.</li>
+        <li>Bu dokümandaki senaryolardan birini (örn. bir sertifika import) yeni gerçekleştirdiyseniz, listede o işlemin bir satır olarak göründüğünü doğrulayın.</li>
+        <li><b>"Dışa Aktar (CSV)"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> CSV dosyası indirilir ve ekrandaki kayıtlarla eşleşir. Admin olmayan bir kullanıcı export denerse reddedilir.</div>
+      <span class="ref">test_audit_populated · test_audit_export_csv · test_audit_export_requires_admin</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.4</span><span class="mtest-title">Vault ayarları (varsayılan kapalı)</span></div>
+      <ol class="steps">
+        <li>Settings → <b>"Vault (Hazırlık)"</b> sekmesine gidin.</li>
+        <li>Vault entegrasyonu etkin değilken <b>"Bağlantıyı Test Et"</b> butonunu deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Vault varsayılan olarak kapalıdır; entegrasyon etkinleştirilmeden test/sync çalışmaz (açık hata/uyarı mesajı).</div>
+      <span class="ref">test_vault_test_disabled_by_default · test_vault_sync_requires_enabled</span>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="idx">2</span>Sertifika Ayrıştırma</h2>
+    <p class="section-note">DER ve PKCS7 (p7b) format desteği için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s1">kritik doküman bölüm 1.4-1.5</a>'e bakın (aynı adımlar burada da geçerlidir — <code>backend/tests/fixtures/leaf.der</code>, <code>chain.p7b</code>).</p>
+    <div class="row"><p class="row-title">Zincir bağlama doğrulaması</p><p class="row-desc"><code>chain.p7b</code> içe aktarıldığında önizlemede root/intermediate/leaf arasındaki üst-alt ilişkinin (AKI↔SKI eşleşmesiyle) doğru kurulduğunu "Üst Sertifika" sütununda gözlemleyin.</p><span class="ref">test_cert_parser.py::test_chain_linking_via_ski_aki</span></div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="idx">3</span>Devir Önerisi (TransferProposal) — 8 Senaryo</h2>
+    <p class="section-note">Tüm adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s2">kritik doküman bölüm 2</a>'ye bakın (2.1 — Temel devir, 2.2 — Çoklu granül, 2.3 — Devir+trusted, 2.4 — Red kalıcı, 2.5 — İptal (API-only), 2.6 — Kısmi devir, 2.7 — Rakip halef, 2.8 — Cross-granül). Bu doküman o 8 senaryoyu birebir aynı şekilde kapsar; tekrar yazılmadı.</p>
+  </section>
+
+  <section id="s4">
+    <h2><span class="idx">4</span>Devir Önerisi — Yetkilendirme &amp; Edge Case'ler</h2>
+    <p class="section-note">Temel yetki kuralları için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s3">kritik doküman bölüm 3</a>'e bakın. Burada geçmiş bug'ların regresyonu olan ek edge case'ler var — <code>test_proposals_auth.py</code>.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.1</span><span class="mtest-title">SY ekibi değişince açık öneri taşınır (rehome)</span></div>
+      <ol class="steps">
+        <li>Kritik doküman 2.1'deki gibi bir domain + bekleyen devir önerisi oluşturun (henüz onaylamayın).</li>
+        <li>"Domainler" → bu domainin düzenle (kalem) ikonuna basın → "SY Takımı" alanını farklı bir ekiple değiştirip kaydedin.</li>
+        <li>Önce eski SY ekibinin bir üyesiyle, sonra yeni SY ekibinin bir üyesiyle "Devir Önerileri" sayfasına gidin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Öneri artık YENİ ekibin kapsamında görünür/onaylanabilir; eski ekip üyesi artık bu öneriyi onaylayamaz.</div>
+      <span class="ref">test_domain_sy_change_rehomes_open_proposal</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.2</span><span class="mtest-title">Karara bağlanmış öneri ezilemez + cancel yetkisi</span></div>
+      <div class="callout note"><b>Not:</b> Arayüzde "İptal" butonu yok (bkz. kritik doküman 2.5). Bu senaryo API ile test edilir.</div>
+      <ol class="steps">
+        <li>Bir öneriyi "Devir Önerileri" sayfasından onaylayın veya reddedin (UI).</li>
+        <li>Aynı öneri için <code>POST /api/proposals/{id}/cancel</code> çağırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> 409 Conflict — karara bağlanmış bir öneri cancel ile ezilemez.</div>
+      <span class="ref">test_cancel_cannot_override_decided_proposal</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.3</span><span class="mtest-title">Baypas denemesi: eşlemeyi kaldır/tekrar ekle</span></div>
+      <div class="callout note"><b>Not:</b> Ekip-dışı bir editöre bu domain zaten listede görünmeyeceğinden (kapsam dışı), bu senaryo doğrudan API çağrısıyla (editörün tarayıcı oturum tokenıyla, devtools/Network veya bir API istemcisiyle) test edilir.</div>
+      <ol class="steps">
+        <li>Kapsamı olmayan bir editörün tokenıyla, başka ekibin domaininde sertifika eşlemesini kaldırıp (<code>DELETE /domains/{id}/certificates/{mapping_id}</code>) hemen aynı sertifikayı tekrar eklemeyi (<code>POST /domains/{id}/certificates</code>) deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İstekler 403 ile reddedilir — detach/attach ile sahiplik kuralı baypas edilemez.</div>
+      <span class="ref">test_bypass_gates_detach_attach_and_ownership</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.4</span><span class="mtest-title">Silme → bağlı öneriler de düşer (genişletilmiş)</span></div>
+      <ol class="steps">
+        <li>Kritik doküman 3.3'teki sertifika silme senaryosuna ek olarak: bekleyen bir dependency önerisi olan bir "Uygulama"yı "Uygulamalar" sayfasından silin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> O uygulamaya bağlı dependency önerileri de "Devir Önerileri" listesinden kaybolur.</div>
+      <span class="ref">test_deleting_application_clears_dependency_proposals · test_deleting_domain_clears_its_proposals · test_deleting_dependency_clears_its_proposal</span>
+    </div>
+  </section>
+
+  <section id="s5">
+    <h2><span class="idx">5</span>Pasife Alma Kuralları</h2>
+    <p class="section-note">Tam adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s4">kritik doküman bölüm 4</a>'e bakın. Ek kontrol:</p>
+    <div class="row"><p class="row-title">Ekip e-postası güncelleme yetkisi</p><p class="row-desc">Settings → "Ekipler" sekmesinde bir ekibin e-posta adresini admin olmayan bir kullanıcıyla değiştirmeyi deneyin.</p><div class="expect" style="margin-top:8px"><b>Beklenen:</b> Reddedilir; yalnız admin ekip e-postasını güncelleyebilir.</div><span class="ref">test_team_email_update_admin_only</span></div>
+  </section>
+
+  <section id="s6">
+    <h2><span class="idx">6</span>Trust Store</h2>
+    <p class="section-note">Tam adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s5">kritik doküman bölüm 5</a>'e bakın. Ek kontrol (arayüz dışı, davranışsal regresyon):</p>
+    <div class="row"><p class="row-title">Phantom önleme (startup backfill)</p><p class="row-desc">Bu kontrol backend başlangıcında (uygulama yeniden başlatıldığında) çalışan bir arka plan işlemidir; arayüzde tetiklenecek bir buton yoktur. Zaten uygulanmış bir "trusted_add" önerisinin, sistem yeniden başlatıldığında tekrar "bekliyor" olarak belirmediğini Devir Önerileri listesinden gözlemleyerek doğrulayın.</p><span class="ref">test_backfill_no_phantom_trusted_add</span></div>
+  </section>
+
+  <section id="s7">
+    <h2><span class="idx">7</span>Mail Senaryoları</h2>
+    <p class="section-note">Temel akış için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s6">kritik doküman bölüm 6</a>'ya bakın. Burada paydaş bulma ve dayanıklılık senaryoları genişletiliyor — tetikleyiciler hep Settings → <b>"E-posta (SMTP)"</b> sekmesindeki butonlar, sonuçlar <b>"Mail Gönderim Geçmişi"</b>'nde.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.1</span><span class="mtest-title">4 paydaş bulma yolu — tek ekip, tek mail</span></div>
+      <ol class="steps">
+        <li>Bir sertifikayı (A) şu şekillerde aynı SY ekibine bağlayın: (a) "Oluşturan Ekip" olarak import ederken seçin, (b) bir domaine Server olarak bağlayın (aynı domainin SY ekibi aynı olsun).</li>
+        <li>Settings → "E-posta (SMTP)" → "Süre Uyarılarını Şimdi Gönder".</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Mail Gönderim Geçmişi"nde bu ekip için İKİ değil TEK satır (birleştirilmiş mail) görünür.</div>
+      <span class="ref">test_scn_same_team_single_mail · test_scn_creator_team · test_scn_domain_bound</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.2</span><span class="mtest-title">Domain bazlı bildirim penceresi (notify_days)</span></div>
+      <ol class="steps">
+        <li>"Domainler" → bir domainin düzenleme formunda bildirim penceresi alanını (varsa "Bildirim Günü/notify_days") global varsayılandan farklı (örn. 60 gün) ayarlayın.</li>
+        <li>Bu domaine ~45 gün içinde dolacak bir sertifika bağlayıp "Süre Uyarılarını Şimdi Gönder"i çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Global pencere (örn. 30 gün) dışında kalsa da, domainin kendi 60 günlük penceresi nedeniyle mail gider.</div>
+      <span class="ref">test_scn_notify_days_window · test_scn_notify_days_applies_per_cert_on_same_domain</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.3</span><span class="mtest-title">Fallback (yedek) adres</span></div>
+      <ol class="steps">
+        <li>Settings → "E-posta (SMTP)" sekmesinde <b>"Yedek/Varsayılan Adres"</b> alanını doldurun.</li>
+        <li>SMTP ayarlarını geçici olarak geçersiz bir sunucu adresiyle bozup "Süre Uyarılarını Şimdi Gönder"i çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Birincil gönderim başarısız olsa da yedek adrese ikinci bir gönderim denemesi yapılır; "Mail Gönderim Geçmişi"nde bu görülebilir.</div>
+      <span class="ref">test_scn_fallback · test_mail_fallback_on_failure</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.4</span><span class="mtest-title">Mail kuyruğu (outbox)</span></div>
+      <ol class="steps">
+        <li>SMTP ayarlarında kuyruk modu etkinse ("Kuyruğa Al" benzeri bir seçenek), "Süre Uyarılarını Şimdi Gönder"i çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Mail doğrudan gönderilmez, "Mail Gönderim Geçmişi"nde sarı "Kuyrukta" durumunda görünür; sonradan kuyruk işlenince (drain) durumu yeşil "Gönderildi"ye döner.</div>
+      <span class="ref">test_mail_queue_enqueue_then_drain</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.5</span><span class="mtest-title">Domain-only akış (sertifikasız domain)</span></div>
+      <ol class="steps">
+        <li>"Domainler" → "Yeni Ekle" → bir domain oluşturun, hiçbir sertifika bağlamayın, ama domain formunda manuel bir "Bitiş Tarihi" (expire_date) girin (~20 gün sonrası).</li>
+        <li>"Süre Uyarılarını Şimdi Gönder"i çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Sertifikası olmasa da bu domain için süre uyarısı maili gider (Domain.expire_date'e göre). Domaine sonradan aktif bir Server sertifikası bağlarsanız, bu akış artık çift göndermez (yalnız sertifika-akışı devreye girer).</div>
+      <span class="ref">test_dom_expiring_soon_sent · test_dom_with_active_server_cert_excluded</span>
+    </div>
+  </section>
+
+  <section id="s8">
+    <h2><span class="idx">8</span>Mail Geçmişi &amp; Şablon Tutarlılığı</h2>
+    <p class="section-note">Settings → <b>"Mail Gönderim Geçmişi"</b> sekmesi.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">8.1</span><span class="mtest-title">Filtreler ve detay görünümü</span></div>
+      <ol class="steps">
+        <li>"Mail Gönderim Geçmişi"nde "Durum" filtresini sırayla "Gönderildi" / "Kuyrukta" / "Başarısız" olarak değiştirin.</li>
+        <li>Alıcı/konu arama kutusuna bir domain adı yazın.</li>
+        <li>Bir satıra tıklayıp detay çekmecesini açın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Filtreler listeyi doğru daraltır; kuyruk-kaynaklı kayıtların detayında mail gövdesi (body) görünür, ama doğrudan-gönderim (notification) kaynaklı kayıtlarda gövde hiçbir zaman saklanmadığı için boş görünür.</div>
+      <span class="ref">test_mail_history_merges_and_filters · test_mail_history_detail_linked_notification_shows_queue_body · test_mail_history_detail_notification_has_no_body</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">8.2</span><span class="mtest-title">Şablon tutarlılığı — 4 mail türü</span></div>
+      <ol class="steps">
+        <li>Sırayla "Süre Uyarılarını Şimdi Gönder", "Süresi Geçenleri Şimdi Gönder", "Bekleyen Önerileri Şimdi Hatırlat" butonlarını çalıştırın; ayrıca bir sertifikayı elle pasife alın.</li>
+        <li>"Mail Gönderim Geçmişi"nde bu 4 türün her birinin detayını açın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Dördünde de konu satırı <code>[JUMBO]</code> ile başlar, aynı footer ve genişlik kullanılır (görsel tutarlılık); devir-hatırlatma mailinde artık doküman linkleri de (varsa <code>doc_links</code> ayarı) görünür.</div>
+      <span class="ref">test_all_render_functions_share_footer_and_width · test_all_scenario_subjects_have_jumbo_prefix · test_proposal_reminder_html_includes_doc_links</span>
+    </div>
+  </section>
+
+  <section id="s9">
+    <h2><span class="idx">9</span>Devir Hatırlatma Maili</h2>
+    <p class="section-note">Temel akış için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s6">kritik doküman 6.3</a>'e bakın.</p>
+    <div class="row"><p class="row-title">E-postasız ekip atlanır</p><p class="row-desc">Settings → "Ekipler"de bir SY ekibinin e-posta alanını boşaltın; bu ekibin bekleyen önerisi varken "Bekleyen Önerileri Şimdi Hatırlat"ı çalıştırın.</p><div class="expect" style="margin-top:8px"><b>Beklenen:</b> Bu ekip için "Mail Gönderim Geçmişi"nde satır oluşmaz (gönderim atlanır), diğer ekipler normal şekilde alır.</div><span class="ref">test_reminder_team_without_email_skipped</span></div>
+  </section>
+
+  <section id="s10">
+    <h2><span class="idx">10</span>Bildirim Kanalları</h2>
+    <p class="section-note">Settings sayfasında "Bildirimler" grubu altında her kanalın kendi sekmesi var: <b>Slack</b>, <b>Microsoft Teams</b>, <b>Webhook</b>, <b>ServiceNow</b>, <b>Jira</b>, <b>Zoom</b>, <b>Jabber / XMPP</b>. Her sekmede ayarları girip <b>"Bağlantıyı Test Et"</b> butonuna basılır.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">10.1</span><span class="mtest-title">Kanal bağlantı testi — her kanal için</span></div>
+      <ol class="steps">
+        <li>Settings → "Slack" sekmesine gidin, geçerli bir webhook URL'si girin, kaydedin, <b>"Bağlantıyı Test Et"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Belirtilen Slack kanalına bir test mesajı gelir; UI'da başarı bildirimi görünür.</div>
+      <ol class="steps" start="2">
+        <li>URL alanını boş bırakıp tekrar "Bağlantıyı Test Et" deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Config yok" uyarısı — ağ çağrısı yapılmaz, hata net bir şekilde gösterilir.</div>
+      <ol class="steps" start="3">
+        <li>Aynı akışı Teams / Webhook / Zoom / Jabber sekmelerinde kendi alanlarıyla (URL, token/webhook) tekrarlayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Her kanal kendi payload formatını (Teams MessageCard, generic Webhook + Authorization header, Zoom + token header) doğru gönderir.</div>
+      <span class="ref">test_slack_send_payload · test_teams_messagecard · test_webhook_payload_and_auth_header · test_zoom_send_payload_and_token_header · test_channel_test_ok_missing_and_error</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">10.2</span><span class="mtest-title">ServiceNow / Jira — otomatik talep açma</span></div>
+      <ol class="steps">
+        <li>Settings → "ServiceNow" sekmesinde bağlantı bilgilerini (URL, kullanıcı/şifre) girin, kaydedin.</li>
+        <li>Süresi geçmiş bir sertifika için "Süresi Geçenleri Şimdi Gönder"i çalıştırın (kanal etkinse).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> ServiceNow'da bir incident açılır; "süresi geçmiş" durumu Yüksek önem (urgency) ile, "yaklaşan" durum Orta önem ile işaretlenir.</div>
+      <ol class="steps" start="3">
+        <li>Aynısını Settings → "Jira" sekmesinde (Basic veya Bearer auth ile) tekrarlayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Jira'da bir issue açılır. Her iki kanalda da eksik config varken "Bağlantıyı Test Et" GET isteğiyle gerçek bir incident/issue AÇMADAN doğrulama yapar.</div>
+      <span class="ref">test_servicenow_creates_incident_with_basic_auth · test_servicenow_expired_is_high_urgency · test_jira_creates_issue_basic_auth · test_jira_test_validates_without_issue</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">10.3</span><span class="mtest-title">Dedup ve hata izolasyonu</span></div>
+      <ol class="steps">
+        <li>Birden fazla kanalı (örn. Slack + e-posta) etkinleştirip aynı sertifika için süre uyarısını iki kez art arda çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Her kanalın kendi 7 günlük dedup penceresi vardır; e-posta dedup'ı Slack'ten bağımsız çalışır. Bir kanalın ayarı hatalıysa (örn. geçersiz URL) diğer kanallar yine çalışır, genel işlem çökmez.</div>
+      <span class="ref">test_dispatcher_sends_enabled_and_dedup · test_dispatcher_graceful_on_error · test_email_dedup_independent_of_channel</span>
+    </div>
+  </section>
+
+  <section id="s11">
+    <h2><span class="idx">11</span>Ağ Keşfi, CT İzleme &amp; Canlı Kontrol</h2>
+    <p class="section-note">Sol menüde <b>"Keşif"</b> sayfası (<code>/discovery</code>, admin). Hedefler Settings → <b>"Keşif"</b> (ağ, CIDR/host hedefleri) ve Settings → <b>"CT (crt.sh)"</b> sekmelerinde tanımlanır.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.1</span><span class="mtest-title">Ağ taraması — bulgu, envantere alma, yok sayma</span></div>
+      <ol class="steps">
+        <li>Settings → "Keşif" sekmesinde yeni bir hedef ekleyin: "CIDR (ör. 10.1.2.0/24)" veya "Host / IP" alanını doldurup "Etkin" işaretleyip kaydedin.</li>
+        <li>"Keşif" sayfasına gidin, sağ üstteki <b>"Ağ Taraması"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Tarama biter, bulunan sertifikalar tabloda listelenir; envanterde olmayanlar "Bilinmeyen (shadow)" durumunda, envanterde zaten olanlar "Envanterde" durumunda gösterilir.</div>
+      <ol class="steps" start="3">
+        <li>"Bilinmeyen" bir satırda <b>"Envantere Al"</b> ikonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Sertifika "SSL Sertifikaları" listesine eklenir, bulgunun durumu "Envantere Alınan" olur.</div>
+      <ol class="steps" start="4">
+        <li>Başka bir bulguda <b>"Yok say"</b> ikonuna basıp tekrar "Ağ Taraması" çalıştırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Yok say" kararı yeni taramada da kalıcıdır (tekrar "Bilinmeyen" olarak görünmez).</div>
+      <span class="ref">test_scan_flags_shadow_and_known · test_adopt_creates_inventory_cert · test_ignore_persists_across_rescan</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.2</span><span class="mtest-title">Certificate Transparency (CT) taraması</span></div>
+      <ol class="steps">
+        <li>Settings → "CT (crt.sh)" sekmesinde izlenecek bir domain ekleyin.</li>
+        <li>"Keşif" sayfasında <b>"CT Taraması"</b> butonuna basın (dış internet/proxy erişimi gerekir).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Bulgular "Kaynak" sütununda "CT Log" etiketiyle görünür; precertificate (CT poison uzantılı) kayıtlar listede görünmez (otomatik atlanır).</div>
+      <span class="ref">test_ct_scan_flags_shadow_and_known · test_ct_skips_precertificates</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.3</span><span class="mtest-title">Canlı doğrulama (drift detection)</span></div>
+      <ol class="steps">
+        <li>"Domainler" → bir domainin "Detay" çekmecesini açın → <b>"Canlı Doğrulama (Drift Detection)"</b> bölümünde kontrol butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Sunucuda canlı sunulan sertifika envanterdekiyle eşleşiyorsa "eşleşiyor" durumu/chip'i, farklıysa "uyumsuz" durumu gösterilir; host'a erişilemiyorsa "ulaşılamıyor"; domain wildcard ise bu kontrol zaten yapılamaz (buton/sonuç buna göre davranır).</div>
+      <span class="ref">test_live_check_match · test_live_check_mismatch · test_live_check_unreachable · test_live_check_wildcard_not_checkable</span>
+    </div>
+  </section>
+
+  <section id="s12">
+    <h2><span class="idx">12</span>Dağıtım Motoru &amp; Jenkins</h2>
+    <p class="section-note">Sol menüde <b>"Dağıtım"</b> sayfası (<code>/deployments</code>). Jenkins bağlantı bilgileri Settings → <b>"Jenkins"</b> sekmesinde tanımlanır.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">12.1</span><span class="mtest-title">Akış (DAG) oluşturma ve çalıştırma</span></div>
+      <ol class="steps">
+        <li>"Dağıtım" sayfasında bir uygulama seçin, <b>"Yeni Akış"</b> ile akış oluşturun; "Başlat" çapasının yanındaki + ile bir Jenkins job düğümü ekleyin, ardından o düğümün yanındaki + ile ardışık veya paralel bir ikinci düğüm ekleyin.</li>
+        <li><b>"Dağıt"</b> (çalıştır) butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Paralel düğümler birlikte tetiklenir, ardışık düğüm öncekinin başarısını bekler; çalışan adım canvas üzerinde canlı rozetle (running/success/failed) güncellenir.</div>
+      <ol class="steps" start="3">
+        <li>Akış zaten çalışırken tekrar "Dağıt"ı deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Reddedilir — aynı akış için eşzamanlı iki çalıştırma (çift tetikleme) engellenir.</div>
+      <span class="ref">test_parallel_roots_trigger_together · test_sequential_waits_for_previous_success · test_run_flow_rejects_when_already_running</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">12.2</span><span class="mtest-title">Retry, yeniden dağıt (rerun), iptal</span></div>
+      <ol class="steps">
+        <li>Bir adımı Jenkins job'ı eksik/bozuk bırakarak başarısız olacak şekilde çalıştırın. Çalıştırma detayında başarısız adımda <b>"Yalnız bu adımı yeniden tetikle"</b> ikonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Yalnız o adım yeniden çalışır, akışın tamamı değil.</div>
+      <ol class="steps" start="2">
+        <li>Başarılı tamamlanmış bir çalıştırmada <b>"Yeniden Dağıt"</b> penceresini açıp onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Yeni run, orijinal çalıştırmanın kaydedilmiş parametreleriyle başlar (akışın GÜNCEL tanımıyla değil).</div>
+      <ol class="steps" start="3">
+        <li>Devam eden bir çalıştırmada <b>"İptal Et"</b> butonuna basıp onay penceresinde tekrar "İptal Et"e basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Bekleyen/çalışan adımlar durur (not: bu yalnız JUMBO'nun downstream tetiklemesini durdurur, Jenkins'teki build'i durdurmaz); işlem admin yetkisi gerektirir.</div>
+      <span class="ref">test_retry_single_failed_step · test_rerun_uses_source_run_params_not_live_flow · test_cancel_run_stops_pending_and_running_steps · test_cancel_run_requires_admin</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">12.3</span><span class="mtest-title">Akış düzenleme sırasında snapshot değişmezliği</span></div>
+      <ol class="steps">
+        <li>Bir akışı çalıştırın (durumu "running" kalsın), çalışma sürerken aynı akışın tanımını (örn. bir düğüm ekleyerek) düzenleyip kaydedin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Devam eden çalıştırma, düzenleme ÖNCESİ akış tanımıyla (snapshot) ilerlemeyi sürdürür — canlı değişiklik mevcut run'ı etkilemez.</div>
+      <span class="ref">test_run_snapshot_immutable_after_flow_edit</span>
+    </div>
+  </section>
+
+  <section id="s13">
+    <h2><span class="idx">13</span>Politika Motoru</h2>
+    <p class="section-note">Sol menüde "Analiz" grubunda <b>"Uyum"</b> sayfası (<code>/policy</code>). Kurallar Settings → <b>"Uyum"</b> sekmesinde ayarlanır.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">13.1</span><span class="mtest-title">Zayıf anahtar ihlali</span></div>
+      <ol class="steps">
+        <li>"SSL Sertifikaları" → "Yeni Ekle" ile <code>leaf-weak-key.pem</code>'i (1024-bit RSA) içe aktarın.</li>
+        <li>"Uyum" sayfasına gidin, "Zayıf Anahtar" filtre chip'ine basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Bu sertifika listede görünür, "İhlaller" sütununda turuncu "Zayıf Anahtar" chip'i taşır, "Önem" sütununda uygun seviye (Yüksek/Orta) işaretlenir. Üstteki "Uyumsuz" sayacı artar.</div>
+      <span class="ref">test_weak_rsa_key · test_report_flags_weak_certs</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">13.2</span><span class="mtest-title">Politika kapalıyken davranış</span></div>
+      <ol class="steps">
+        <li>Settings → "Uyum" sekmesinde politika değerlendirmesini kapatın.</li>
+        <li>"Uyum" sayfasını tekrar açın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Sarı uyarı: "Uyum değerlendirmesi kapalı (Ayarlar → Uyum)".</div>
+      <span class="ref">test_policy_auth_and_config</span>
+    </div>
+  </section>
+
+  <section id="s14">
+    <h2><span class="idx">14</span>İptal (Revocation) Kontrolü</h2>
+    <p class="section-note">Bir sertifikanın detay çekmecesinde ("SSL Sertifikaları" → satıra tıkla) <b>"İptal Durumu (OCSP/CRL)"</b> bölümü bulunur. Ayarlar Settings → <b>"İptal (OCSP/CRL)"</b> sekmesinde.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">14.1</span><span class="mtest-title">Durum kontrolü</span></div>
+      <ol class="steps">
+        <li>Gerçek, geçerli (iptal edilmemiş) bir sertifikanın detayını açın → "İptal Durumu (OCSP/CRL)" bölümünde <b>"Şimdi Kontrol Et"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "İptal edilmemiş (good)"; chip yeşil "İptal edilmemiş" olur, "Son denetim" tarihi güncellenir.</div>
+      <ol class="steps" start="2">
+        <li>OCSP/CRL uç bilgisi olmayan (örn. bu dokümandaki sahte test sertifikalarından biri) bir sertifikada aynı butona basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Durum belirlenemedi (unknown) — OCSP/CRL erişimi veya uç yok"; sonuç kalıcı olarak kaydedilir.</div>
+      <span class="ref">test_check_ocsp_good_and_revoked · test_check_certificate_unknown_without_endpoints · test_revocation_endpoint_persists_and_auth</span>
+    </div>
+  </section>
+
+  <section id="s15">
+    <h2><span class="idx">15</span>Etiketler &amp; RBAC/Güvenlik</h2>
+    <p class="section-note">Etiket kataloğu Settings → <b>"Etiketler"</b> sekmesinde; atama "Uygulamalar" sayfasında uygulama formundaki "Etiketler" alanında. RBAC temelleri için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s7">kritik doküman bölüm 7</a>'ye bakın.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">15.1</span><span class="mtest-title">Etiket oluşturma ve atama</span></div>
+      <ol class="steps">
+        <li>Settings → "Etiketler" → "Kategori" ve "Etiket adı" girip <b>"Ekle"</b>.</li>
+        <li>"Uygulamalar" sayfasında bir uygulamanın formunu açın, "Etiketler" alanından bu etiketi seçin (veya yeni bir etiket adı yazarak anında oluşturun — freeSolo), kaydedin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Uygulama tablosunda "Etiketler" kolonunda yeni etiket renkli chip olarak görünür; aynı (kategori, ad) ile tekrar eklemeye çalışmak hata vermez (idempotent), mükerrer kayıt oluşturmaz.</div>
+      <span class="ref">test_tag_crud_and_idempotent · test_application_tag_assign_filter_sync</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">15.2</span><span class="mtest-title">IDOR koruması — başka ekibin kaydına doğrudan erişim</span></div>
+      <div class="callout note"><b>Not:</b> Kapsam dışı bir domain/uygulama editöre listede hiç görünmez, bu nedenle bu senaryo editörün oturum tokenıyla doğrudan API çağrısı (devtools/Network veya bir API istemcisi) gerektirir.</div>
+      <ol class="steps">
+        <li>Admin olarak başka bir SY ekibine ait bir domainin ID'sini not edin.</li>
+        <li>Kapsamı bu ekibi içermeyen bir editörün tokenıyla <code>PUT /api/domains/{id}</code> veya <code>DELETE /api/domains/{id}</code> çağırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> 404 döner (yetkisiz olduğu kadar, kaydın VARLIĞI da sızdırılmaz — 403 değil 404).</div>
+      <span class="ref">test_editor_cannot_update_or_delete_foreign_domain · test_editor_cannot_update_or_delete_foreign_application</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">15.3</span><span class="mtest-title">Domain sahipliği — editor yalnız kendi ekibini atayabilir</span></div>
+      <ol class="steps">
+        <li>Bir editor kullanıcısıyla giriş yapın (yalnız "B" ekibine üye).</li>
+        <li>"Domainler" → "Yeni Ekle" → "SY Takımı" dropdown'unda "A" ekibini seçmeyi deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "A" ekibi seçeneklerde görünmez veya seçim reddedilir — editor yalnız kendi üyesi olduğu ekibi SY olarak atayabilir.</div>
+      <span class="ref">test_non_admin_assigns_only_own_team_on_create · test_me_returns_sy_team_memberships</span>
+    </div>
+  </section>
+
+  <footer>
+    Tüm backend suite'ini çalıştırmak için: <code>cd backend && .venv/bin/python -m pytest -v</code> (yalnız bir bölüm için <code>pytest tests/test_&lt;dosya&gt;.py -v</code>).<br>
+    Sertifika materyali <code>docs/regresyon-sertifikalari/uret.py</code> ile üretildi — leaf sertifikalar ~397 gün geçerli; süresi dolduğunda <code>cd backend && .venv/bin/python ../docs/regresyon-sertifikalari/uret.py</code> ile yeniden üretilebilir.<br>
+    Odaklı/derin açıklama için → <a href="REGRESYON-KRITIK-FONKSIYONLAR.html">REGRESYON-KRITIK-FONKSIYONLAR.html</a>.
+  </footer>
+
+</div>
+</body>
+</html>

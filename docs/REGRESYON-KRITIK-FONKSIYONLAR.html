@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JUMBO Regresyon Testleri — Kritik Fonksiyonlar</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#f3f6fb; --surface:#ffffff; --surface-2:#eef2f8;
+    --ink:#182133; --ink-dim:#5a6680; --line:#dbe3ee;
+    --accent:#1657c7; --accent-ink:#0d3c93; --accent-soft:#e8eefc;
+    --good:#1f8a5c; --good-ink:#0f6b45; --good-soft:#e5f6ee;
+    --danger:#c23c2d; --danger-ink:#9a2e22; --danger-soft:#fbeae7;
+    --chip-bg:#eef1f6;
+    --shadow: 0 1px 2px rgba(20,30,50,.04), 0 8px 24px -12px rgba(20,30,50,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c121d; --surface:#131b29; --surface-2:#182333;
+      --ink:#e7ecf5; --ink-dim:#95a4c0; --line:#263248;
+      --accent:#6fa0ff; --accent-ink:#9dc0ff; --accent-soft:#17233b;
+      --good:#5fd8a0; --good-ink:#8fe6bc; --good-soft:#102a20;
+      --danger:#ff8a78; --danger-ink:#ffb3a5; --danger-soft:#2c1a1c;
+      --chip-bg:#1b2536;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c121d; --surface:#131b29; --surface-2:#182333;
+    --ink:#e7ecf5; --ink-dim:#95a4c0; --line:#263248;
+    --accent:#6fa0ff; --accent-ink:#9dc0ff; --accent-soft:#17233b;
+    --good:#5fd8a0; --good-ink:#8fe6bc; --good-soft:#102a20;
+    --danger:#ff8a78; --danger-ink:#ffb3a5; --danger-soft:#2c1a1c;
+    --chip-bg:#1b2536;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;padding-inline:16px;padding-block:32px 48px}
+  .page{max-width:900px;margin:0 auto}
+  .eyebrow{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-ink);font-weight:600;margin:0 0 10px}
+  h1{font-family:"Fraunces",serif;font-weight:600;font-size:clamp(26px,5vw,34px);line-height:1.15;letter-spacing:-.01em;text-wrap:balance;margin:0 0 10px}
+  .lede{color:var(--ink-dim);font-size:15px;line-height:1.6;max-width:70ch;margin:0 0 28px}
+  h2{font-family:"Fraunces",serif;font-weight:600;font-size:21px;margin:0 0 4px;scroll-margin-top:16px}
+  h2 .idx{color:var(--accent);font-family:"JetBrains Mono",monospace;font-size:14px;font-weight:600;margin-right:8px}
+  .section-note{color:var(--ink-dim);font-size:13.5px;margin:0 0 16px;line-height:1.55;max-width:76ch}
+  .section-note code{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:var(--chip-bg);border-radius:5px;padding:1px 5px}
+  section{margin-bottom:44px}
+
+  .callout{background:var(--surface-2);border:1px dashed var(--line);border-radius:12px;padding:14px 18px;font-size:13.5px;line-height:1.6;color:var(--ink-dim);margin-bottom:16px}
+  .callout b{color:var(--ink)}
+  .callout.warn{background:var(--danger-soft);border:1px solid color-mix(in srgb, var(--danger) 35%, var(--line));color:var(--danger-ink)}
+  .callout.warn b{color:var(--danger-ink)}
+  .callout.note{background:var(--accent-soft);border:1px solid color-mix(in srgb, var(--accent) 35%, var(--line));color:var(--accent-ink);font-size:13px}
+  .callout.note b{color:var(--accent-ink)}
+
+  .toc{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px 20px;margin-bottom:36px}
+  .toc p.setup-label{margin:0 0 10px}
+  .toc ol{margin:0;padding-left:20px;columns:2;column-gap:28px;font-size:13.5px;line-height:1.9}
+  .toc a{color:var(--accent-ink);text-decoration:none;font-weight:500}
+  .toc a:hover{text-decoration:underline}
+
+  .setup-label{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-dim);font-weight:600;margin:0 0 4px}
+
+  table.cert-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:13px;margin-bottom:14px}
+  table.cert-table th,table.cert-table td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  table.cert-table th{background:var(--surface-2);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-dim);font-weight:600}
+  table.cert-table tr:last-child td{border-bottom:none}
+  table.cert-table code{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--accent-ink)}
+  table.cert-table a{color:var(--accent-ink)}
+
+  /* --- manuel test senaryosu kartı --- */
+  .mtest{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+  .mtest-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .mtest-num{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;background:var(--accent-soft);color:var(--accent-ink);border-radius:7px;padding:3px 8px;flex:0 0 auto}
+  .mtest-title{font-weight:600;font-size:15px}
+  .pre{font-size:13px;color:var(--ink-dim);line-height:1.55;margin:0 0 10px;padding:8px 12px;background:var(--surface-2);border-radius:8px}
+  .pre b{color:var(--ink)}
+  .steps{margin:0 0 12px;padding-left:22px;font-size:13.5px;line-height:1.75}
+  .steps li{margin-bottom:5px}
+  .steps code{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:var(--chip-bg);border-radius:5px;padding:1px 6px;color:var(--accent-ink)}
+  .expect{background:var(--good-soft);border:1px solid color-mix(in srgb, var(--good) 35%, var(--line));border-radius:10px;padding:10px 14px;font-size:13px;line-height:1.55;color:var(--good-ink);margin-bottom:10px}
+  .expect b{color:var(--good-ink)}
+  .ref{display:inline-block;font-size:11.5px;font-family:"JetBrains Mono",monospace;background:var(--chip-bg);border:1px solid var(--line);border-radius:7px;padding:4px 9px;color:var(--ink-dim)}
+
+  footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-dim);line-height:1.7}
+  footer code{font-family:"JetBrains Mono",monospace;background:var(--chip-bg);border-radius:5px;padding:1px 6px}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <p class="eyebrow">JUMBO &middot; Regresyon Test Dokümanı — Kritik Fonksiyonlar</p>
+  <h1>Platformun can damarı: 7 kritik akışın elle (manuel) regresyon senaryoları</h1>
+  <p class="lede">Bu doküman, bir test ekibinin JUMBO arayüzünde <b>gerçek sayfa/buton adlarını kullanarak</b> adım adım izleyebileceği manuel regresyon senaryolarını içerir. Her senaryo gerçek JUMBO arayüzünün (<code>frontend/src</code>) bugünkü hâline göre yazılmıştır; ekranda görmeniz gereken sonuç (toast mesajı, chip, rozet) her adımın altında <b>yeşil kutuda</b> belirtilmiştir. Daha geniş kapsam için <a href="REGRESYON-KAPSAMLI.html">kapsamlı dokümana</a> bakın.</p>
+
+  <div class="callout warn">
+    <b>Sertifika materyali hakkında:</b> Aşağıda kullanılan tüm sertifika/anahtar dosyaları (<code>regresyon-sertifikalari/</code> klasörü) <b>sahte, yalnız test amaçlı</b> üretilmiştir. Gerçek bir CA tarafından imzalanmamıştır, hiçbir ortamda güvenlik amaçlı kullanılmamalıdır.
+  </div>
+
+  <h2 style="font-size:16px;margin-bottom:10px">Sertifika Materyali</h2>
+  <table class="cert-table">
+    <tr><th>Dosya</th><th>Açıklama</th><th>Kullanıldığı bölüm</th></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v1-fullchain.pem"><code>leaf-v1-fullchain.pem</code></a></td><td>İlk sertifika (v1) + kök CA birleşik — <b>ilk import</b> için kullanın</td><td>1, 2, 4, 5</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v2.pem"><code>leaf-v2.pem</code></a></td><td>v1 ile <b>aynı anahtar</b> → 1. yenileme (halef) — devir önerisini tetikler</td><td>2, 3, 5</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v3.pem"><code>leaf-v3.pem</code></a></td><td>v1/v2 ile aynı anahtar → 2. yenileme (rakip halef senaryosu)</td><td>2</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-expiring-soon.pem"><code>leaf-expiring-soon.pem</code></a></td><td>~10 gün içinde dolacak — "süre uyarısı" mailini tetiklemek için</td><td>6</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-expired.pem"><code>leaf-expired.pem</code></a></td><td>Süresi çoktan geçmiş — "süresi geçmiş" mailini tetiklemek için</td><td>6</td></tr>
+    <tr><td><a href="../backend/tests/fixtures/leaf.der"><code>backend/tests/fixtures/leaf.der</code></a></td><td>DER-kodlu tekil sertifika (format çeşitliliği demo)</td><td>1</td></tr>
+    <tr><td><a href="../backend/tests/fixtures/chain.p7b"><code>backend/tests/fixtures/chain.p7b</code></a></td><td>PKCS7 paketi, 3 sertifika (root/intermediate/leaf)</td><td>1</td></tr>
+  </table>
+
+  <div class="toc">
+    <p class="setup-label">İçindekiler</p>
+    <ol>
+      <li><a href="#s1">Sertifika Import &amp; Ayrıştırma</a></li>
+      <li><a href="#s2">Devir Önerisi — Yaşam Döngüsü (8 senaryo)</a></li>
+      <li><a href="#s3">Devir Önerisi — Yetkilendirme</a></li>
+      <li><a href="#s4">Pasife Alma Kuralı</a></li>
+      <li><a href="#s5">Trust Store</a></li>
+      <li><a href="#s6">Mail Bildirimleri — Temel Akış</a></li>
+      <li><a href="#s7">RBAC — Temel Kapsam Kuralı</a></li>
+    </ol>
+  </div>
+
+  <section id="s1">
+    <h2><span class="idx">1</span>Sertifika Import &amp; Ayrıştırma</h2>
+    <p class="section-note">Sol menüden <b>"SSL Sertifikaları"</b> sayfasına (<code>/certificates</code>) gidin. Sertifika eklemek için sağ üstteki <b>"Yeni Ekle"</b> butonuna basın — açılan pencerede <b>"Dosyadan İçe Aktar (PEM / DER / PFX)"</b> sekmesi varsayılan olarak seçilidir.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.1</span><span class="mtest-title">Tam zincir (leaf + kök CA) import</span></div>
+      <ol class="steps">
+        <li>"SSL Sertifikaları" → <b>"Yeni Ekle"</b>.</li>
+        <li>Sürükle-bırak kutusuna <code>leaf-v1-fullchain.pem</code> dosyasını sürükleyin (veya tıklayıp seçin).</li>
+        <li>Açılan önizleme tablosunda 2 satır görünür: <code>devir-test.jumbo.local</code> (leaf) ve <code>JUMBO Devir Test Root CA</code> (root) — ikisi de yeşil <b>"Yeni"</b> chip'i ile işaretli olmalı.</li>
+        <li>"Oluşturan Ekip" dropdown'undan bir SY ekibi seçin, "Ortam" olarak "Test" seçin.</li>
+        <li><b>"İçe Aktar"</b> → açılan onay penceresinde <b>"Onaylıyorum, İçe Aktar"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "2 sertifika eklendi" başarı bildirimi (toast) görünür. "SSL Sertifikaları" listesinde her iki sertifika da <b>"Aktif"</b> durumda belirir.</div>
+      <span class="ref">test_api.py::test_import_chain_and_hierarchy</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.2</span><span class="mtest-title">Mükerrer sertifika reddi</span></div>
+      <ol class="steps">
+        <li>1.1'i tamamladıktan sonra tekrar <b>"Yeni Ekle"</b> → aynı <code>leaf-v1-fullchain.pem</code> dosyasını yükleyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Önizleme tablosunda leaf satırı bu kez sarı <b>"Zaten kayıtlı"</b> chip'i ile işaretlenir; "İçe Aktar" sonrası sertifika tekrar eklenmez (listede ikinci bir kayıt oluşmaz).</div>
+      <span class="ref">test_manual_certificate_with_existing_pem_rejected</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.3</span><span class="mtest-title">Yenileme (halef) algılama</span></div>
+      <ol class="steps">
+        <li>1.1 tamamlanmış olsun (v1 sistemde kayıtlı). <b>"Yeni Ekle"</b> → bu kez <code>leaf-v2.pem</code> dosyasını yükleyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Önizleme satırında mavi outline <b>"Yenileme → devir-test.jumbo.local"</b> chip'i görünür; altında <b>"Devir planı — onay gerektirir"</b> kutusu ve işaretli <b>"Devir önerisi oluştur…"</b> seçeneği belirir. "İçe Aktar" sonrası toast: <i>"1 sertifika eklendi — 1 devir önerisi oluşturuldu (SY onayı bekliyor)"</i>.</div>
+      <span class="ref">certgen "aynı anahtar → halef" mantığı · Bölüm 2'deki devir senaryolarının tetikleyicisi</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.4</span><span class="mtest-title">DER ve PKCS7 (p7b) format desteği</span></div>
+      <ol class="steps">
+        <li><b>"Yeni Ekle"</b> → dosya olarak <code>backend/tests/fixtures/leaf.der</code> seçin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> DER-kodlu dosya olmasına rağmen önizlemede 1 sertifika doğru CN/geçerlilik bilgileriyle görünür.</div>
+      <ol class="steps" start="2">
+        <li>Tekrar <b>"Yeni Ekle"</b> → bu kez <code>backend/tests/fixtures/chain.p7b</code> (PKCS7 paketi) seçin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Önizlemede TEK dosyadan <b>3 sertifika</b> (root/intermediate/leaf) birden listelenir.</div>
+      <span class="ref">test_cert_parser.py::test_parse_der · test_parse_p7b_pem_and_der</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">1.5</span><span class="mtest-title">Geçersiz dosya reddi</span></div>
+      <ol class="steps">
+        <li><b>"Yeni Ekle"</b> → sertifika olmayan rastgele bir <code>.txt</code> dosyası yükleyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Kırmızı hata bildirimi (toast) görünür; hiçbir sertifika eklenmez.</div>
+      <span class="ref">test_cert_parser.py::test_invalid_data_raises</span>
+    </div>
+  </section>
+
+  <section id="s2">
+    <h2><span class="idx">2</span>Devir Önerisi (TransferProposal) — Yaşam Döngüsü</h2>
+    <p class="section-note">Bir sertifika yenilendiğinde (1.3'teki gibi aynı anahtarla), ona bağlı domain eşlemelerinin/mTLS bağımlılıklarının/trust-store üyeliklerinin yeni sertifikaya taşınması önerisi oluşur. Hiçbir mutasyon <b>onay almadan</b> uygulanmaz. Öneriler sol menüde <b>"Devir Önerileri"</b> (<code>/proposals</code>, bekleyen sayısı turuncu rozet) sayfasında listelenir. <b>Her senaryo için farklı bir domain adı kullanın</b> (örn. <code>devir-s1.test</code>, <code>devir-s2.test</code>…) ki senaryolar birbirine karışmasın.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.1</span><span class="mtest-title">Temel devir — domain server eşlemesi</span></div>
+      <ol class="steps">
+        <li>"Domainler" → <b>"Yeni Ekle"</b> → Domain: <code>devir-s1.test</code>, bir "SY Takımı" seçin, kaydedin.</li>
+        <li>Domain satırındaki göz ikonuna ("Detay") basın → açılan çekmecede <b>"Sertifika Bağla"</b> bölümünde arama kutusuna "devir-test" yazın, listeden v1'i seçin, "Bağlantı Tipi" = <b>Server</b>, <b>"Bağla"</b>.</li>
+        <li><i>(ara kontrol)</i> Toast "Sertifika bağlandı"; üstte "Server" etiketli chip görünür.</li>
+        <li>"SSL Sertifikaları" → <b>"Yeni Ekle"</b> → <code>leaf-v2.pem</code> import edin (bkz. 1.3).</li>
+        <li>"Devir Önerileri" sayfasına gidin — <code>devir-s1.test</code> satırını bulun. <b>Henüz onaylamadan</b> Domainler → Detay'a geri dönün.</li>
+        <li><i>(ara kontrol)</i> Domain hâlâ v1'e bağlı, v1 "Aktif" — onay öncesi hiçbir şey değişmemiştir.</li>
+        <li>Devir Önerileri'ne dönün, satırda <b>"Onayla"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Devir onaylandı ve uygulandı". Domainler → Detay'da artık v2 "Server" olarak bağlı; "SSL Sertifikaları"nda v1 satırı gri <b>"Pasif"</b> chip'i ve mavi <b>"Yenilendi → v2"</b> chip'i ile görünür.</div>
+      <span class="ref">test_scn_domain_transfer_lifecycle</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.2</span><span class="mtest-title">Çoklu granül — domain + mTLS bağımlılığı birlikte</span></div>
+      <ol class="steps">
+        <li>2.1'in 1-3. adımlarını <code>devir-s2.test</code> ile tekrarlayın (v1 import + Server bağla).</li>
+        <li>"Uygulamalar" sayfasında bir uygulamanın düzenleme formunu açın → <b>"Dış Bağımlılıklar (trusted)"</b> bölümünde "Hedef Domain *" olarak <code>devir-s2.test</code>'i seçin, <b>"Ekle"</b>.</li>
+        <li><i>(ara kontrol)</i> Toast "Bağımlılık eklendi"; listede <code>devir-s2.test</code> ve "mTLS: devir-test.jumbo.local" notu görünür (hedefin aktif server sertifikası otomatik izlenir).</li>
+        <li><code>leaf-v2.pem</code>'i içe aktarın.</li>
+        <li>"Devir Önerileri"ne gidin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen (ara):</b> <code>devir-s2.test</code> için İKİ ayrı satır görünür — biri domain (server), biri bu uygulamanın bağımlılığı.</div>
+      <ol class="steps" start="6">
+        <li>Sadece domain satırını onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (bağımlılık önerisi hâlâ açık).</div>
+      <ol class="steps" start="7">
+        <li>Bağımlılık satırını da onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> v1 artık "Pasif"; Uygulamalar → ilgili bağımlılıkta artık v2'nin adı/SKI'si görünür.</div>
+      <span class="ref">test_scn_multi_granule_transfer</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.3</span><span class="mtest-title">Devir + trusted birlikte</span></div>
+      <ol class="steps">
+        <li>2.1'in 1-3. adımlarını <code>devir-s3.test</code> ile tekrarlayın.</li>
+        <li>Bir uygulamanın düzenleme formunda <b>"Trusted Sertifikalar (trust store)"</b> bölümünde Autocomplete'ten v1'i seçin, <b>"Ekle"</b>.</li>
+        <li><i>(ara kontrol)</i> Toast "Trusted sertifika eklendi"; listede v1 görünür.</li>
+        <li><code>leaf-v2.pem</code>'i içe aktarın. "Devir Önerileri"nde bu domain için İKİ satır (transfer + trusted_add) görünmelidir.</li>
+        <li>Yalnız <b>domain (server)</b> satırını onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (trust-store önerisi hâlâ açık olduğu için pasife alınmaz).</div>
+      <ol class="steps" start="6">
+        <li>Trust-store (ekleme) satırını da onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Uygulamanın Trusted Sertifikalar listesinde v1 VE v2 BİRLİKTE görünür; v1 "Aktif" kalmaya devam eder (trusted sertifika ASLA pasife alınmaz).</div>
+      <span class="ref">test_scn_transfer_plus_trusted_keeps_old_active</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.4</span><span class="mtest-title">Red kalıcı</span></div>
+      <ol class="steps">
+        <li>2.1'in 1-4. adımlarını <code>devir-s4.test</code> ile tekrarlayın (v1 bağla, v2 import → öneri oluşur).</li>
+        <li>"Devir Önerileri"nde ilgili satırda <b>"Reddet"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Öneri reddedildi"; domain hâlâ v1'e bağlı.</div>
+      <ol class="steps" start="3">
+        <li>"SSL Sertifikaları"na gidin, <code>leaf-v2.pem</code> dosyasını TEKRAR içe aktarmayı deneyin (otomatik yol).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Önizlemede yine "Yenileme" rozeti görünse de, "Devir Önerileri" listesinde YENİ bir satır OLUŞMAZ — red kalıcıdır.</div>
+      <div class="callout note">
+        <b>Not:</b> Arayüzde bu reddi bilinçli olarak yeniden açan ayrı bir "manuel supersede" butonu bulunmuyor. Bu adım yalnız API üzerinden test edilebilir: <code>POST /api/certificates/{v2_id}/supersede/{v1_id}</code>. Bu çağrı yeni bir öneri açar; onaylandığında domain v2'ye taşınır.
+      </div>
+      <span class="ref">test_scn_reject_is_permanent_manual_reopens</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.5</span><span class="mtest-title">İptal (cancel)</span></div>
+      <div class="callout note">
+        <b>Not:</b> "Devir Önerileri" sayfasında satır başına yalnız <b>"Onayla"</b> ve <b>"Reddet"</b> butonları var — ayrı bir "İptal" butonu arayüzde bulunmuyor. Bu senaryo yalnız API üzerinden test edilebilir.
+      </div>
+      <ol class="steps">
+        <li>2.1'in 1-4. adımlarını <code>devir-s5.test</code> ile tekrarlayın (v1 bağla, v2 import → öneri "pending").</li>
+        <li>İlgili önerinin id'sini "Devir Önerileri" sayfasında (veya API yanıtından) bulun, <code>POST /api/proposals/{id}/cancel</code> çağırın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Öneri "cancelled" olur; Domainler → Detay'da eşleme hâlâ v1'de; hiçbir mutasyon gerçekleşmemiştir.</div>
+      <span class="ref">test_scn_cancel_no_mutation</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.6</span><span class="mtest-title">Çok domainli kısmi devir</span></div>
+      <ol class="steps">
+        <li>v1'i import edin; <code>devir-s6-a.test</code> ve <code>devir-s6-b.test</code> adlı İKİ domain oluşturun, v1'i HER İKİSİNE de Server olarak bağlayın.</li>
+        <li><code>leaf-v2.pem</code>'i import edin.</li>
+        <li>"Devir Önerileri"nde artık her iki domain için ayrı satır görünür. Birinin <b>"İncele"</b> butonuna basıp detay çekmecesindeki kardeş-öneri listesinde diğer domainin de göründüğünü doğrulayın.</li>
+        <li><code>devir-s6-a.test</code> satırını <b>onaylayın</b>, <code>devir-s6-b.test</code> satırını <b>reddedin</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Domainler → <code>devir-s6-a.test</code> artık v2'ye bağlı; <code>devir-s6-b.test</code> hâlâ v1'e bağlı. "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (B'ye hâlâ eşli olduğu için — kısmi devir).</div>
+      <span class="ref">test_scn_multi_domain_partial_transfer</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.7</span><span class="mtest-title">Rakip halef önerileri <span style="color:var(--danger-ink);font-weight:500">(çift-eşleme regresyonu)</span></span></div>
+      <ol class="steps">
+        <li><code>devir-s7.test</code> oluşturun, v1'i import edip Server olarak bağlayın.</li>
+        <li><code>leaf-v2.pem</code>'i import edin (öneri #1 oluşur), ardından <code>leaf-v3.pem</code>'i import edin (öneri #2 de oluşur — ikisi de v1'in halefi).</li>
+        <li>"Devir Önerileri"nde <code>devir-s7.test</code> için İKİ satır (v1→v2 ve v1→v3) görünür. Önce v1→v2 satırını onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Domainler → <code>devir-s7.test</code> artık v2'ye bağlı.</div>
+      <ol class="steps" start="4">
+        <li>Sonra v1→v3 satırını da onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Domain HÂLÂ sadece v2'ye bağlı kalır — v3 EKLENMEZ, çift server sertifikası görünmez (geçmişte yaşanmış bir hatanın regresyonu).</div>
+      <span class="ref">test_scn_competing_successors_no_double_mapping</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">2.8</span><span class="mtest-title">Cross-granül: server onay + dependency red</span></div>
+      <ol class="steps">
+        <li>2.2'deki gibi <code>devir-s8.test</code> için domain+Server bağlama ve bir uygulamanın mTLS bağımlılığını kurun.</li>
+        <li><code>leaf-v2.pem</code>'i import edin → iki öneri (domain, dependency) oluşur.</li>
+        <li>Domain satırını <b>onaylayın</b>, dependency satırını <b>reddedin</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Domain v2'ye taşınır; Uygulamalar → bağımlılık hâlâ v1'i gösterir (reddedilen öneri mutasyon yapmaz); "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (bağımlılık hâlâ ona bağlı olduğundan, tüm öneriler kapanmış olsa da pasife alınamaz).</div>
+      <span class="ref">test_scn_server_approve_dep_reject_old_stays_active</span>
+    </div>
+  </section>
+
+  <section id="s3">
+    <h2><span class="idx">3</span>Devir Önerisi — Yetkilendirme</h2>
+    <p class="section-note">Bu senaryolar için Settings → <b>"Kullanıcılar"</b> ve <b>"Ekip Üyelikleri"</b> sekmelerinde farklı rol/kapsamda ikinci bir test kullanıcısına ihtiyacınız olacak.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">3.1</span><span class="mtest-title">Ekip dışı editör onaylayamaz</span></div>
+      <ol class="steps">
+        <li>Settings → "Kullanıcılar"da bir kullanıcının Rol'ünü "Editor" yapın; Settings → "Ekip Üyelikleri"nde bu kullanıcıyı yalnızca "B" ekibine üye yapın.</li>
+        <li>"A" ekibine ait bir domainde Bölüm 2 Senaryo 1'deki gibi bekleyen bir devir önerisi oluşturun.</li>
+        <li>Bu editor kullanıcısıyla (farklı bir tarayıcı/gizli pencerede) giriş yapın, "Devir Önerileri" sayfasına gidin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> A ekibinin önerisi listede görünse de satırda <b>"yetki yok"</b> chip'i görünür; Onayla/Reddet denenirse sunucu 403 ile reddeder.</div>
+      <ol class="steps" start="4">
+        <li>Admin veya A ekibi üyesiyle giriş yapıp aynı satırı onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Devir onaylandı ve uygulandı" — bu kez başarılı.</div>
+      <span class="ref">test_non_member_cannot_approve_but_admin_and_member_can</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">3.2</span><span class="mtest-title">Sahipsiz domain → yalnız admin</span></div>
+      <div class="callout note"><b>Not:</b> Domain oluşturma formunda "SY Takımı" alanı zorunludur, bu nedenle "sahipsiz" (SY ekibi atanmamış) bir domain normal arayüz akışıyla oluşturulamaz — bu senaryoyu kurmak için veritabanında/API üzerinden domainin <code>sy_team_id</code> alanını NULL yapmanız gerekir.</div>
+      <ol class="steps">
+        <li>Sahipsiz bir domainde bekleyen devir önerisi oluşturun (yukarıdaki not ile).</li>
+        <li>Admin olmayan bir kullanıcıyla "Devir Önerileri" sayfasından onaylamayı deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Reddedilir (403). Yalnız admin kullanıcı onaylayabilir.</div>
+      <span class="ref">test_ownerless_domain_proposal_admin_only</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">3.3</span><span class="mtest-title">Silme → bağlı öneriler de düşer</span></div>
+      <ol class="steps">
+        <li>Bölüm 2 Senaryo 1'deki gibi bekleyen bir önerisi olan sertifika kurun (henüz onaylamayın).</li>
+        <li>"SSL Sertifikaları" sayfasında bu sertifikayı silin (çöp kutusu ikonu — admin-only).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Devir Önerileri" listesinden bu sertifikaya ait satır kaybolur.</div>
+      <span class="ref">test_deleting_certificate_clears_its_proposals</span>
+    </div>
+  </section>
+
+  <section id="s4">
+    <h2><span class="idx">4</span>Pasife Alma Kuralı</h2>
+    <p class="section-note">"SSL Sertifikaları" sayfasında her satırın işlemler kolonunda duraklat ikonu (<b>"Pasife Al"</b> tooltip'i) bulunur — bu ikon yalnız <b>admin</b> kullanıcıya görünür.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.1</span><span class="mtest-title">Server-bağlı sertifika pasife ALINAMAZ</span></div>
+      <ol class="steps">
+        <li>Bölüm 2 Senaryo 1'deki gibi bir sertifikayı (v1) bir domaine Server olarak bağlayın.</li>
+        <li>"SSL Sertifikaları" sayfasında v1'in satırındaki "Pasife Al" ikonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İşlem reddedilir, hata bildirimi (toast) görünür; sertifika "Aktif" kalır.</div>
+      <span class="ref">test_server_bound_cannot_deactivate_via_endpoint</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.2</span><span class="mtest-title">Client/trusted bağlı sertifika pasife alınabilir</span></div>
+      <ol class="steps">
+        <li>Bir sertifikayı yalnız bir uygulamanın Trusted Sertifikalar listesine ekleyin (server/client eşlemesi YOK).</li>
+        <li>"SSL Sertifikaları"nda "Pasife Al" ikonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Sertifika pasife alındı" (veya bağlı domain varsa ilgili backend mesajı); sertifika listede gri <b>"Pasif"</b> chip'i ile görünür.</div>
+      <span class="ref">test_trusted_bound_can_deactivate · test_client_bound_can_deactivate</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">4.3</span><span class="mtest-title">Bilgilendirme ve idempotentlik</span></div>
+      <ol class="steps">
+        <li>Bağlı bir domaini olan sertifikayı (örn. 4.1 senaryosundaki devir SONRASI pasifleşen v1) pasife alın (zaten otomatik pasifleşmiş olabilir — değilse elle deneyin).</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "success" (mail gönderildi) veya "warning" (mail gönderilemedi); Settings → <b>"Mail Gönderim Geçmişi"</b> sekmesinde bu bildirim bir satır olarak görünür.</div>
+      <ol class="steps" start="2">
+        <li>Aynı (zaten pasif) sertifikayı tekrar pasife almayı deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Yeni bir bildirim/mail OLUŞMAZ, "Mail Gönderim Geçmişi"nde tekrar satır eklenmez.</div>
+      <span class="ref">test_deactivate_bound_cert_notifies_domain_sy_teams · test_deactivate_is_idempotent</span>
+    </div>
+  </section>
+
+  <section id="s5">
+    <h2><span class="idx">5</span>Trust Store</h2>
+    <p class="section-note">Trust store, "Uygulamalar" sayfasında (<code>/applications</code>) bir uygulamanın düzenleme formu içindeki <b>"Trusted Sertifikalar (trust store)"</b> bölümünde yönetilir.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">5.1</span><span class="mtest-title">Ekleme + süre uyarısı bildirimi</span></div>
+      <ol class="steps">
+        <li>"SSL Sertifikaları" → "Yeni Ekle" ile <code>leaf-expiring-soon.pem</code>'i içe aktarın.</li>
+        <li>"Uygulamalar"da bir uygulamanın düzenleme formunu açın → "Trusted Sertifikalar (trust store)" bölümünde Autocomplete'ten bu sertifikayı seçin, Not yazın, <b>"Ekle"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast "Trusted sertifika eklendi"; liste içinde mor ikonla görünür.</div>
+      <ol class="steps" start="3">
+        <li>Settings → <b>"E-posta (SMTP)"</b> sekmesinde <b>"Süre Uyarılarını Şimdi Gönder"</b> butonuna basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Bu uygulamanın SY ekibine süre uyarısı maili gider; Settings → "Mail Gönderim Geçmişi"nde bu gönderim satır olarak görünür.</div>
+      <span class="ref">test_trusted_store_crud_and_notify</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">5.2</span><span class="mtest-title">Halef → "trusted_add" önerisi (devir değil)</span></div>
+      <ol class="steps">
+        <li><code>leaf-v1.pem</code>'i bir uygulamanın trust store'una ekleyin (5.1'deki gibi).</li>
+        <li><code>leaf-v2.pem</code>'i içe aktarın (aynı anahtar → halef).</li>
+        <li>"Devir Önerileri" sayfasına gidin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Satırın "Tip" sütununda <b>"trusted_add"</b> (ekleme) görünür — "transfer" (devir) DEĞİL.</div>
+      <ol class="steps" start="4">
+        <li>Satırı onaylayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Uygulamanın Trusted Sertifikalar listesinde artık v1 VE v2 BİRLİKTE görünür (v1 silinmez); "SSL Sertifikaları"nda v1 "Aktif" kalır.</div>
+      <span class="ref">test_trusted_add_proposal_keeps_old</span>
+    </div>
+  </section>
+
+  <section id="s6">
+    <h2><span class="idx">6</span>Mail Bildirimleri — Temel Akış</h2>
+    <p class="section-note">Tüm manuel mail tetikleyicileri Settings → <b>"E-posta (SMTP)"</b> sekmesinde; sonuçlar Settings → <b>"Mail Gönderim Geçmişi"</b> sekmesinde (filtrelenebilir tablo, Durum sütunu: yeşil "Gönderildi" / sarı "Kuyrukta" / kırmızı "Başarısız") görünür.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">6.1</span><span class="mtest-title">Süre uyarısı + dedup</span></div>
+      <ol class="steps">
+        <li><code>leaf-expiring-soon.pem</code>'i içe aktarın, SY ekibi atanmış bir domaine Server olarak bağlayın.</li>
+        <li>Settings → "E-posta (SMTP)" → <b>"Süre Uyarılarını Şimdi Gönder"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Toast kaç mail gönderildiğini bildirir; "Mail Gönderim Geçmişi"nde bu domain/SY ekibi için yeşil "Gönderildi" durumunda bir satır belirir.</div>
+      <ol class="steps" start="3">
+        <li>Aynı butona hemen tekrar basın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Aynı alıcıya YENİ bir satır eklenmez (3 saatlik dedup penceresi).</div>
+      <span class="ref">test_scn_domain_bound · test_scn_dedup_3h</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">6.2</span><span class="mtest-title">Süresi geçmiş</span></div>
+      <ol class="steps">
+        <li><code>leaf-expired.pem</code>'i içe aktarın, bir domaine Server olarak bağlayın.</li>
+        <li>Settings → "E-posta (SMTP)" → <b>"Süresi Geçenleri Şimdi Gönder"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Mail Gönderim Geçmişi"nde "süresi geçmiş" içerikli bir satır belirir.</div>
+      <span class="ref">test_scn_expired</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">6.3</span><span class="mtest-title">Devir hatırlatma</span></div>
+      <ol class="steps">
+        <li>Bölüm 2'den kalan bekleyen bir devir önerisi olsun.</li>
+        <li>Settings → "E-posta (SMTP)" → <b>"Bekleyen Önerileri Şimdi Hatırlat"</b>.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İlgili SY ekibine öneriyi (eski→yeni) listeleyen TEK bir hatırlatma maili gider; "Mail Gönderim Geçmişi"nde görünür.</div>
+      <span class="ref">test_reminder_one_mail_per_team_lists_proposals</span>
+    </div>
+  </section>
+
+  <section id="s7">
+    <h2><span class="idx">7</span>RBAC — Temel Kapsam Kuralı</h2>
+    <p class="section-note">Settings → <b>"Kullanıcılar"</b> (Rol ata) ve <b>"Ekip Üyelikleri"</b> (kapsam/takım ata) sekmelerini kullanın.</p>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.1</span><span class="mtest-title">Takım üyeliği tek başına rol vermez</span></div>
+      <ol class="steps">
+        <li>Settings → "Kullanıcılar"da bir kullanıcının Rol'ünü "Viewer" yapın.</li>
+        <li>Settings → "Ekip Üyelikleri"nde bu kullanıcıyı "ADMIN" takımına üye yapın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Kullanıcının Rol sütunu HÂLÂ "Viewer" görünür — takım üyeliği admin yetkisi vermez.</div>
+      <span class="ref">test_admin_viewer_team_membership_does_not_change_role</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.2</span><span class="mtest-title">Editor yalnız kendi kapsamını düzenler</span></div>
+      <ol class="steps">
+        <li>Bir editor kullanıcısını yalnızca "B" ekibine üye yapın.</li>
+        <li>Bu kullanıcıyla giriş yapıp "A" ekibine ait bir domainde düzenleme deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Erişim reddedilir; "B" ekibinin domainlerinde aynı işlem serbestçe çalışır.</div>
+      <span class="ref">test_editor_scoped_to_own_domains</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">7.3</span><span class="mtest-title">Break-glass koruması</span></div>
+      <ol class="steps">
+        <li>Sistemdeki TEK admin kullanıcısının Rol'ünü Settings → "Kullanıcılar"dan düşürmeyi veya hesabı pasifleştirmeyi deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İşlem reddedilir (hata bildirimi) — sistem adminsiz kalamaz.</div>
+      <span class="ref">test_zzz_break_glass_last_admin</span>
+    </div>
+  </section>
+
+  <footer>
+    Otomatik suite'i çalıştırmak için: <code>cd backend && .venv/bin/python -m pytest tests/test_proposal_scenarios.py tests/test_proposals_auth.py tests/test_deactivate_rule.py tests/test_trust_store.py tests/test_mail_scenarios.py tests/test_rbac_derivation.py -v</code><br>
+    Sertifika materyali <code>docs/regresyon-sertifikalari/uret.py</code> ile üretildi; leaf sertifikalar ~397 gün geçerli, süresi dolduğunda script yeniden çalıştırılabilir.<br>
+    Daha geniş kapsam için → <a href="REGRESYON-KAPSAMLI.html">REGRESYON-KAPSAMLI.html</a>.
+  </footer>
+
+</div>
+</body>
+</html>
