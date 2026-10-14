@@ -152,7 +152,6 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                helperText={!creator ? 'Zorunlu — sertifikayı oluşturan SY ekibini seçin'
                            : (syTeams.length ? 'Sertifikayı oluşturan SY ekibi'
                                              : 'Tanımlı SY ekibi yok — Ayarlar’dan ekleyin')}>
-      <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
       {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
     </TextField>
   )
@@ -163,7 +162,6 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
     <TextField select required label="Ortam" size="small" fullWidth
                value={value} onChange={(e) => onChange(e.target.value)} error={!value}
                helperText={!value ? 'Zorunlu — Prod veya Test seçin' : undefined}>
-      <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
       <MenuItem value="prod">Prod</MenuItem>
       <MenuItem value="test">Test</MenuItem>
     </TextField>

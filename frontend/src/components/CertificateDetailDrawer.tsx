@@ -408,7 +408,6 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                            onChange={(e) => setForm({ ...form, environment: e.target.value })}
                            error={!form.environment}
                            helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
-                  <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
                   <MenuItem value="prod">Prod</MenuItem>
                   <MenuItem value="test">Test</MenuItem>
                 </TextField>
