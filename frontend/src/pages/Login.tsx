@@ -6,9 +6,9 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
 import { Alert, Box, Button, IconButton, InputAdornment, Stack, TextField, Typography } from '@mui/material'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiErrorMessage } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
 const FEATURES = [
@@ -46,6 +46,11 @@ export default function Login() {
   const [showPass, setShowPass] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [version, setVersion] = useState('')
+
+  useEffect(() => {
+    api.get('/health').then((res) => setVersion(res.data?.version ?? '')).catch(() => {})
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -180,7 +185,7 @@ export default function Login() {
 
           <Typography variant="caption" color="text.disabled"
                       sx={{ display: 'block', textAlign: 'center', mt: 4 }}>
-            © 2025 JUMBO · Kurumsal Sertifika Yönetimi · v2.1
+            © 2025 JUMBO · Kurumsal Sertifika Yönetimi{version && ` · v${version}`}
           </Typography>
         </Box>
       </Box>

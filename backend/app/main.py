@@ -622,6 +622,9 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan, docs_url=None, redoc_u
 _SWAGGER_STATIC = Path(__file__).resolve().parent / "static" / "swagger"
 app.mount("/docs/static", StaticFiles(directory=str(_SWAGGER_STATIC)), name="swagger-static")
 
+# Tek doğruluk kaynağı: backend/VERSION (Dockerfile zaten tüm backend/'i imaja kopyalıyor).
+_VERSION = (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+
 
 @app.get("/docs", include_in_schema=False)
 def swagger_ui_docs():
@@ -675,4 +678,4 @@ async def _integrity_error_handler(request: Request, exc: IntegrityError):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": settings.app_name}
+    return {"status": "ok", "app": settings.app_name, "version": _VERSION}
