@@ -128,6 +128,7 @@ export default function Certificates() {
   const [importOpen, setImportOpen] = useState(false)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
+  const [deactivateTarget, setDeactivateTarget] = useState<Certificate | null>(null)
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
   const [showInactive, setShowInactive] = useState(false)
@@ -161,6 +162,7 @@ export default function Certificates() {
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
       queryClient.invalidateQueries({ queryKey: ['cert-map'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      setDeactivateTarget(null)
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
@@ -315,7 +317,7 @@ export default function Certificates() {
       {isAdmin && (
         <Tooltip title={cert.is_active ? 'Pasife Al' : 'Aktifleştir'}>
           <IconButton size="small" color={cert.is_active ? 'warning' : 'success'}
-                      onClick={() => toggleActive.mutate(cert)}>
+                      onClick={() => cert.is_active ? setDeactivateTarget(cert) : toggleActive.mutate(cert)}>
             {cert.is_active ? <PauseCircleOutlineIcon fontSize="small" /> : <PlayCircleOutlineIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
@@ -640,6 +642,27 @@ export default function Certificates() {
           <Button onClick={() => setDeleteTarget(null)}>Vazgeç</Button>
           <Button color="error" variant="contained" onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}>
             Kalıcı Sil
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!deactivateTarget} onClose={() => setDeactivateTarget(null)}>
+        <DialogTitle>Sertifikayı Pasife Al</DialogTitle>
+        <DialogContent>
+          <Typography>
+            <b>{deactivateTarget?.name}</b> pasife alınacak. Domain/uygulama eşlemeleri KALIR,
+            ama sertifika artık aktif sayılmaz.
+            {deactivateTarget && deactivateTarget.domains.length > 0 && (
+              <> Bu sertifika <b>{deactivateTarget.domains.length}</b> domain eşlemesine sahip;
+              canlıda hâlâ sunuluyorsa bu durumu gözden kaçırmayın.</>
+            )}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeactivateTarget(null)}>Vazgeç</Button>
+          <Button color="warning" variant="contained"
+                  onClick={() => deactivateTarget && toggleActive.mutate(deactivateTarget)}>
+            Pasife Al
           </Button>
         </DialogActions>
       </Dialog>
