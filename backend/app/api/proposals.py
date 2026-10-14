@@ -58,21 +58,25 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
 def list_proposals(status: str | None = "pending", mine: bool = False,
                    db: Session = Depends(get_db),
                    user: User = Depends(require_page_access("proposals"))):
-    """Devir önerileri. Admin hepsini görür; diğerleri yalnız üye oldukları SY ekibinin
-    (sy_team_id) önerilerini. mine=true admin için de yalnız kendi ekiplerini süzer.
-    Görünürlük: require_page_access('proposals') — SY üyeleri kendi tekliflerini her zaman
-    görür, alakasız kullanıcılar yalnız Ayarlar>Erişim açıksa (bkz. security.page_visible)."""
-    is_admin = user.role == "admin"
+    """Devir önerileri. Admin VE allviewer (Genel İzleyici) hepsini görür; diğerleri yalnız
+    üye oldukları SY ekibinin (sy_team_id) önerilerini. mine=true admin/allviewer için de
+    yalnız kendi ekiplerini süzer. Görünürlük: require_page_access('proposals') — SY üyeleri
+    kendi tekliflerini her zaman görür, alakasız kullanıcılar yalnız Ayarlar>Erişim açıksa
+    (bkz. security.page_visible). allviewer salt-okurdur — düzenleme/onay yetkisi vermez,
+    bkz. _can_decide/require_team_or_admin (domain_scope_team_ids ile tutarlı: admin+allviewer=global)."""
+    can_see_all = user.role in ("admin", "allviewer")  # GÖRÜNÜRLÜK kapsamı: admin+allviewer
     team_ids = user_team_ids(db, user)
     q = db.query(TransferProposal)
     if status:
         q = q.filter(TransferProposal.status == status)
-    if not is_admin or mine:
-        # Sahipsiz (sy_team_id NULL) öneriler yalnız admin'e görünür
+    if not can_see_all or mine:
+        # Sahipsiz (sy_team_id NULL) öneriler yalnız admin/allviewer'a görünür
         q = q.filter(TransferProposal.sy_team_id.in_(team_ids or {-1}))
     rows = q.order_by(TransferProposal.created_at.desc()).all()
-    # Sertifikası silinmiş orphan önerileri gösterme (savunma amaçlı; delete zaten temizler)
-    return [_to_out(db, p, team_ids, is_admin, _can_decide(user)) for p in rows
+    # Sertifikası silinmiş orphan önerileri gösterme (savunma amaçlı; delete zaten temizler).
+    # _to_out'a GERÇEK admin geçilir (can_see_all DEĞİL) — allviewer can_decide=True ALMASIN;
+    # onay yetkisi yalnız admin/editor-tier'a aittir (bkz. _can_decide, require_team_or_admin).
+    return [_to_out(db, p, team_ids, user.role == "admin", _can_decide(user)) for p in rows
             if db.get(Certificate, p.old_cert_id) and db.get(Certificate, p.new_cert_id)]
 
 
@@ -83,20 +87,21 @@ def proposal_group(proposal_id: int, db: Session = Depends(get_db),
     Tek sertifika çok domaine bağlıysa her domain kendi SY'since ayrı onaylanır; bu uç,
     kullanıcının KARAR VEREMEYECEĞİ kardeş domainleri de listeler (yalnız farkındalık —
     sertifikanın SAN'ı zaten tüm domainleri açığa vurduğu için ek ifşa değildir).
-    Erişim: yalnız bu öneriyi görebilen (admin veya sahibi SY üyesi) grubu çekebilir."""
+    Erişim: yalnız bu öneriyi görebilen (admin/allviewer veya sahibi SY üyesi) grubu çekebilir."""
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
         raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
-    is_admin = user.role == "admin"
+    can_see_all = user.role in ("admin", "allviewer")  # GÖRÜNÜRLÜK kapsamı: admin+allviewer
     team_ids = user_team_ids(db, user)
-    if not (is_admin or (prop.sy_team_id is not None and prop.sy_team_id in team_ids)):
+    if not (can_see_all or (prop.sy_team_id is not None and prop.sy_team_id in team_ids)):
         raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
     rows = (db.query(TransferProposal)
             .filter(TransferProposal.old_cert_id == prop.old_cert_id,
                     TransferProposal.new_cert_id == prop.new_cert_id,
                     TransferProposal.status == "pending")
             .order_by(TransferProposal.id.asc()).all())
-    return [_to_out(db, p, team_ids, is_admin, _can_decide(user)) for p in rows
+    # _to_out'a GERÇEK admin geçilir (can_see_all DEĞİL) — allviewer can_decide=True ALMASIN.
+    return [_to_out(db, p, team_ids, user.role == "admin", _can_decide(user)) for p in rows
             if db.get(Certificate, p.old_cert_id) and db.get(Certificate, p.new_cert_id)]
 
 

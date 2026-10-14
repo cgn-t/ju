@@ -56,6 +56,48 @@ def test_allviewer_global_read_only(client, auth_headers):
     assert client.get("/api/users", headers=h).status_code == 403  # admin-only
 
 
+# --- allviewer: Devir Önerileri sayfasında TÜM ekiplerin önerilerini görür (bug fix regresyonu) ---
+def test_allviewer_sees_all_teams_pending_proposals(client, auth_headers):
+    """Bug: allviewer sayfaya girebiliyordu (require_page_access geçiyordu, page_visible admin+
+    allviewer'ı eşit tutuyor) ama liste sorgusu onu 'hiç takımı yok' sayıp boş döndürüyordu —
+    domain_scope_team_ids'in zaten kurduğu 'admin+allviewer=global' kuralıyla tutarsızdı."""
+    from datetime import datetime
+
+    from tests import certgen
+
+    t = _team(client, auth_headers, "SY-AllviewerProp", "SY")
+    ca, ca_key = certgen.make_ca("Allviewer Prop CA")
+    key = certgen.make_key()
+    v1, _ = certgen.make_leaf(ca, ca_key, "allviewer-prop.test", key=key,
+                              not_before=datetime(2026, 1, 1))
+    v2, _ = certgen.make_leaf(ca, ca_key, "allviewer-prop.test", key=key,
+                              not_before=datetime(2026, 3, 1))
+    r = client.post("/api/certificates/import", headers=auth_headers,
+                    files={"file": ("c.pem", (certgen.pem(v1) + certgen.pem(ca)).encode(),
+                                    "application/x-pem-file")})
+    assert r.status_code == 200, r.text
+    v1_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+    dom = client.post("/api/domains", headers=auth_headers,
+                      json={"domain": "allviewer-prop.test", "sy_team_id": t["id"]}).json()["id"]
+    assert client.post(f"/api/domains/{dom}/certificates", headers=auth_headers,
+                       json={"certificate_id": v1_id, "mapping_type": "server"}).status_code == 200
+    r2 = client.post("/api/certificates/import", headers=auth_headers,
+                     files={"file": ("c2.pem", certgen.pem(v2).encode(), "application/x-pem-file")},
+                     data={"supersede": "true"})
+    assert r2.status_code == 200, r2.text
+
+    _mk_user(client, auth_headers, "rbac_allviewer_prop", role="allviewer")
+    h, _ = _login(client, "rbac_allviewer_prop")  # allviewer bu ekibin ÜYESİ DEĞİL
+
+    props = client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
+    matching = [p for p in props if p["domain_id"] == dom]
+    assert len(matching) == 1, f"allviewer tüm ekiplerin önerilerini görmeli: {props}"
+    assert matching[0]["can_decide"] is False, "allviewer onaylayamaz — salt-okur"
+
+    r3 = client.get(f"/api/proposals/{matching[0]['id']}/group", headers=h)
+    assert r3.status_code == 200, "allviewer kendi ekibi olmayan bir öneriyi de group ile görebilmeli"
+
+
 # --- viewer: takım-kapsamlı salt-okur (kendi SY ekibini görür, düzenleyemez) ---
 def test_viewer_scoped_read_only(client, auth_headers):
     t_a = _team(client, auth_headers, "SY-VAlpha", "SY")
