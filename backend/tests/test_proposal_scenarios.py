@@ -94,8 +94,11 @@ def _pending(client, h):
 
 
 def _server_certs(client, h, domain_id):
+    """Yalnız LEAF seviyesi server eşlemesi — attach artık zinciri (intermediate/root dahil)
+    de 'server' olarak bağlıyor; bu yardımcı senaryoların odaklandığı leaf devrini izole eder."""
     dom = client.get(f"/api/domains/{domain_id}", headers=h).json()
-    return [c["certificate_id"] for c in dom["certificates"] if c["mapping_type"] == "server"]
+    return [c["certificate_id"] for c in dom["certificates"]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"]
 
 
 def _active(cert_id):

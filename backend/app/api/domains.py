@@ -5,6 +5,7 @@ import openpyxl
 from app.core.timeutil import utcnow
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -19,6 +20,7 @@ from app.api.schemas import (
     MappedCertOut,
     MappingCreate,
 )
+from app.core.certtype import cert_type_filter, normalize_cert_type
 from app.core.security import (
     can_manage_team_resource,
     domain_scope_team_ids,
@@ -37,6 +39,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.services import cert_parser, renewal
 from app.services.audit import log_action
+from app.services.chain_sync import sync_domain_chain_certs
 from app.services.live_check import check_domain, fetch_served_chain, parse_target
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
@@ -65,6 +68,7 @@ def _to_out(domain: Domain, db: Session | None = None,
             certificate_id=m.certificate_id,
             name=m.certificate.name,
             mapping_type=m.mapping_type,
+            cert_type=normalize_cert_type(m.certificate.cert_type),
             valid_to=m.certificate.valid_to,
             days_left=days,
             serial_number=m.certificate.serial_number,
@@ -211,12 +215,20 @@ def probe_chain(body: ChainProbeRequest, db: Session = Depends(get_db),
 
 @router.post("/{domain_id}/import-chain", response_model=ChainImportOut)
 def import_chain(request: Request, domain_id: int, supersede: bool = False,
+                 environment: str | None = Query(None),
                  db: Session = Depends(get_db),
                  user: User = Depends(require_role("editor"))):
     """Domain'in canlıda sunduğu zinciri çekip envantere aktarır: var olanlar atlanır,
     yeniler SKI/AKI ile hiyerarşiye bağlanır, uç (leaf) sertifika domain'e 'server'
     olarak eşlenir (yalnız domain boşsa — devir değil). Domainde zaten aktif server
-    varsa ONAY MODELİ gereği anında devir YAPILMAZ; SY onayına düşen öneri üretilir."""
+    varsa ONAY MODELİ gereği anında devir YAPILMAZ; SY onayına düşen öneri üretilir.
+
+    `environment` (prod|test, opsiyonel): otomatik yollar (live-check, keşif) bunu bilemez;
+    yalnız burada bir insan import'u tetiklediği için elle belirtilebilir. YALNIZ bu istekte
+    YENİ oluşturulan sertifikalara uygulanır — zaten envanterde olan kayıtların ortamı
+    ASLA ezilmez (bkz. chain_sync.sync_domain_chain_certs)."""
+    if environment not in (None, "", "prod", "test"):
+        raise HTTPException(status_code=400, detail="environment yalnız 'prod' veya 'test' olabilir")
     domain = db.get(Domain, domain_id)
     if domain is None:
         raise HTTPException(status_code=404, detail="Domain bulunamadı")
@@ -233,78 +245,32 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"TLS bağlantısı kurulamadı: {str(exc)[:200]}")
 
-    parsed_list = [cert_parser.parse_x509(c) for c in chain]
-    leaf_fp = parsed_list[0].fingerprint_sha256  # el sıkışmada ilk sunulan = uç sertifika
-    # Önce CA'lar eklensin ki leaf parent bulabilsin
-    parsed_list.sort(key=lambda p: {"root": 0, "intermediate": 1, "leaf": 2}[p.cert_type])
-
-    created, existing_names = [], []
-    leaf_row: Certificate | None = None
-    for parsed in parsed_list:
-        row = cert_parser.find_existing(db, parsed)
-        if row is not None:
-            existing_names.append(row.name)
-        else:
-            row = Certificate(**parsed.__dict__, creator=user.username, source="live")
-            row.parent_id = cert_parser.resolve_parent(db, parsed)
-            db.add(row)
-            db.flush()
-            cert_parser.relink_children(db, row)
-            log_action(db, user.username, "import", "certificates", row.id,
-                       {"name": row.name, "via": f"live-chain {domain.domain}"}, request)
-            created.append(row.name)
-        if parsed.fingerprint_sha256 == leaf_fp:
-            leaf_row = row
-
-    mapped_server = None
-    superseded_names: list[str] = []
-    if leaf_row is not None:
-        already = db.query(CertificateDomainMap).filter_by(
-            certificate_id=leaf_row.id, domain_id=domain.id, mapping_type="server").first()
-        # Domainde leaf_row dışında AKTİF başka bir server sertifikası var mı?
-        existing_servers = (db.query(CertificateDomainMap).join(
-            Certificate, Certificate.id == CertificateDomainMap.certificate_id)
-            .filter(CertificateDomainMap.domain_id == domain.id,
-                    CertificateDomainMap.mapping_type == "server",
-                    CertificateDomainMap.certificate_id != leaf_row.id,
-                    Certificate.is_active == True).all())
-        proposed_old_ids: set[int] = set()
-        if supersede:
-            # ONAY MODELİ: sertifika canlıdan çekilmiş olsa da (deploy kanıtlı) devir
-            # yine SY onayı bekler; öneri live_seen=True kanıtıyla doğar.
-            for old in renewal.find_predecessors(
-                    db, cert_type=leaf_row.cert_type,
-                    fingerprint_sha256=leaf_row.fingerprint_sha256,
-                    subject_key_identifier=leaf_row.subject_key_identifier,
-                    subject=leaf_row.subject, issuer=leaf_row.issuer,
-                    valid_from=leaf_row.valid_from, exclude_id=leaf_row.id):
-                made = renewal.propose(db, leaf_row, old, username=user.username, request=request,
-                                       via="import-chain", live_seen=True,
-                                       signal=renewal.renewal_signal(
-                                           old, subject_key_identifier=leaf_row.subject_key_identifier,
-                                           subject=leaf_row.subject, issuer=leaf_row.issuer))
-                proposed_old_ids.add(old.id)
-                if made:
-                    superseded_names.append(old.name)
-        # Öncül olarak yakalanmayan mevcut server sertifikaları da devir önerisi olur
-        for m in existing_servers:
-            if m.certificate_id not in proposed_old_ids:
-                p = renewal.propose_attach_transfer(db, leaf_row, m.certificate, domain, "server",
-                                                    username=user.username, request=request)
-                if p is not None:
-                    superseded_names.append(m.certificate.name)
-        # Doğrudan server eşlemesi YALNIZ domainde hiç aktif server yokken (ilk kurulum,
-        # devir değil) eklenir; aksi halde devir önerisi onaylanınca eşleme taşınır
-        if already is None and not existing_servers:
-            db.add(CertificateDomainMap(certificate_id=leaf_row.id, domain_id=domain.id,
-                                        mapping_type="server"))
-            log_action(db, user.username, "create", "certificate_domain_map", None,
-                       {"domain": domain.domain, "cert": leaf_row.name, "type": "server",
-                        "via": "live-chain"}, request)
-            mapped_server = leaf_row.name
+    # Zinciri envantere işler ve HER cert_type için ayrı ayrı server eşlemesini senkronize
+    # eder (leaf/intermediate/root bağımsız — ortak mantık chain_sync, live-check de kullanır).
+    sync = sync_domain_chain_certs(db, domain, chain, username=user.username, request=request,
+                                   via="import-chain", environment=environment or None)
+    leaf_row = sync.leaf_row
+    if supersede and leaf_row is not None:
+        # ONAY MODELİ: sertifika canlıdan çekilmiş olsa da (deploy kanıtlı) devir yine SY
+        # onayı bekler; öneri live_seen=True kanıtıyla doğar. Yalnız leaf'e özeldir (SKI/subject
+        # sinyali domain-bağımsız geniş arama yapar) — chain_sync'in domain-içi tip eşlemesinden
+        # bağımsız; propose()'un idempotent kontrolü sayesinde aynı granül ikinci kez önerilmez.
+        for old in renewal.find_predecessors(
+                db, cert_type=leaf_row.cert_type,
+                fingerprint_sha256=leaf_row.fingerprint_sha256,
+                subject_key_identifier=leaf_row.subject_key_identifier,
+                subject=leaf_row.subject, issuer=leaf_row.issuer,
+                valid_from=leaf_row.valid_from, exclude_id=leaf_row.id):
+            made = renewal.propose(db, leaf_row, old, username=user.username, request=request,
+                                   via="import-chain", live_seen=True,
+                                   signal=renewal.renewal_signal(
+                                       old, subject_key_identifier=leaf_row.subject_key_identifier,
+                                       subject=leaf_row.subject, issuer=leaf_row.issuer))
+            if made:
+                sync.superseded.append(old.name)
     db.commit()
-    return ChainImportOut(created=created, existing=existing_names,
-                          mapped_server=mapped_server, superseded=superseded_names)
+    return ChainImportOut(created=sync.created, existing=sync.existing,
+                          mapped_server=sync.mapped.get("leaf"), superseded=sync.superseded)
 
 
 @router.get("/{domain_id}", response_model=DomainOut)
@@ -433,37 +399,106 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
         certificate_id=cert.id, domain_id=domain.id, mapping_type=body.mapping_type).first()
     if exists:
         raise HTTPException(status_code=409, detail="Bu eşleme zaten mevcut")
-    # ONAY MODELİ — baypas kapatma: bu domainde aynı tipte başka bir sertifika EŞLİYSE
-    # yeni eşleme eklemek fiilen DEVİRDİR (detach+attach ya da pause+attach ile onay
-    # atlanmasın — is_active FİLTRESİ YOK; pasife alınıp eklenmesi de devir sayılır).
-    # Doğrudan eklenmez; devir önerisi üretilir ve SY onayına düşer.
-    collision = (db.query(CertificateDomainMap)
-                 .filter(CertificateDomainMap.domain_id == domain.id,
-                         CertificateDomainMap.mapping_type == body.mapping_type,
-                         CertificateDomainMap.certificate_id != cert.id).first())
-    if collision is not None:
-        prop = renewal.propose_attach_transfer(
-            db, cert, collision.certificate, domain, body.mapping_type,
-            username=user.username, request=request)
-        if prop is None:
-            # RED KALICI: bu granülün devri daha önce REDDEDİLDİ — rutin attach yeniden açamaz.
-            db.rollback()
-            raise HTTPException(status_code=409, detail=(
-                f"'{domain.domain}' için bu devir ({collision.certificate.name} → {cert.name}) "
-                f"daha önce reddedildi ve kalıcıdır. Yeniden önermek gerekiyorsa sertifika "
-                f"detayından 'Devir Öner' ile bilinçli olarak yeniden başlatın."))
+
+    if body.mapping_type == "client":
+        # TRUSTED: zincir zorunluluğu yok — leaf/intermediate/root teker teker bağlanabilir.
+        # ONAY MODELİ — baypas kapatma: bu domainde aynı tipte başka bir sertifika EŞLİYSE
+        # yeni eşleme eklemek fiilen DEVİRDİR (detach+attach ya da pause+attach ile onay
+        # atlanmasın — is_active FİLTRESİ YOK; pasife alınıp eklenmesi de devir sayılır).
+        collision = (db.query(CertificateDomainMap)
+                     .filter(CertificateDomainMap.domain_id == domain.id,
+                             CertificateDomainMap.mapping_type == "client",
+                             CertificateDomainMap.certificate_id != cert.id).first())
+        if collision is not None:
+            prop = renewal.propose_attach_transfer(
+                db, cert, collision.certificate, domain, "client",
+                username=user.username, request=request)
+            if prop is None:
+                # RED KALICI: bu granülün devri daha önce REDDEDİLDİ — rutin attach yeniden açamaz.
+                db.rollback()
+                raise HTTPException(status_code=409, detail=(
+                    f"'{domain.domain}' için bu devir ({collision.certificate.name} → {cert.name}) "
+                    f"daha önce reddedildi ve kalıcıdır. Yeniden önermek gerekiyorsa sertifika "
+                    f"detayından 'Devir Öner' ile bilinçli olarak yeniden başlatın."))
+            db.commit()
+            return JSONResponse(status_code=202, content={
+                "status": "proposal_created", "proposal_id": prop.id,
+                "message": f"'{domain.domain}' zaten aktif bir client sertifikası "
+                           f"({collision.certificate.name}) taşıyor. Doğrudan değiştirilemez — "
+                           f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."})
+        db.add(CertificateDomainMap(certificate_id=cert.id, domain_id=domain.id, mapping_type="client"))
+        log_action(db, user.username, "create", "certificate_domain_map", None,
+                   {"domain": domain.domain, "cert": cert.name, "type": "client"}, request)
+        db.commit()
+        return _to_out(_query(db).filter(Domain.id == domain_id).first())
+
+    # mapping_type == "server": zincir-bilinçli — leaf seçilir, intermediate/root otomatik
+    # çözülüp birlikte bağlanır; her cert_type kendi havuzuyla (leaf↔leaf, root↔root)
+    # karşılaştırılır (bkz. plan: live_check/import_chain'deki aynı kök hatanın düzeltmesi).
+    if normalize_cert_type(cert.cert_type) != "leaf":
+        raise HTTPException(status_code=400,
+                            detail="Server olarak yalnız leaf (uç) sertifika seçilir; zincir "
+                                   "otomatik eklenir.")
+    chain, complete = cert_parser.resolve_server_chain(cert)
+    warning = None if complete else (
+        "Zincir eksik: intermediate/root envanterde yok — yalnızca bulunabilen seviyeler "
+        "bağlandı. Devir takibi ve canlı doğrulama bu seviyeler için şimdilik sınırlı "
+        "kalacak; zincir ileride içe aktarılırsa otomatik tamamlanır.")
+
+    # Aynı zincirde AYNI tipten birden fazla sertifika olabilir (ör. gerçek 2 katmanlı
+    # ara-CA hiyerarşisi, ya da eski istemcilerle uyum için sunulan çapraz-imzalı bir
+    # "root" kopyası — kendi kendini imzalamadığından 'intermediate' sayılır). Bu üyeler
+    # birbirinin çakışma adayı DEĞİLDİR; yalnız bu zincirin DIŞINDA kalan (önceden, başka
+    # bir zincirden bağlanmış) aynı tipteki bir sertifika gerçek bir rotasyon/çakışma sayılır.
+    chain_ids = {m.id for m in chain}
+
+    proposals: list[tuple[str, object]] = []  # (cert_type, TransferProposal)
+    for member in chain:
+        member_type = normalize_cert_type(member.cert_type)
+        if db.query(CertificateDomainMap).filter_by(
+                certificate_id=member.id, domain_id=domain.id, mapping_type="server").first():
+            continue  # bu seviye zaten bağlı (ör. önceki bir attach/import ile)
+        collision = (db.query(CertificateDomainMap)
+                     .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
+                     .filter(CertificateDomainMap.domain_id == domain.id,
+                             CertificateDomainMap.mapping_type == "server",
+                             CertificateDomainMap.certificate_id.notin_(chain_ids),
+                             cert_type_filter(Certificate.cert_type, member_type)).first())
+        if collision is not None:
+            prop = renewal.propose_attach_transfer(
+                db, member, collision.certificate, domain, "server",
+                username=user.username, request=request)
+            if prop is None:
+                if member_type == "leaf":
+                    # RED KALICI (leaf) — bugünkü davranışla aynı: sert 409.
+                    db.rollback()
+                    raise HTTPException(status_code=409, detail=(
+                        f"'{domain.domain}' için bu devir ({collision.certificate.name} → "
+                        f"{member.name}) daha önce reddedildi ve kalıcıdır. Yeniden önermek "
+                        f"gerekiyorsa sertifika detayından 'Devir Öner' ile bilinçli olarak "
+                        f"yeniden başlatın."))
+                continue  # intermediate/root reddi leaf attach'ini bloklamaz
+            proposals.append((member_type, prop))
+        else:
+            db.add(CertificateDomainMap(certificate_id=member.id, domain_id=domain.id,
+                                        mapping_type="server"))
+            log_action(db, user.username, "create", "certificate_domain_map", None,
+                       {"domain": domain.domain, "cert": member.name, "type": "server"}, request)
+
+    if proposals:
         db.commit()
         return JSONResponse(status_code=202, content={
-            "status": "proposal_created", "proposal_id": prop.id,
-            "message": f"'{domain.domain}' zaten aktif bir {body.mapping_type} sertifikası "
-                       f"({collision.certificate.name}) taşıyor. Doğrudan değiştirilemez — "
-                       f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."})
-    db.add(CertificateDomainMap(certificate_id=cert.id, domain_id=domain.id,
-                                mapping_type=body.mapping_type))
-    log_action(db, user.username, "create", "certificate_domain_map", None,
-               {"domain": domain.domain, "cert": cert.name, "type": body.mapping_type}, request)
+            "status": "proposal_created",
+            "proposal_ids": [p.id for _, p in proposals],
+            "message": (f"'{domain.domain}' zaten aktif server sertifikası taşıyan seviye(ler) "
+                       f"var ({', '.join(t for t, _ in proposals)}). Doğrudan değiştirilemez — "
+                       f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."
+                       + (f" {warning}" if warning else ""))})
     db.commit()
-    return _to_out(_query(db).filter(Domain.id == domain_id).first())
+    out = jsonable_encoder(_to_out(_query(db).filter(Domain.id == domain_id).first()))
+    if warning:
+        out["warning"] = warning
+    return JSONResponse(status_code=200, content=out)
 
 
 @router.delete("/{domain_id}/certificates/{cert_id}")

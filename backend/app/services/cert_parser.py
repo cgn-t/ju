@@ -242,6 +242,24 @@ def resolve_parent(db: Session, parsed: ParsedCertificate) -> int | None:
     return parent.id if parent else None
 
 
+def resolve_server_chain(cert: Certificate) -> tuple[list[Certificate], bool]:
+    """cert'ten (leaf) başlayıp `parent` ilişkisiyle yukarı çıkar.
+
+    (zincir, tamam_mı) döner — zincir leaf→...→en üst CA sırasıyla, cert ilk eleman.
+    'tamam_mı': en üstteki kayıt self-signed (issuer==subject) ise True; aksi halde
+    intermediate/root envanterde EKSİK demektir (yalnız bulunabilen kısım döner,
+    reddetmek çağıranın işi değil — bkz. domains.py::attach_certificate)."""
+    chain = [cert]
+    seen = {cert.id}
+    current = cert
+    while current.parent is not None and current.parent.id not in seen:
+        current = current.parent
+        chain.append(current)
+        seen.add(current.id)
+    complete = current.issuer == current.subject
+    return chain, complete
+
+
 def relink_children(db: Session, cert: Certificate) -> int:
     """Yeni eklenen bir CA sertifikasının SKI'sine işaret eden yetim kayıtları bağlar.
 

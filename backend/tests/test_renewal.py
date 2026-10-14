@@ -217,7 +217,7 @@ def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_heade
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert dom["pending_proposals"] == 1
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [v1_id]  # devir henüz yok
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [v1_id]  # devir henüz yok
 
     # SY onayı (admin) → devir uygulanır: eşleme taşınır, v1 pasifleşir
     assert _approve_all(client, auth_headers, new_id=v2_id, old_id=v1_id) == 1
@@ -228,8 +228,9 @@ def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_heade
     v2_after = client.get(f"/api/certificates/{v2_id}", headers=auth_headers).json()
     assert [p["id"] for p in v2_after["supersedes"]] == [v1_id]
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
+    # "server" artık TAM ZİNCİR (leaf+root) tutar; bu senaryo yalnız leaf devrini izler
     server_ids = [c["certificate_id"] for c in dom["certificates"]
-                  if c["mapping_type"] == "server"]
+                  if c["mapping_type"] == "server" and c["cert_type"] == "leaf"]
     assert server_ids == [v2_id]
     entries = client.get("/api/audit", headers=auth_headers).json()
     assert any(e["action"] == "supersede_apply" for e in entries)
@@ -316,7 +317,7 @@ def test_manual_supersede_proposes_and_approves(client, auth_headers):
     assert _approve_all(client, auth_headers, new_id=b_id, old_id=a_id) == 1
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [b_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [b_id]
     a_after = client.get(f"/api/certificates/{a_id}", headers=auth_headers).json()
     assert a_after["is_active"] is False
     # pasif kayıt devralamaz
@@ -341,16 +342,17 @@ def test_attach_collision_creates_proposal_not_silent_transfer(client, auth_head
     r = _attach(client, auth_headers, domain_id, b_id)
     assert r.status_code == 202
     assert r.json()["status"] == "proposal_created"
-    # domain hâlâ yalnız a'ya eşli; öneri onaya düştü
+    # domain hâlâ yalnız a'ya eşli; öneri onaya düştü (root ca da server bağlı ama
+    # bu senaryo leaf devrini izler — bkz. aşağıdaki cert_type filtresi)
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [a_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [a_id]
     assert dom["pending_proposals"] == 1
 
     assert _approve_all(client, auth_headers, new_id=b_id, old_id=a_id) == 1
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [b_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [b_id]
 
 
 def test_manual_create_without_pem_dedup(client, auth_headers):
@@ -487,7 +489,7 @@ def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_
         prop_id, v2_id = props[0]["id"], props[0]["new_cert_id"]
         dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
         assert {c["certificate_id"] for c in dom["certificates"]
-                if c["mapping_type"] == "server"} == {v1_id}  # kopyalanmadı
+                if c["mapping_type"] == "server" and c["cert_type"] == "leaf"} == {v1_id}  # kopyalanmadı
         v2_out = client.get(f"/api/certificates/{v2_id}", headers=auth_headers).json()
         assert v2_out["vault_path"] == "certs/renew-demo"
 
@@ -508,7 +510,7 @@ def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_
         assert r.json()["live_check_status"] == "match"
         dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
         assert [c["certificate_id"] for c in dom["certificates"]
-                if c["mapping_type"] == "server"] == [v2_id]
+                if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [v2_id]
 
 
 def test_live_check_expired_match_is_mismatch(client, auth_headers):
@@ -627,4 +629,4 @@ def test_import_chain_proposes_for_unrelated_active_server(client, auth_headers)
         assert old_after["is_active"] is True
         dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
         assert [c["certificate_id"] for c in dom["certificates"]
-                if c["mapping_type"] == "server"] == [old_id]
+                if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [old_id]

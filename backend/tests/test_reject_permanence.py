@@ -133,7 +133,7 @@ def test_rejected_granule_not_resurrected_by_attach_collision(client, auth_heade
     # Eski eşleme değişmedi (attach reddedildi, doğrudan taşınmadı)
     dom = client.get(f"/api/domains/{d}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [old_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [old_id]
 
     # Bilinçli manuel supersede hâlâ reddi yeniden açabilir (tek kaçış yolu korunur)
     r = client.post(f"/api/certificates/{new_id}/supersede/{old_id}", headers=auth_headers)

@@ -197,7 +197,7 @@ def test_bypass_gates_detach_attach_and_ownership(client, auth_headers):
     # domain hâlâ a'ya eşli, sahibi değişmedi
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [a_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [a_id]
     assert dom["sy_team"]["id"] == team_id
 
 
@@ -251,7 +251,7 @@ def test_reject_keeps_old_active_and_double_decision_conflicts(client, auth_head
                       headers=auth_headers).json()["is_active"] is True
     dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
     assert [c["certificate_id"] for c in dom["certificates"]
-            if c["mapping_type"] == "server"] == [v1_id]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [v1_id]
     # ikinci karar (approve) çakışır: zaten karara bağlanmış
     assert client.post(f"/api/proposals/{prop_id}/approve",
                        headers=auth_headers).status_code == 409
@@ -269,7 +269,8 @@ def test_cancel_cannot_override_decided_proposal(client, auth_headers):
     assert client.post(f"/api/proposals/{pid}/approve", headers=h).status_code == 200
     assert client.post(f"/api/proposals/{pid}/cancel", headers=h).status_code == 409
     d = client.get(f"/api/domains/{dom}", headers=h).json()
-    assert [c["certificate_id"] for c in d["certificates"] if c["mapping_type"] == "server"] == [v2]
+    assert [c["certificate_id"] for c in d["certificates"]
+            if c["mapping_type"] == "server" and c["cert_type"] == "leaf"] == [v2]
     assert client.get(f"/api/certificates/{v1}", headers=h).json()["is_active"] is False
 
     # (b) reject → rejected: cancel 409 döner ve durum 'rejected' KALIR (red-kalıcılığı ezilmez)

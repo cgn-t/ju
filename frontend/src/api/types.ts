@@ -157,6 +157,7 @@ export interface MappedCert {
   certificate_id: number
   name: string
   mapping_type: 'server' | 'client'
+  cert_type: 'root' | 'intermediate' | 'leaf'
   valid_to?: string | null
   days_left?: number | null
   serial_number?: string | null

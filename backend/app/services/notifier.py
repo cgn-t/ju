@@ -11,6 +11,7 @@ from email.mime.text import MIMEText
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
+from app.core.certtype import cert_type_filter
 from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
@@ -784,7 +785,9 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
 
     # Server tipi AKTİF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş domainler —
     # bkz. _dispatch_domain_mails. Aktif-server-sertifikalı domainler zaten yukarıdaki cert
-    # akışıyla (bkz. _expiry_stakeholders bent 2) kapsanır; burada tekrar sayılmaz.
+    # akışıyla (bkz. _expiry_stakeholders bent 2) kapsanır; burada tekrar sayılmaz. "server"
+    # artık zinciri (intermediate/root dahil) de taşıyabildiğinden LEAF'e sabitlenir — asıl
+    # soru "bu domainin canlı kimliği (leaf) aktif server olarak eşli mi" sorusudur.
     expiring_domains = (
         db.query(Domain)
         .filter(Domain.expire_date.isnot(None),
@@ -792,7 +795,9 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
                 Domain.expire_date >= utcnow(),
                 ~Domain.certificate_mappings.any(
                     (CertificateDomainMap.mapping_type == "server")
-                    & CertificateDomainMap.certificate.has(Certificate.is_active == True)))
+                    & CertificateDomainMap.certificate.has(
+                        (Certificate.is_active == True)
+                        & cert_type_filter(Certificate.cert_type, "leaf"))))
         .all()
     )
 
@@ -888,15 +893,17 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
                                        make_subject=subject, make_body=body, make_html=html,
                                        global_days=global_days)
 
-    # Server tipi AKTİF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş ve süresi
-    # geçmiş domainler — bkz. _dispatch_domain_mails.
+    # Server tipi AKTİF LEAF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş ve
+    # süresi geçmiş domainler — bkz. _dispatch_domain_mails ve yukarıdaki aynı gerekçe.
     expired_domains = (
         db.query(Domain)
         .filter(Domain.expire_date.isnot(None),
                 Domain.expire_date < utcnow(),
                 ~Domain.certificate_mappings.any(
                     (CertificateDomainMap.mapping_type == "server")
-                    & CertificateDomainMap.certificate.has(Certificate.is_active == True)))
+                    & CertificateDomainMap.certificate.has(
+                        (Certificate.is_active == True)
+                        & cert_type_filter(Certificate.cert_type, "leaf"))))
         .all()
     )
 
@@ -1267,7 +1274,8 @@ def start_scheduler() -> None:
         # Devir-onayı hatırlatması — iş içinde 'smtp.auto_proposal_reminder_enabled' kontrol edilir
         scheduler.add_job(check_pending_proposals, "cron", hour=_proposal_reminder_hour(), minute=0,
                           id="proposal-reminder", replace_existing=True)
-        scheduler.add_job(check_all_domains, "cron", hour=7, minute=0,
+        # Canlı doğrulama gece taraması — iş içinde 'live_check.enabled' kontrol edilir
+        scheduler.add_job(check_all_domains, "cron", hour=_schedule_hour("live_check", 7), minute=0,
                           id="live-check", replace_existing=True)
         # Ağ keşfi gece taraması — iş içinde 'discovery.enabled' kontrol edilir (kapalıysa atlar)
         scheduler.add_job(run_scan_job, "cron", hour=_discovery_hour(), minute=0,

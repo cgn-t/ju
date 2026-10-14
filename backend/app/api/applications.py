@@ -5,6 +5,7 @@ from app.api.schemas import (
     AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationUpdate,
     AppTrustedCertCreate, AppTrustedCertOut,
 )
+from app.core.certtype import cert_type_filter
 from app.core.security import (
     can_manage_team_resource, domain_scope_team_ids, require_role, user_team_ids,
 )
@@ -206,13 +207,17 @@ def list_dependencies(app_id: int, db: Session = Depends(get_db),
 
 
 def _domain_server_cert_id(db: Session, domain_id: int) -> int | None:
-    """Hedef domain'in AKTİF 'server' sertifikasının id'si (en geç biteni). Bir uygulama bu
-    domaine client olarak bağlandığında izlenen sertifika = domainin server sertifikasıdır;
-    o yenilendiğinde renewal.propose bu bağımlılık için uygulama sahibi SY ekibine devir önerisi üretir."""
+    """Hedef domain'in AKTİF 'server' LEAF sertifikasının id'si (en geç biteni). mTLS için
+    izlenen kimlik her zaman leaf'tir (TLS el sıkışmasında sunulan sertifika) — "server"
+    eşlemesi artık zinciri (intermediate/root dahil) da taşıyabildiğinden burada cert_type
+    LEAF'e sabitlenir, aksi halde çok daha uzun ömürlü bir root/intermediate yanlışlıkla
+    seçilebilirdi. O leaf yenilendiğinde renewal.propose bu bağımlılık için uygulama
+    sahibi SY ekibine devir önerisi üretir."""
     row = (db.query(CertificateDomainMap)
            .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
            .filter(CertificateDomainMap.domain_id == domain_id,
                    CertificateDomainMap.mapping_type == "server",
+                   cert_type_filter(Certificate.cert_type, "leaf"),
                    Certificate.is_active == True)
            .order_by(Certificate.valid_to.desc())
            .first())

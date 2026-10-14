@@ -37,6 +37,26 @@ def make_ca(cn: str, key=None, not_before: datetime | None = None, days: int = 3
     return cert, key
 
 
+def make_intermediate(root_cert, root_key, cn: str, key=None,
+                      not_before: datetime | None = None, days: int = 1825, sig_hash=None):
+    """Root'un imzaladığı bir ara CA — leaf'ler buna karşı imzalanabilir (gerçek zincir)."""
+    key = key or make_key()
+    nb = not_before or datetime(2026, 1, 1)
+    cert = (x509.CertificateBuilder()
+            .subject_name(_name(cn)).issuer_name(root_cert.subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(nb).not_valid_after(nb + timedelta(days=days))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                           critical=False)
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()),
+                critical=False)
+            .sign(root_key, sig_hash or hashes.SHA256()))
+    return cert, key
+
+
 def make_leaf(ca_cert, ca_key, cn: str, key=None, not_before: datetime | None = None,
               days: int = 397, san: list[str] | None = None, sig_hash=None):
     key = key or make_key()

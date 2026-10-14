@@ -150,6 +150,15 @@ DEFAULTS: dict[str, dict] = {
         "max_validity_days": 398,     # bundan uzun ömür ihlal (0 = kapalı)
         "check_discovered": False,    # keşif bulgularını da değerlendir (şimdilik yalnız envanter)
     },
+    "live_check": {
+        # Canlı doğrulama: domainlerin TLS'te sunduğu zinciri günlük kontrol eder (drift) ve
+        # aynı taramada zinciri envanterle senkronize eder (root/intermediate rotasyonu dahil
+        # devir tespiti). TAMAMEN YEREL (dış erişim yok) → varsayılan AÇIK (bugüne kadarki
+        # davranışla aynı); manuel tetik (/domains/{id}/live-check, import-chain) bu
+        # ayardan bağımsız her zaman çalışır.
+        "enabled": True,              # gece cron canlı doğrulamasını aç/kapa
+        "schedule_hour": 7,           # gece cron saati (0-23)
+    },
     "revocation": {
         # İptal (OCSP/CRL) denetimi. DIŞ ERİŞİM gerekir → varsayılan KAPALI; iç/özel CA'lar çoğu
         # zaman public OCSP sunmaz → çok sayıda 'unknown' normaldir. Sertifikayı asla pasife almaz.

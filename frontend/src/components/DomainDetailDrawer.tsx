@@ -14,7 +14,7 @@ import { Link as RouterLink } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, ChainImportResult, Domain } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { daysLeftColor, daysLeftLabel, mappingTypeLabel, TRANSFER_TOAST_MS } from '../theme'
+import { daysLeftColor, daysLeftLabel, mappingTypeLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
 import CertificatePicker from './CertificatePicker'
 import SkiText from './SkiText'
 
@@ -29,6 +29,13 @@ const LIVE_STATUS: Record<string, { label: string; color: 'success' | 'error' | 
   unreachable: { label: 'Erişilemedi', color: 'warning' },
   no_mapping: { label: 'Server sertifikası eşlenmemiş', color: 'warning' },
   not_checkable: { label: 'Kontrol edilemez (wildcard)', color: 'default' },
+}
+
+// "Server" eşlemesi artık tam zinciri (leaf+intermediate+root) taşıyabildiğinden her
+// satırda hangi seviye olduğu küçük bir harf-rozetiyle gösterilir (R/I/L).
+const CERT_TYPE_LETTER: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
+const CERT_TYPE_FULL: Record<string, string> = {
+  root: 'Kök CA (Root)', intermediate: 'Ara CA (Intermediate)', leaf: 'Uç Sertifika (Leaf)',
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -47,6 +54,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const [selectedCert, setSelectedCert] = useState<Certificate | null>(null)
   const [mappingType, setMappingType] = useState<'server' | 'client'>('server')
   const [replaceOld, setReplaceOld] = useState(true)
+  const [importEnvironment, setImportEnvironment] = useState('')
 
   const { data: domain, isLoading } = useQuery<Domain>({
     queryKey: ['domain', domainId],
@@ -77,11 +85,14 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
 
   const attach = useMutation({
     mutationFn: async () =>
-      api.post(`/domains/${domainId}/certificates`, {
+      (await api.post(`/domains/${domainId}/certificates`, {
         certificate_id: selectedCert!.id, mapping_type: mappingType,
-      }),
-    onSuccess: () => {
+      })).data,
+    onSuccess: (d: { warning?: string } | null) => {
       enqueueSnackbar('Sertifika bağlandı', { variant: 'success' })
+      if (d?.warning) {
+        enqueueSnackbar(d.warning, { variant: 'warning', autoHideDuration: TRANSFER_TOAST_MS })
+      }
       setSelectedCert(null)
       invalidate()
     },
@@ -115,7 +126,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const importChain = useMutation({
     mutationFn: async () =>
       (await api.post<ChainImportResult>(`/domains/${domainId}/import-chain`,
-        null, { params: { supersede: replaceOld } })).data,
+        null, { params: { supersede: replaceOld, environment: importEnvironment || undefined } })).data,
     onSuccess: (r) => {
       const parts = []
       if (r.created.length) parts.push(`${r.created.length} sertifika eklendi`)
@@ -153,6 +164,10 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                    sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Chip size="small" label={mappingTypeLabel(c.mapping_type)}
                       color={c.mapping_type === 'server' ? 'error' : 'info'} sx={{ width: 64 }} />
+                <Tooltip title={CERT_TYPE_FULL[c.cert_type] ?? c.cert_type}>
+                  <Chip size="small" label={CERT_TYPE_LETTER[c.cert_type] ?? '?'}
+                        sx={{ width: 28, bgcolor: nodeColors[c.cert_type], color: 'rgba(0,0,0,0.87)' }} />
+                </Tooltip>
                 <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap title={c.name}>{c.name}</Typography>
                   <SkiText value={c.subject_key_identifier} />
@@ -175,10 +190,18 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     seçici kendi satırında TAM genişlik, tip + buton ikinci satırda. */}
                 <Stack spacing={1.5}>
                   <CertificatePicker
-                    options={certs ?? []} label="Sertifika seç (ad, SKI, seri no ile ara)"
+                    options={mappingType === 'server'
+                      ? (certs ?? []).filter((c) => c.cert_type === 'leaf') : (certs ?? [])}
+                    label="Sertifika seç (ad, SKI, seri no ile ara)"
                     value={selectedCert} onChange={setSelectedCert}
                     disabledIds={alreadyMapped} disabledLabel="zaten bağlı"
                   />
+                  {mappingType === 'server' && (
+                    <Typography variant="caption" color="text.secondary">
+                      Server olarak yalnız leaf (uç) sertifika seçilir — zincir (intermediate/root)
+                      otomatik eklenir.
+                    </Typography>
+                  )}
                   <Stack direction="row" spacing={1}>
                     <TextField select size="small" label="Bağlantı Tipi" value={mappingType}
                                sx={{ flexGrow: 1 }}
@@ -267,9 +290,15 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   aktif bir sertifika varsa <b>devir önerisi</b> oluşturulur (SY onayına düşer).
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
+                  <TextField select required label="Ortam" size="small" sx={{ minWidth: 140 }}
+                             value={importEnvironment} onChange={(e) => setImportEnvironment(e.target.value)}
+                             error={!importEnvironment}>
+                    <MenuItem value="prod">Prod</MenuItem>
+                    <MenuItem value="test">Test</MenuItem>
+                  </TextField>
                   <Button size="small" variant="contained" color="warning"
                           startIcon={<CloudDownloadIcon />}
-                          disabled={importChain.isPending || liveCheck.isPending}
+                          disabled={importChain.isPending || liveCheck.isPending || !importEnvironment}
                           onClick={() => importChain.mutate()}>
                     {importChain.isPending ? 'Aktarılıyor…' : 'Canlıdaki Sertifikayı İçe Aktar'}
                   </Button>

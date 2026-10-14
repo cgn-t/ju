@@ -478,8 +478,11 @@ def test_probe_and_import_chain_live_tls(client, auth_headers, fixtures_dir):
 
         d = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
         server_certs = [c for c in d["certificates"] if c["mapping_type"] == "server"]
-        assert len(server_certs) == 1
-        assert server_certs[0]["subject_key_identifier"]  # MappedCertOut SKI taşıyor
+        # "server" eşlemesi artık TAM ZİNCİR: leaf + intermediate + root birlikte bağlanır
+        # (yalnız leaf değil) — root/intermediate rotasyonu da böylece yakalanabilir.
+        assert len(server_certs) == 3
+        assert {c["cert_type"] for c in server_certs} == {"root", "intermediate", "leaf"}
+        assert all(c["subject_key_identifier"] for c in server_certs)  # MappedCertOut SKI taşıyor
 
         # İdempotent: ikinci import yeni eşleme/kayıt oluşturmaz
         r = client.post(f"/api/domains/{domain_id}/import-chain", headers=auth_headers)

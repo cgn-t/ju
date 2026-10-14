@@ -44,6 +44,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
   const [probe, setProbe] = useState<ChainProbeResult | null>(null)
   const [probedFor, setProbedFor] = useState('')
   const [importChain, setImportChain] = useState(true)
+  const [chainEnvironment, setChainEnvironment] = useState('')
   const { isAdmin } = useAuth()
   const autoFilled = useRef(false)
 
@@ -84,6 +85,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
     setProbe(null)
     setProbedFor('')
     setImportChain(true)
+    setChainEnvironment('')
     setConfirmOpen(false)
     autoFilled.current = false
   }, [domain, open])
@@ -140,7 +142,8 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
       // sertifikaları içe aktar + uç sertifikayı server bağla (mevcut server varsa devir önerisi).
       if (importChain && probe?.reachable && probe.certificates.length > 0) {
         try {
-          const r: ChainImportResult = (await api.post(`/domains/${saved.id}/import-chain`)).data
+          const r: ChainImportResult = (await api.post(`/domains/${saved.id}/import-chain`,
+            null, { params: { environment: chainEnvironment || undefined } })).data
           const parts = []
           if (r.created.length) parts.push(`${r.created.length} sertifika eklendi`)
           if (r.existing.length) parts.push(`${r.existing.length} zaten kayıtlıydı`)
@@ -175,7 +178,11 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
   // SY Takımı ZORUNLU — yeni kayıtta da düzenlemede de (sahipsiz domain
   // bildirimsiz/onaysız kalıyordu; eski sahipsiz kayıtlar da düzenlenirken sahiplendirilir).
   const syMissing = !form.sy_team_id
+  // Zincir aktarılacaksa Ortam da ZORUNLU — otomatik yollar (live-check, keşif) bunu
+  // bilemediği için yalnız bir insan tetiklediğinde (burada) doldurulabilir.
+  const chainImportPending = importChain && !!probe?.reachable && probe.certificates.length > 0
   const isValid = REQUIRED.every((k) => form[k]?.trim()) && !syMissing
+    && (!chainImportPending || !!chainEnvironment)
 
   // Evet/Hayır seçici — mevcut serbest-metin veri varsa kaybolmaması için "(mevcut)" olarak korunur
   const yesNo = (key: string, label: string, required: boolean) => {
@@ -186,9 +193,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
       <TextField select required={required} label={label} fullWidth size="small"
                  value={val} onChange={set(key)} error={err} slotProps={LABEL_SHRINK}
                  helperText={err ? 'Zorunlu alan' : undefined}>
-        {required
-          ? <MenuItem value="" disabled><em>Seçiniz…</em></MenuItem>
-          : <MenuItem value=""><em>—</em></MenuItem>}
+        {!required && <MenuItem value=""><em>—</em></MenuItem>}
         {legacy && <MenuItem value={legacy}>{legacy} (mevcut)</MenuItem>}
         <MenuItem value="Evet">Evet</MenuItem>
         <MenuItem value="Hayır">Hayır</MenuItem>
@@ -278,6 +283,15 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
                         Zinciri Sertifikalar&apos;a aktar ve uç sertifikayı bu domain&apos;e <b>server</b> olarak bağla
                       </Typography>}
                     />
+                    {importChain && (
+                      <TextField select required label="Ortam" size="small" fullWidth
+                                 sx={{ mt: 1, maxWidth: 240 }} slotProps={LABEL_SHRINK}
+                                 value={chainEnvironment} onChange={(e) => setChainEnvironment(e.target.value)}
+                                 error={!chainEnvironment}>
+                        <MenuItem value="prod">Prod</MenuItem>
+                        <MenuItem value="test">Test</MenuItem>
+                      </TextField>
+                    )}
                   </>
                 )}
               </Paper>

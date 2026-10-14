@@ -264,6 +264,7 @@ class MappedCertOut(BaseModel):
     certificate_id: int
     name: str
     mapping_type: str
+    cert_type: str
     valid_to: datetime | None
     days_left: int | None
     serial_number: str | None = None
