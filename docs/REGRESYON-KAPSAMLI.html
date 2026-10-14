@@ -116,6 +116,9 @@
     <tr><td><a href="regresyon-sertifikalari/leaf-expired.pem"><code>leaf-expired.pem</code></a></td><td>Süresi geçmiş — süresi geçmiş demoları için</td><td>7, 10</td></tr>
     <tr><td><a href="regresyon-sertifikalari/leaf-weak-key.pem"><code>leaf-weak-key.pem</code></a></td><td>1024-bit RSA — politika motoru "zayıf anahtar" demosu için</td><td>13</td></tr>
     <tr><td><a href="../backend/tests/fixtures/leaf.der"><code>backend/tests/fixtures/leaf.der</code></a> / <a href="../backend/tests/fixtures/chain.p7b"><code>chain.p7b</code></a></td><td>DER / PKCS7 format demoları</td><td>2</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/chain-fullchain.pem"><code>chain-fullchain.pem</code></a></td><td>leaf+intermediate+root (3 seviye) — "server" zincir-bağlama demosu için</td><td>11.4</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/chain-intermediate.pem"><code>chain-intermediate.pem</code></a> / <a href="regresyon-sertifikalari/chain-root.pem"><code>chain-root.pem</code></a></td><td>Yukarıdaki zincirin tekil seviyeleri — "yalnız leaf seçilebilir" (400) demosu için</td><td>11.6</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/lonewolf-leaf.pem"><code>lonewolf-leaf.pem</code></a></td><td>CA'sı envantere KASITLI olarak hiç aktarılmamış tekil leaf — "eksik zincir" uyarısı demosu için</td><td>11.5</td></tr>
   </table>
 
   <div class="toc">
@@ -395,7 +398,7 @@
 
   <section id="s11">
     <h2><span class="idx">11</span>Ağ Keşfi, CT İzleme &amp; Canlı Kontrol</h2>
-    <p class="section-note">Sol menüde <b>"Keşif"</b> sayfası (<code>/discovery</code>, admin). Hedefler Settings → <b>"Keşif"</b> (ağ, CIDR/host hedefleri) ve Settings → <b>"CT (crt.sh)"</b> sekmelerinde tanımlanır.</p>
+    <p class="section-note">Sol menüde <b>"Keşif"</b> sayfası (<code>/discovery</code>, admin). Hedefler Settings → <b>"Keşif"</b> (ağ, CIDR/host hedefleri), Settings → <b>"CT (crt.sh)"</b> ve Settings → <b>"Canlı Doğrulama"</b> sekmelerinde tanımlanır.</p>
 
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">11.1</span><span class="mtest-title">Ağ taraması — bulgu, envantere alma, yok sayma</span></div>
@@ -432,6 +435,53 @@
       </ol>
       <div class="expect"><b>Beklenen:</b> Sunucuda canlı sunulan sertifika envanterdekiyle eşleşiyorsa "eşleşiyor" durumu/chip'i, farklıysa "uyumsuz" durumu gösterilir; host'a erişilemiyorsa "ulaşılamıyor"; domain wildcard ise bu kontrol zaten yapılamaz (buton/sonuç buna göre davranır).</div>
       <span class="ref">test_live_check_match · test_live_check_mismatch · test_live_check_unreachable · test_live_check_wildcard_not_checkable</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.4</span><span class="mtest-title">"Server" eşlemesi artık TAM ZİNCİR bağlar (leaf+intermediate+root)</span></div>
+      <div class="callout note"><b>Kök neden:</b> Daha önce bir domaine root+intermediate+leaf'in üçü de bağlıyken Canlı Doğrulama root/intermediate'i de "leaf ile eşleşmedi" diyerek yanlış uyumsuzluk/devir sinyali üretiyordu. Artık her seviye kendi tipiyle (leaf↔leaf, intermediate↔intermediate, root↔root) karşılaştırılıyor; bunun için "server" eşlemesi tek sertifika değil, çözülebilen tam zincir oluyor.</div>
+      <ol class="steps">
+        <li>"SSL Sertifikaları" → "Yeni Ekle" ile <code>chain-fullchain.pem</code>'i içe aktarın (leaf+intermediate+root üçü birden eklenir).</li>
+        <li>"Domainler" → yeni bir domain oluşturun → Detay çekmecesinde "Sertifika Bağla"dan bu leaf'i (<code>zincir-test.jumbo.local</code>) seçip "Bağlantı Tipi: Server" ile bağlayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> "Bağlı Sertifikalar" listesinde artık yalnız 1 değil <b>3 satır</b> görünür — hepsi "Server" etiketli, her birinin yanında hangi seviye olduğunu gösteren R/I/L rozeti vardır (leaf siz seçtiniz, intermediate+root otomatik eklendi).</div>
+      <span class="ref">test_attach_server_binds_full_chain · test_api.py::test_probe_and_import_chain_live_tls</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.5</span><span class="mtest-title">Eksik zincir — reddetmez, bilgilendirir</span></div>
+      <ol class="steps">
+        <li>"SSL Sertifikaları" → "Yeni Ekle" ile <code>lonewolf-leaf.pem</code>'i içe aktarın (CA'sı BİLİNÇLİ olarak hiç import edilmedi).</li>
+        <li>Bir domaine bu leaf'i "Server" olarak bağlayın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İşlem REDDEDİLMEZ — leaf yine bağlanır, ama bir uyarı bildirimi (toast) görünür: "Zincir eksik: intermediate/root envanterde yok...". "Bağlı Sertifikalar"da yalnız 1 satır (leaf) görünür; intermediate/root ileride içe aktarılırsa otomatik tamamlanır.</div>
+      <span class="ref">test_attach_server_incomplete_chain_warns_but_still_binds_leaf</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.6</span><span class="mtest-title">"Server" olarak yalnız leaf seçilebilir</span></div>
+      <ol class="steps">
+        <li><code>chain-fullchain.pem</code> içe aktarılmışsa, bir domainin "Sertifika Bağla" seçicisinde <b>"Bağlantı Tipi: Server"</b> seçiliyken listeyi açın.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Seçici listesinde yalnız leaf (uç) sertifikalar görünür — <code>chain-intermediate.pem</code>/<code>chain-root.pem</code> gibi CA kayıtları listede yoktur (API seviyesinde de elle denenirse 400 döner). "Trusted" tipine geçilince CA kayıtları da seçilebilir hale gelir (zincir zorunluluğu yalnız Server'da vardır).</div>
+      <span class="ref">test_attach_server_rejects_non_leaf_certificate</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.7</span><span class="mtest-title">Intermediate/root rotasyonu — yalnız değişen seviye için devir önerisi</span></div>
+      <div class="callout note"><b>Not:</b> Bu senaryo canlıda gerçek bir TLS sunucusunun ZAMAN İÇİNDE farklı bir intermediate/root sunmasını gerektirir (ör. CA geçişi); test ekibinin kendi ortamında böyle bir sunucu kurması gerekir. Arayüzden izlenebilecek akış: zinciri ilk hâliyle içe aktarıp bir domaine bağlayın → sunucu tarafında intermediate/root değiştikten sonra o domainde "Canlı Doğrula"yı veya "Zinciri İçe Aktar"ı tekrar çalıştırın.</div>
+      <div class="expect"><b>Beklenen:</b> "Devir Önerileri" sayfasında YALNIZ değişen seviye (örn. intermediate) için bir öneri çıkar; leaf ve root dokunulmadan aynı kalır — kök neden bug'ının tam tersi davranış. Bu, otomatik testlerle uçtan uca doğrulanmıştır.</div>
+      <span class="ref">test_live_check_per_level_type_aware · test_live_check_proactively_syncs_leaf_rotation_without_import_chain</span>
+    </div>
+
+    <div class="mtest">
+      <div class="mtest-head"><span class="mtest-num">11.8</span><span class="mtest-title">Ayarlar → Canlı Doğrulama aç/kapa</span></div>
+      <ol class="steps">
+        <li>Settings → yeni <b>"Canlı Doğrulama"</b> sekmesine gidin (Keşif &amp; Uyum grubunda).</li>
+        <li>"Gece canlı doğrulaması etkin" anahtarını kapatıp kaydedin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> Gece zamanlanmış taraması artık atlanır (domainlerin <code>live_check_at</code> alanı güncellenmez); domain detayındaki "Canlı Doğrula" elle tetikleme butonu bundan bağımsız her zaman çalışmaya devam eder. "Saat" alanından gece taramasının çalışacağı saat de değiştirilebilir.</div>
+      <span class="ref">test_live_check_disabled_setting_skips_scheduled_scan</span>
     </div>
   </section>
 

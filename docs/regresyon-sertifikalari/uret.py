@@ -43,6 +43,25 @@ def make_ca(cn: str, key=None, not_before: datetime | None = None, days: int = 3
     return cert, key
 
 
+def make_intermediate(root_cert, root_key, cn: str, key=None,
+                      not_before: datetime | None = None, days: int = 1825):
+    """Root'un imzaladığı bir ara CA — leaf'ler buna karşı imzalanabilir (gerçek 3-seviye zincir)."""
+    key = key or make_key()
+    nb = not_before or datetime(2026, 1, 1)
+    cert = (x509.CertificateBuilder()
+            .subject_name(_name(cn)).issuer_name(root_cert.subject)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(nb).not_valid_after(nb + timedelta(days=days))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(root_key.public_key()),
+                critical=False)
+            .sign(root_key, hashes.SHA256()))
+    return cert, key
+
+
 def make_leaf(ca_cert, ca_key, cn: str, key=None, not_before: datetime | None = None,
               days: int = 397, san: list[str] | None = None, sig_hash=None):
     key = key or make_key()
@@ -114,6 +133,30 @@ def main():
         san=["suresi-gecmis-test.jumbo.local"])
     write("leaf-expired.pem", pem(expired))
     write("leaf-expired.key", key_pem(expired_key))
+
+    print("Zincir-bilinçli 'server' eşlemesi demosu (tam zincir: leaf+intermediate+root)...")
+    chain_root, chain_root_key = make_ca("JUMBO Zincir Test Root CA")
+    write("chain-root.pem", pem(chain_root))
+    write("chain-root.key", key_pem(chain_root_key))
+    chain_inter, chain_inter_key = make_intermediate(
+        chain_root, chain_root_key, "JUMBO Zincir Test Intermediate CA")
+    write("chain-intermediate.pem", pem(chain_inter))
+    write("chain-intermediate.key", key_pem(chain_inter_key))
+    chain_leaf, chain_leaf_key = make_leaf(
+        chain_inter, chain_inter_key, "zincir-test.jumbo.local",
+        san=["zincir-test.jumbo.local"])
+    write("chain-leaf.pem", pem(chain_leaf))
+    write("chain-leaf.key", key_pem(chain_leaf_key))
+    write("chain-fullchain.pem", pem(chain_leaf) + pem(chain_inter) + pem(chain_root))
+
+    print("Eksik zincir demosu (CA'sı envantere HİÇ aktarılmayan tekil leaf)...")
+    lonewolf_ca, lonewolf_ca_key = make_ca("JUMBO Lonewolf Test CA")
+    lonewolf_leaf, lonewolf_leaf_key = make_leaf(
+        lonewolf_ca, lonewolf_ca_key, "lonewolf-test.jumbo.local",
+        san=["lonewolf-test.jumbo.local"])
+    write("lonewolf-leaf.pem", pem(lonewolf_leaf))
+    write("lonewolf-leaf.key", key_pem(lonewolf_leaf_key))
+    # lonewolf-ca.pem KASITLI OLARAK yazılmıyor/import edilmiyor — "zincir envanterde yok" senaryosu.
 
     print("Politika motoru demosu (zayıf 1024-bit RSA anahtar)...")
     weak_key = make_key(bits=1024)
