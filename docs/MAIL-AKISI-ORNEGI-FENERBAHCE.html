@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fenerbahçe.org Mail Akışı</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#f3f6fb;
+    --surface:#ffffff;
+    --surface-2:#eef2f8;
+    --ink:#182133;
+    --ink-dim:#5a6680;
+    --line:#dbe3ee;
+    --accent:#1657c7;
+    --accent-ink:#0d3c93;
+    --accent-soft:#e8eefc;
+    --danger:#c23c2d;
+    --danger-soft:#fbeae7;
+    --danger-ink:#9a2e22;
+    --chip-bg:#eef1f6;
+    --shadow: 0 1px 2px rgba(20,30,50,.04), 0 8px 24px -12px rgba(20,30,50,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c121d;
+      --surface:#131b29;
+      --surface-2:#182333;
+      --ink:#e7ecf5;
+      --ink-dim:#95a4c0;
+      --line:#263248;
+      --accent:#6fa0ff;
+      --accent-ink:#9dc0ff;
+      --accent-soft:#17233b;
+      --danger:#ff8a78;
+      --danger-ink:#ffb3a5;
+      --danger-soft:#2c1a1c;
+      --chip-bg:#1b2536;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c121d;
+    --surface:#131b29;
+    --surface-2:#182333;
+    --ink:#e7ecf5;
+    --ink-dim:#95a4c0;
+    --line:#263248;
+    --accent:#6fa0ff;
+    --accent-ink:#9dc0ff;
+    --accent-soft:#17233b;
+    --danger:#ff8a78;
+    --danger-ink:#ffb3a5;
+    --danger-soft:#2c1a1c;
+    --chip-bg:#1b2536;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Public Sans",system-ui,sans-serif;
+    padding-inline:16px;
+    padding-block:32px 48px;
+  }
+  .page{max-width:760px;margin:0 auto}
+
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace;
+    font-size:12px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--accent-ink);
+    font-weight:600;
+    margin:0 0 10px;
+  }
+  h1{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:clamp(26px,5vw,36px);
+    line-height:1.15;
+    letter-spacing:-.01em;
+    text-wrap:balance;
+    margin:0 0 10px;
+  }
+  .domain{
+    font-family:"JetBrains Mono",monospace;
+    color:var(--accent);
+    font-style:italic;
+  }
+  .lede{
+    color:var(--ink-dim);
+    font-size:15px;
+    line-height:1.6;
+    max-width:56ch;
+    margin:0 0 28px;
+  }
+
+  .setup{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:18px 20px;
+    margin-bottom:36px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px 28px;
+  }
+  .setup-item{min-width:180px;flex:1}
+  .setup-label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.07em;
+    color:var(--ink-dim);
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .setup-value{
+    font-family:"JetBrains Mono",monospace;
+    font-size:14.5px;
+    font-weight:500;
+  }
+
+  h2{
+    font-family:"Fraunces",serif;
+    font-weight:600;
+    font-size:19px;
+    margin:0 0 4px;
+  }
+  .section-note{
+    color:var(--ink-dim);
+    font-size:13.5px;
+    margin:0 0 16px;
+    line-height:1.55;
+  }
+  section{margin-bottom:38px}
+
+  .stakeholders{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:16px;
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:18px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+  .card::before{
+    content:"";
+    position:absolute;
+    inset:0 auto 0 0;
+    width:4px;
+    background:var(--rail,var(--accent));
+  }
+  .card.cert-owner{--rail:#8a5cf6}
+  .card.domain-owner{--rail:var(--accent)}
+  .card-kicker{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.07em;
+    font-weight:600;
+    color:var(--ink-dim);
+    margin:0 0 6px;
+  }
+  .card-team{
+    font-family:"JetBrains Mono",monospace;
+    font-size:16px;
+    font-weight:600;
+    margin:0 0 10px;
+  }
+  .card p{font-size:13.5px;line-height:1.55;color:var(--ink-dim);margin:0 0 10px}
+  .reason{
+    display:inline-block;
+    font-size:12.5px;
+    background:var(--chip-bg);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:6px 10px;
+    font-family:"JetBrains Mono",monospace;
+    line-height:1.4;
+  }
+
+  .timeline{
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .tl-row{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    box-shadow:var(--shadow);
+    padding:16px 20px;
+    display:flex;
+    gap:16px;
+    align-items:flex-start;
+  }
+  .tl-row.alert{border-color:color-mix(in srgb, var(--danger) 35%, var(--line))}
+  .tl-badge{
+    flex:0 0 auto;
+    font-family:"JetBrains Mono",monospace;
+    font-size:11.5px;
+    font-weight:600;
+    padding:5px 9px;
+    border-radius:7px;
+    white-space:nowrap;
+    background:var(--accent-soft);
+    color:var(--accent-ink);
+  }
+  .tl-row.alert .tl-badge{background:var(--danger-soft);color:var(--danger-ink)}
+  .tl-body{flex:1;min-width:0}
+  .tl-title{font-weight:600;font-size:14.5px;margin:0 0 4px}
+  .tl-desc{font-size:13.5px;color:var(--ink-dim);line-height:1.55;margin:0 0 8px}
+  .tl-mails{display:flex;flex-wrap:wrap;gap:8px}
+  .mail-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    font-family:"JetBrains Mono",monospace;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:5px 11px 5px 8px;
+  }
+  .mail-pill .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .dot.purple{background:#8a5cf6}
+  .dot.blue{background:var(--accent)}
+
+  .callout{
+    background:var(--surface-2);
+    border:1px dashed var(--line);
+    border-radius:12px;
+    padding:14px 18px;
+    font-size:13.5px;
+    line-height:1.6;
+    color:var(--ink-dim);
+  }
+  .callout b{color:var(--ink)}
+
+  footer{
+    margin-top:44px;
+    padding-top:18px;
+    border-top:1px solid var(--line);
+    font-size:12px;
+    color:var(--ink-dim);
+    line-height:1.6;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <p class="eyebrow">JUMBO &middot; Bildirim Akışı Örneği</p>
+  <h1>“<span class="domain">www.fenerbahce.org</span>” sertifikası<br>expire olursa kime mail gider?</h1>
+  <p class="lede">Sertifikanın <b>sahibi</b> (oluşturan ekip) ile sertifikanın bağlı olduğu <b>domain'in sahibi</b> farklı SY ekipleri olduğunda, JUMBO ikisine de <b>ayrı ayrı</b> mail atar — ekip bazında birleştirme yalnız aynı ekip olduğunda devreye girer.</p>
+
+  <div class="setup">
+    <div class="setup-item">
+      <p class="setup-label">Domain</p>
+      <p class="setup-value">www.fenerbahce.org</p>
+    </div>
+    <div class="setup-item">
+      <p class="setup-label">Sertifika sahibi (Oluşturan Ekip)</p>
+      <p class="setup-value">Açık Bankacılık SY</p>
+    </div>
+    <div class="setup-item">
+      <p class="setup-label">Domain sahibi (SY)</p>
+      <p class="setup-value">Ödeme Sistemleri SY</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>1. İki ayrı paydaş, iki ayrı mail</h2>
+    <p class="section-note">JUMBO her sertifika için paydaşları çözer; farklı ekipler aynı mailde birleşmez, her biri kendi nedeniyle kendi mailini alır.</p>
+    <div class="stakeholders">
+      <div class="card cert-owner">
+        <p class="card-kicker">Paydaş 1 — Sertifika sahibi</p>
+        <p class="card-team">Açık Bankacılık SY</p>
+        <p>Sertifikayı oluşturan ekip olduğu için, bu sertifika <i>hiçbir domain'e bağlı olmasa bile</i> her zaman paydaştır.</p>
+        <span class="reason">Sertifikayı oluşturan (sahibi) SY ekibisiniz</span>
+      </div>
+      <div class="card domain-owner">
+        <p class="card-kicker">Paydaş 2 — Domain sahibi</p>
+        <p class="card-team">Ödeme Sistemleri SY</p>
+        <p>Domain kaydında SY ekibi olarak tanımlı olduğu için, bu sertifikayı kullanan domain üzerinden paydaştır.</p>
+        <span class="reason">Domain sahibi: www.fenerbahce.org (Server)</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Zaman çizelgesi</h2>
+    <p class="section-note">Günlük tarama (08:00 cron) her iki aşamada da aynı iki paydaşı bulur — ama her paydaş kendi bildirim penceresine göre devreye girer.</p>
+    <div class="timeline">
+      <div class="tl-row">
+        <span class="tl-badge">SÜRE UYARISI</span>
+        <div class="tl-body">
+          <p class="tl-title">Bitişe N gün kala (varsayılan pencere 30 gün, domain'e özel notify_days tanımlıysa o esas alınır)</p>
+          <p class="tl-desc">"Bu sertifikanın süresi N gün içinde dolmaktadır" başlıklı uyarı, her paydaşa kendi penceresi dolduğunda ayrı ayrı gider. Domain'in kendi bildirim penceresi global'den kısaysa, Ödeme Sistemleri SY'ye mail daha <i>sonra</i> başlayabilir.</p>
+          <div class="tl-mails">
+            <span class="mail-pill"><span class="dot purple"></span>Açık Bankacılık SY</span>
+            <span class="mail-pill"><span class="dot blue"></span>Ödeme Sistemleri SY</span>
+          </div>
+        </div>
+      </div>
+      <div class="tl-row alert">
+        <span class="tl-badge">SÜRESİ GEÇTİ</span>
+        <div class="tl-body">
+          <p class="tl-title">Bitiş tarihi geçti ama JUMBO'da hâlâ "Aktif" görünüyorsa</p>
+          <p class="tl-desc">"SÜRESİ GEÇMİŞ sertifika — JUMBO'da güncelleme gerekli" hatırlatması, sertifika pasife alınıp/yenilenip envanter güncellenene kadar her taramada tekrar gider (üst üste bindirmemek için aynı alıcıya kısa aralıkla ikinci kez gönderilmez).</p>
+          <div class="tl-mails">
+            <span class="mail-pill"><span class="dot purple"></span>Açık Bankacılık SY</span>
+            <span class="mail-pill"><span class="dot blue"></span>Ödeme Sistemleri SY</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-bottom:8px">
+    <h2>Peki aynı ekip olsaydı?</h2>
+    <div class="callout">
+      Sertifikayı oluşturan ekip <b>de</b> "Ödeme Sistemleri SY" olsaydı, iki paydaş tek ekipte birleşir ve <b>tek mail</b> gönderilirdi — mailin içinde "Bu bildirimi alma nedeniniz" bölümünde <b>iki neden birden</b> ("sahibisiniz" + "domain sahibisiniz") listelenirdi.
+    </div>
+  </section>
+
+  <footer>
+    Not: Sertifika elle <b>pasife alınırsa</b> (admin tarafından, cron dışı) bu akış değil, ayrı bir anlık bildirim devreye girer — ve o bildirim yalnız <b>bağlı domain'in</b> SY ekibine gider; sertifikayı oluşturan ekip o bildirimde yer almaz.
+  </footer>
+
+</div>
+</body>
+</html>
