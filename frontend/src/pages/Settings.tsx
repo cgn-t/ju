@@ -1802,6 +1802,38 @@ function RevocationTab() {
   )
 }
 
+// ---------- Canlı Doğrulama (TLS drift + zincir senkronizasyonu) ----------
+function LiveCheckTab() {
+  const { form, setForm, save } = useCategory('live_check')
+  return (
+    <Stack spacing={3}>
+      <Alert severity="info">
+        Domainlerin canlıda TLS üzerinden sunduğu sertifika zincirini (leaf+intermediate+root)
+        günlük kontrol eder. Sunulan zincir envanterdekinden farklıysa (root/intermediate dahil)
+        devir önerisi oluşturur — tamamen yerel, dış erişim gerekmez.
+      </Alert>
+
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={!!form.enabled}
+                           onChange={(e) => setForm((s) => ({ ...s, enabled: e.target.checked }))} />}
+          label="Gece canlı doğrulaması etkin (her gün)" />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          Açıkken tüm domainler her gece otomatik canlı doğrulanır. Kapalıyken tarama yalnız
+          domain detayındaki “Canlı Doğrula” ile elle çalışır.
+        </Typography>
+        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+          <Text form={form} setForm={setForm} field="schedule_hour" label="Gece Saati (0-23)" type="number"
+                width={{ xs: 6, sm: 3 }} helper="Gece taramasının başlayacağı saat (sunucu saati)" />
+        </Grid>
+        <Button variant="contained" sx={{ mt: 2 }} onClick={() => save.mutate()} disabled={save.isPending}>
+          Kaydet
+        </Button>
+      </Box>
+    </Stack>
+  )
+}
+
 // ---------- Bildirim kanalları (Slack / Teams / Webhook) ----------
 // Süre uyarıları e-postaya EK olarak bu kanallara da yayınlanır (notify dispatcher).
 function ChannelTestButton({ category }: { category: string }) {
@@ -2163,6 +2195,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'ct', label: 'CT (crt.sh)', desc: 'Certificate Transparency loglarını izler', el: <CtTab /> },
     { key: 'policy', label: 'Uyum', desc: 'Sertifika uyum politikası kuralları', el: <PolicyTab /> },
     { key: 'revocation', label: 'İptal (OCSP/CRL)', desc: 'İptal durumu denetimi (OCSP/CRL)', el: <RevocationTab /> },
+    { key: 'live_check', label: 'Canlı Doğrulama', desc: 'TLS drift kontrolü ve zincir senkronizasyonu', el: <LiveCheckTab /> },
   ] },
   { title: 'Sistem', items: [
     { key: 'tags', label: 'Etiketler', desc: 'Uygulama etiketi kataloğu', wide: true, el: <TagsTab /> },

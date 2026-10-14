@@ -18,7 +18,7 @@ from cryptography import x509
 from sqlalchemy.orm import Session
 
 from app.core.certtype import normalize_cert_type
-from app.db.models import Domain
+from app.db.models import Certificate, Domain
 from app.services.cert_parser import parse_x509
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,15 @@ def fetch_served_chain(host: str, port: int) -> list[x509.Certificate]:
 
 
 def check_domain(db: Session, domain: Domain) -> Domain:
-    """Domain'i canlı kontrol eder, sonucu domain kaydına yazar. Çağıran commit eder."""
+    """Domain'i canlı kontrol eder, sonucu domain kaydına yazar. Çağıran commit eder.
+
+    Zincir-bilinçli: sunulan TÜM zincir (leaf→root) çekilir; her cert_type kendi eşlenmiş
+    'server' havuzuyla karşılaştırılır (leaf↔leaf, intermediate↔intermediate, root↔root —
+    birbirine karıştırılmaz). AYNI TLS bağlantısının sonucu, zincir senkronizasyonu için de
+    (root/intermediate rotasyonu dahil devir tespiti) yeniden kullanılır — ikinci bağlantı
+    açılmaz (bkz. sync_domain_chain_certs)."""
+    from app.services.chain_sync import sync_domain_chain_certs
+
     host, port = parse_target(domain.domain)
     checked_at = utcnow()
 
@@ -94,114 +102,156 @@ def check_domain(db: Session, domain: Domain) -> Domain:
         domain.live_check_at = checked_at
         return domain
 
-    # Deterministik: aynı fingerprint'li birden çok eşlemede aktif ve bitişi en geç
-    # olan kayıt dict'te kazanır (artan sırayla gezilir, sonuncu yazan kalır)
+    # Deterministik: aynı tipte birden çok eşlemede aktif ve bitişi en geç olan kayıt
+    # havuzda kazanır (artan sırayla gezilir, sonuncu yazan kalır)
+    bound_by_type: dict[str, dict[str, Certificate]] = {}
     server_mappings = sorted(
         (m for m in domain.certificate_mappings
          if m.mapping_type == "server" and m.certificate.fingerprint_sha256),
         key=lambda m: (m.certificate.is_active, m.certificate.valid_to or datetime.min))
-    server_fingerprints = {m.certificate.fingerprint_sha256: m.certificate
-                           for m in server_mappings}
+    for m in server_mappings:
+        bound_by_type.setdefault(normalize_cert_type(m.certificate.cert_type), {})[
+            m.certificate.fingerprint_sha256] = m.certificate
 
     try:
-        served = parse_x509(fetch_served_certificate(host, port))
+        served_raw = fetch_served_chain(host, port)
     except Exception as exc:
         domain.live_check_status = "unreachable"
         domain.live_check_detail = json.dumps(
             {"host": host, "port": port, "error": str(exc)[:300]}, ensure_ascii=False)
         domain.live_check_at = checked_at
         return domain
+    served_list = [parse_x509(c) for c in served_raw]
+    leaf_served = served_list[0]  # el sıkışmada ilk sunulan her zaman uç (leaf) sertifikadır
 
     detail = {
         "host": host,
         "port": port,
-        "served_cn": served.name,
-        "served_serial": served.serial_number,
-        "served_fingerprint": served.fingerprint_sha256,
-        "served_valid_to": served.valid_to.isoformat(),
+        "served_cn": leaf_served.name,
+        "served_serial": leaf_served.serial_number,
+        "served_fingerprint": leaf_served.fingerprint_sha256,
+        "served_valid_to": leaf_served.valid_to.isoformat(),
     }
-    if not server_fingerprints:
+    if not bound_by_type:
         domain.live_check_status = "no_mapping"
         detail["reason"] = "Domain'e server sertifikası eşlenmemiş — sunulan sertifika envanter dışı"
-    elif served.fingerprint_sha256 in server_fingerprints:
-        matched = server_fingerprints[served.fingerprint_sha256]
-        if matched.valid_to is not None and matched.valid_to < checked_at:
-            # Envanterle eşleşiyor ama süresi dolmuş bir sertifika sunuluyor —
-            # bunu yeşil göstermek yanıltıcı olur
-            domain.live_check_status = "mismatch"
-            detail["matched_certificate"] = matched.name
-            detail["reason"] = "Sunulan sertifika envanterde eşli ama SÜRESİ DOLMUŞ"
-        else:
-            domain.live_check_status = "match"
-            detail["matched_certificate"] = matched.name
     else:
-        domain.live_check_status = "mismatch"
-        detail["expected"] = [c.name for c in server_fingerprints.values()]
-        detail["reason"] = "Sunulan sertifika, eşlenmiş server sertifikalarından hiçbiriyle uyuşmuyor"
+        levels: dict[str, dict] = {}
+        for served in served_list:
+            pool = bound_by_type.get(served.cert_type)
+            if not pool:
+                continue  # bu tip domaine hiç eşlenmemiş — karşılaştırılamaz, mismatch sayılmaz
+            if served.fingerprint_sha256 in pool:
+                matched = pool[served.fingerprint_sha256]
+                if matched.valid_to is not None and matched.valid_to < checked_at:
+                    # Eşleşiyor ama süresi dolmuş — bunu yeşil göstermek yanıltıcı olur
+                    levels[served.cert_type] = {"status": "mismatch", "matched_certificate": matched.name,
+                                                "reason": "SÜRESİ DOLMUŞ"}
+                else:
+                    levels[served.cert_type] = {"status": "match", "matched_certificate": matched.name}
+            else:
+                levels[served.cert_type] = {"status": "mismatch"}
+        served_types = {s.cert_type for s in served_list}
+        if "root" in bound_by_type and "root" not in served_types:
+            # Protokol kısıtı: sunucu el sıkışmada pratikte root GÖNDERMEZ (istemci zaten trust
+            # store'unda tutar) — bu kod hatası değil; genel durumu BOZMA, yalnız bilgilendir.
+            # Root rotasyonu yalnız içe aktarma/senkronizasyon anında (chain_sync) yakalanır.
+            detail["root_note"] = ("Root sertifika TLS el sıkışmasında sunulmaz (protokol kısıtı) — "
+                                   "canlı doğrulanamaz; rotasyonu yalnız içe aktarma/senkronizasyon "
+                                   "sırasında yakalanır.")
+        if not levels:
+            domain.live_check_status = "no_mapping"
+            detail["reason"] = "Sunulan sertifikaların hiçbiri domaine eşlenmiş bir tiple örtüşmüyor"
+        else:
+            detail["levels"] = levels
+            if any(lv["status"] == "mismatch" for lv in levels.values()):
+                domain.live_check_status = "mismatch"
+                detail["expected"] = [c.name for pool in bound_by_type.values() for c in pool.values()]
+                detail["reason"] = "Sunulan zincirin bir veya daha fazla seviyesi eşlenmiş sertifikadan farklı"
+            else:
+                domain.live_check_status = "match"
 
-    # Devir kanıtı: sunulan sertifika bekleyen bir devir önerisinin HALEFİ ise (eşli
-    # olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay sinyali.
-    # Hiçbir devir uygulanmaz; onay hattı korunur.
-    seen = _record_live_evidence(db, domain, served.fingerprint_sha256)
+    # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir devir önerisinin
+    # HALEFİ ise (eşli olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay
+    # sinyali. Hiçbir devir uygulanmaz; onay hattı korunur.
+    seen = _record_live_evidence(db, domain, served_list)
     if seen:
         detail["superseded_live_seen"] = seen
+
+    # Zincir senkronizasyonu: sunulan zincir envantere işlenir ve HER cert_type için ayrı
+    # ayrı devir tespiti yapılır (root/intermediate rotasyonu dahil — proaktif, import
+    # beklemeden). import_chain ile AYNI ortak mantık (chain_sync); ikinci TLS bağlantısı
+    # açılmaz, yukarıda zaten çekilen served_raw yeniden kullanılır.
+    sync = sync_domain_chain_certs(db, domain, served_raw, username="system", request=None,
+                                   via="live-check")
+    if sync.superseded:
+        detail["chain_sync_superseded"] = sync.superseded
+
     domain.live_check_detail = json.dumps(detail, ensure_ascii=False)
     domain.live_check_at = checked_at
     return domain
 
 
-def _record_live_evidence(db: Session, domain: Domain, served_fingerprint: str | None) -> list[str]:
+def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> list[str]:
     """ONAY MODELİ: Canlı doğrulama artık HİÇBİR devri kendiliğinden tamamlamaz —
     ne pasife alır ne eşleme siler. Yalnızca 'yeni sertifika sunucuda gerçekten
-    görüldü' KANITINI işler: sunulan sertifika (fingerprint) envanterde bir kayda
+    görüldü' KANITINI işler: sunulan HER sertifika (fingerprint) envanterde bir kayda
     denk geliyorsa ve o kayıt bu domaine ait bekleyen bir devir önerisinin HALEFİ ise
-    live_seen=True işaretlenir; henüz öneri yoksa ama bu domainde başka aktif server
-    eşlemeli öncül varsa öneri üretilir. Gerçek devir yalnız SY onayıyla olur."""
+    live_seen=True işaretlenir; henüz öneri yoksa ama bu domainde served certin KENDİ
+    tipinden (leaf/intermediate/root) başka aktif server eşlemeli öncül varsa öneri
+    üretilir. Gerçek devir yalnız SY onayıyla olur."""
     from app.db.models import Certificate, TransferProposal
     from app.services import renewal
 
-    if not served_fingerprint:
-        return []
-    served_cert = (db.query(Certificate)
-                   .filter(Certificate.fingerprint_sha256 == served_fingerprint).first())
-    if served_cert is None:
-        return []
-
     seen: list[str] = []
     now = utcnow()
+    for served in served_list:
+        if not served.fingerprint_sha256:
+            continue
+        served_cert = (db.query(Certificate)
+                       .filter(Certificate.fingerprint_sha256 == served.fingerprint_sha256).first())
+        if served_cert is None:
+            continue
 
-    # 1) Bu domaine ait, halefi served_cert olan bekleyen önerileri kanıtla
-    props = (db.query(TransferProposal)
-             .filter(TransferProposal.new_cert_id == served_cert.id,
-                     TransferProposal.domain_id == domain.id,
-                     TransferProposal.status == "pending").all())
-    for p in props:
-        if not p.live_seen:
-            p.live_seen = True
-            p.live_seen_at = now
-        old = db.get(Certificate, p.old_cert_id)
-        seen.append(old.name if old else f"#{p.old_cert_id}")
+        # 1) Bu domaine ait, halefi served_cert olan bekleyen önerileri kanıtla
+        props = (db.query(TransferProposal)
+                 .filter(TransferProposal.new_cert_id == served_cert.id,
+                         TransferProposal.domain_id == domain.id,
+                         TransferProposal.status == "pending").all())
+        for p in props:
+            if not p.live_seen:
+                p.live_seen = True
+                p.live_seen_at = now
+            old = db.get(Certificate, p.old_cert_id)
+            seen.append(old.name if old else f"#{p.old_cert_id}")
 
-    # 2) Hiç öneri yoksa: bu domainde served_cert dışında aktif server eşlemeli
-    #    öncül var mı? Varsa onlar için öneri üret (live_seen kanıtıyla)
-    if not props:
-        for m in list(domain.certificate_mappings):
-            old = m.certificate
-            if (old.id != served_cert.id and old.is_active
-                    and normalize_cert_type(old.cert_type) == "leaf"
-                    and m.mapping_type == "server"):
-                renewal.propose(db, served_cert, old, username="system", request=None,
-                                via="live-check", live_seen=True)
-                seen.append(old.name)
+        # 2) Hiç öneri yoksa: bu domainde served_cert dışında, KENDİ tipinden aktif
+        #    server eşlemeli öncül var mı? Varsa öneri üret (live_seen kanıtıyla)
+        if not props:
+            served_type = normalize_cert_type(served_cert.cert_type)
+            for m in list(domain.certificate_mappings):
+                old = m.certificate
+                if (old.id != served_cert.id and old.is_active
+                        and normalize_cert_type(old.cert_type) == served_type
+                        and m.mapping_type == "server"):
+                    renewal.propose(db, served_cert, old, username="system", request=None,
+                                    via="live-check", live_seen=True)
+                    seen.append(old.name)
     return seen
 
 
 def check_all_domains() -> None:
-    """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder."""
+    """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder. 'live_check.enabled'
+    kapalıysa atlanır (Keşif/CT/İptal ile aynı patern) — manuel tetik (/domains/{id}/live-check)
+    bundan bağımsız her zaman çalışır."""
     from app.db.session import SessionLocal
+    from app.services.settings_service import get_category
 
     db = SessionLocal()
     try:
+        if not get_category(db, "live_check", mask_secrets=False).get("enabled"):
+            logger.info("Canlı doğrulama kapalı — zamanlanmış tarama atlandı")
+            return
         domains = db.query(Domain).all()
         for domain in domains:
             try:
