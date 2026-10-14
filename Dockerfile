@@ -15,13 +15,19 @@ COPY frontend/ ./
 RUN npm run build            # -> /app/dist
 
 # --- 2) çalışma imajı: python + nginx (MSSQL için pymssql; ODBC sürücüsü GEREKMEZ) ---
-FROM python:3.13-slim-bullseye
+FROM python:3.13-slim-bookworm
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+# Container saat dilimi: loglar (Python logging + nginx erişim logu) GMT+3 görünsün.
+# utcnow() (app/core/timeutil.py) sistem saatinden bağımsız açıkça UTC zorladığından
+# DB/iş mantığı bundan ETKİLENMEZ — yalnız log satırlarının görünümü değişir.
+ENV TZ=Europe/Istanbul
 
 # pymssql pip tekerlekleri FreeTDS'i kendi içinde barındırır → Microsoft ODBC deposu,
 # imza/SHA1 ve libgssapi derdi YOK. Sadece nginx kurulur.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends nginx ca-certificates \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+ && apt-get install -y --no-install-recommends nginx ca-certificates tzdata \
+ && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
  && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

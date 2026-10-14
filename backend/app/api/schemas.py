@@ -1,10 +1,26 @@
 import json
-from datetime import datetime
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
 
 from app.core.certtype import normalize_cert_type
+
+_ISTANBUL = ZoneInfo("Europe/Istanbul")
+
+
+def _as_istanbul(dt: datetime | None) -> datetime | None:
+    """Loglama/işlem zaman damgaları: DB'de naive-UTC saklanır (bkz. timeutil.utcnow),
+    yalnız API ÇIKTISINDA İstanbul saatine çevrilir — iç hesaplamalar/karşılaştırmalar
+    (örn. duration_seconds) ETKİLENMEZ, ham değer hâlâ naive-UTC'dir. Sertifika tarihleri
+    (valid_from/valid_to vb.) bu tipi KULLANMAZ, dokunulmaz."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc).astimezone(_ISTANBUL)
+
+
+IstanbulDateTime = Annotated[datetime, PlainSerializer(_as_istanbul, when_used="json")]
 
 
 class ORMModel(BaseModel):
@@ -34,7 +50,7 @@ class UserOut(ORMModel):
     role: str                        # TEK KAYNAK: users.role kolonu (bkz. security.effective_role)
     auth_source: str
     is_active: bool
-    last_login: datetime | None
+    last_login: IstanbulDateTime | None
     sy_team_ids: list[int] = []      # üye olduğu SY ekiplerinin id'leri
     sy_team_names: list[str] = []
     team_ids: list[int] = []         # üye olduğu TÜM takımların (SY/ADMIN/VIEWER/UG) id'leri
@@ -157,8 +173,8 @@ class CertificateOut(CertificateBase, ORMModel):
     vault_path: str | None = None
     auto_renew: bool
     superseded_by_id: int | None = None  # yenileme zinciri: yerine geçen kayıt
-    created_at: datetime
-    updated_at: datetime
+    created_at: IstanbulDateTime
+    updated_at: IstanbulDateTime
     days_left: int | None = None
     # Kripto özellikleri (politika/uyum + PQC) — ORM'den from_attributes ile dolar
     key_size: int | None = None
@@ -167,7 +183,7 @@ class CertificateOut(CertificateBase, ORMModel):
     signature_hash: str | None = None
     # İptal (revocation) durumu — OCSP/CRL denetimi
     revocation_status: str | None = None
-    revocation_checked_at: datetime | None = None
+    revocation_checked_at: IstanbulDateTime | None = None
     revocation_detail: str | None = None
     domains: list[MappedDomainOut] = []
     # Yenileme zinciri bağlantıları — N+1 olmaması için yalnız tekil GET doldurur
@@ -273,8 +289,8 @@ class MappedCertOut(BaseModel):
 
 class DomainOut(DomainBase, ORMModel):
     id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: IstanbulDateTime
+    updated_at: IstanbulDateTime
     ug_team: TeamOut | None = None
     sy_team: TeamOut | None = None
     server_days_left: int | None = None
@@ -282,7 +298,7 @@ class DomainOut(DomainBase, ORMModel):
     certificates: list[MappedCertOut] = []
     live_check_status: str | None = None
     live_check_detail: str | None = None
-    live_check_at: datetime | None = None
+    live_check_at: IstanbulDateTime | None = None
     pending_proposals: int = 0  # bu domain için onay bekleyen devir önerisi sayısı
 
 
@@ -345,9 +361,9 @@ class TransferProposalOut(ORMModel):
     via: str | None = None
     live_seen: bool = False
     created_by: str | None = None
-    created_at: datetime
+    created_at: IstanbulDateTime
     decided_by: str | None = None
-    decided_at: datetime | None = None
+    decided_at: IstanbulDateTime | None = None
     note: str | None = None
     can_decide: bool = False   # bu isteği yapan kullanıcı onaylayabilir mi
 
@@ -381,8 +397,8 @@ class ScanTargetUpdate(BaseModel):
 class ScanTargetOut(ScanTargetBase, ORMModel):
     id: int
     sy_team_name: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: IstanbulDateTime
+    updated_at: IstanbulDateTime
 
 
 class DiscoveredCertificateOut(ORMModel):
@@ -404,8 +420,8 @@ class DiscoveredCertificateOut(ORMModel):
     matched_certificate_name: str | None = None
     sy_team_id: int | None = None        # hedefin SY ekibi — benimsemede "Oluşturan" olur
     sy_team_name: str | None = None
-    first_seen_at: datetime
-    last_seen_at: datetime
+    first_seen_at: IstanbulDateTime
+    last_seen_at: IstanbulDateTime
     note: str | None = None
 
 
@@ -447,8 +463,8 @@ class PolicyCertResult(BaseModel):
 
 class ScanRunOut(ORMModel):
     id: int
-    started_at: datetime
-    finished_at: datetime | None = None
+    started_at: IstanbulDateTime
+    finished_at: IstanbulDateTime | None = None
     status: str                          # running | done | error
     trigger: str | None = None
     kind: str = "network"                # network (ağ taraması) | ct (crt.sh)
@@ -648,7 +664,7 @@ class AuditOut(ORMModel):
     record_id: str | None
     details: str | None
     ip_address: str | None
-    created_at: datetime
+    created_at: IstanbulDateTime
 
 
 # ---- Mail gönderim geçmişi (notifications + mail_queue birleşik) ----
@@ -669,9 +685,9 @@ class MailHistoryOut(BaseModel):
     status: str                        # sent | pending | failed
     error: str | None
     attempts: int | None
-    sent_at: datetime | None       # en son bilinen an: delivered_at varsa o, yoksa queued_at
-    queued_at: datetime | None     # karar/kuyruğa alınma anı (mail_queue.created_at ya da doğrudan gönderimde sent_at ile aynı)
-    delivered_at: datetime | None  # GERÇEK teslim anı (mail_queue.sent_at) — henüz teslim edilmediyse None
+    sent_at: IstanbulDateTime | None       # en son bilinen an: delivered_at varsa o, yoksa queued_at
+    queued_at: IstanbulDateTime | None     # karar/kuyruğa alınma anı (mail_queue.created_at ya da doğrudan gönderimde sent_at ile aynı)
+    delivered_at: IstanbulDateTime | None  # GERÇEK teslim anı (mail_queue.sent_at) — henüz teslim edilmediyse None
 
 
 class MailHistoryDetailOut(MailHistoryOut):
@@ -705,8 +721,8 @@ class DeploymentFlowSummaryOut(ORMModel):
     description: str | None = None
     created_by: str | None = None
     updated_by: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: IstanbulDateTime
+    updated_at: IstanbulDateTime
 
 
 class DeploymentFlowOut(DeploymentFlowSummaryOut):
@@ -727,8 +743,8 @@ class DeploymentRunStepOut(ORMModel):
     depends_on: list[str] = []
     status: str  # pending|running|success|failed|skipped|cancelled
     jenkins_build_number: int | None = None
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
+    started_at: IstanbulDateTime | None = None
+    finished_at: IstanbulDateTime | None = None
     error_message: str | None = None
 
     @field_validator("params_snapshot", mode="before")
@@ -761,9 +777,9 @@ class DeploymentRunSummaryOut(ORMModel):
     triggered_by: str | None = None
     trigger_type: str = "manual"  # manual|retry|rerun
     source_run_id: int | None = None
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
-    created_at: datetime
+    started_at: IstanbulDateTime | None = None
+    finished_at: IstanbulDateTime | None = None
+    created_at: IstanbulDateTime
 
     @computed_field
     @property

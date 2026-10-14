@@ -37,7 +37,7 @@ import os
 from logging.config import dictConfig
 
 LOG_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S %z"  # ofset (örn. +0300) açık yazılır — dilim belirsizliği kalmaz
 
 
 def setup_logging() -> None:
