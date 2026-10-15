@@ -698,6 +698,17 @@ class MailHistoryOut(BaseModel):
     sent_at: IstanbulDateTime | None       # en son bilinen an: delivered_at varsa o, yoksa queued_at
     queued_at: IstanbulDateTime | None     # karar/kuyruğa alınma anı (mail_queue.created_at ya da doğrudan gönderimde sent_at ile aynı)
     delivered_at: IstanbulDateTime | None  # GERÇEK teslim anı (mail_queue.sent_at) — henüz teslim edilmediyse None
+    # Okunurluk (sunucuda türetilir — bkz. services/mail_history)
+    mail_type: str = "other"            # expiry | expired | deactivated | proposal | other
+    stakeholder: str | None = None      # alıcı paydaş etiketi
+    recipients: list[str] = []          # alıcılar ayrık liste
+    retryable: bool = False             # başarısız + alıcısı belli → yeniden kuyruğa alınabilir
+
+
+class MailHistoryListOut(BaseModel):
+    items: list[MailHistoryOut]
+    capped: bool
+    limit: int
 
 
 class MailHistoryDetailOut(MailHistoryOut):

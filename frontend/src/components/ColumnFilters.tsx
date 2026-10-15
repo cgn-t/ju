@@ -8,6 +8,7 @@ import {
   TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
+import { useUrlParams, useUrlWriter } from '../hooks/useUrlState'
 
 /**
  * Grafana benzeri kolon-başı filtre — tablo başlığındaki HUNİ ikonundan açılan popover.
@@ -41,12 +42,33 @@ export interface ColumnFilterState<T> {
   close: () => void
 }
 
-export function useColumnFilters<T>(defs: ColDef<T>[]): ColumnFilterState<T> {
+export function useColumnFilters<T>(
+  defs: ColDef<T>[], opts?: { urlPrefix?: string },
+): ColumnFilterState<T> {
   const init = useMemo(
     () => Object.fromEntries(defs.map((d) => [d.key, d.kind === 'status' ? 'all' : ''])),
     [defs])
   const byKey = useMemo(() => Object.fromEntries(defs.map((d) => [d.key, d])), [defs])
-  const [values, setValues] = useState<Record<string, string>>(init)
+  // urlPrefix verilirse değerler URL'de tutulur (?<prefix><kolon>=değer) — sayfa yenilenince /
+  // bağlantı paylaşılınca filtreler korunur. Varsayılan değerler URL'ye yazılmaz.
+  const prefix = opts?.urlPrefix
+  const params = useUrlParams()
+  const writeUrl = useUrlWriter()
+  const [local, setLocal] = useState<Record<string, string>>(init)
+  const values = useMemo<Record<string, string>>(
+    () => prefix
+      ? Object.fromEntries(defs.map((d) => [d.key, params.get(prefix + d.key) ?? init[d.key]]))
+      : local,
+    [prefix, params, defs, init, local])
+  const write = (patch: Record<string, string>) => {
+    if (!prefix) { setLocal((s) => ({ ...s, ...patch })); return }
+    writeUrl((p) => {
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === init[k] || v === undefined) p.delete(prefix + k)
+        else p.set(prefix + k, v)
+      }
+    })
+  }
   const [menu, setMenu] = useState<{ key: string; anchor: HTMLElement } | null>(null)
 
   const active = (key: string) =>
@@ -59,8 +81,8 @@ export function useColumnFilters<T>(defs: ColDef<T>[]): ColumnFilterState<T> {
   })
   return {
     values, active, anyActive, matches, defs, menu,
-    set: (key, value) => setValues((s) => ({ ...s, [key]: value })),
-    clearAll: () => setValues(init),
+    set: (key, value) => write({ [key]: value }),
+    clearAll: () => write(init),
     open: (key, anchor) => setMenu({ key, anchor }),
     close: () => setMenu(null),
   }

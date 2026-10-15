@@ -456,7 +456,7 @@ def test_scn_unexpected_error_on_one_cert_does_not_block_others(client, auth_hea
     assert row.last_error == "RuntimeError: beklenmeyen hata (test)"
 
     hist = client.get("/api/notifications/history", headers=h,
-                      params={"status": "failed", "search": "scn-boom-cert.test"}).json()
+                      params={"status": "failed", "search": "scn-boom-cert.test"}).json()["items"]
     assert len(hist) == 1, "geçmişte tam olarak bir 'failed' kaydı görünmeli"
     assert hist[0]["certificate_name"] == "scn-boom-cert.test"
     assert "RuntimeError" in hist[0]["error"]

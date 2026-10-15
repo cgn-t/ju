@@ -13,7 +13,7 @@ import {
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { DiscoveredCertificate, DiscoveryStatus, ScanRun } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -24,6 +24,7 @@ import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const STATUS_META: Record<DiscoveryStatus, { label: string; color: 'warning' | 'success' | 'info' | 'default' }> = {
   new: { label: 'Bilinmeyen', color: 'warning' },
@@ -44,9 +45,13 @@ export default function Discovery() {
   const { canEdit, isAdmin } = useAuth()
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [detailId, setDetailId] = useState<number | null>(null)
-  const [filter, setFilter] = useState<DiscoveryStatus | null>(null)
-  const [originFilter, setOriginFilter] = useState<'network' | 'ct' | null>(null)
+  const [detailId, setDetailId] = useUrlId('finding')
+  const [filterRaw, setFilterRaw] = useUrlState<string>('status', '', ['new', 'in_inventory', 'adopted', 'ignored'])
+  const filter = (filterRaw || null) as DiscoveryStatus | null
+  const setFilter = (f: DiscoveryStatus | null) => setFilterRaw(f ?? '')
+  const [originRaw, setOriginRaw] = useUrlState<string>('origin', '', ['network', 'ct'])
+  const originFilter = (originRaw || null) as 'network' | 'ct' | null
+  const setOriginFilter = (o: 'network' | 'ct' | null) => setOriginRaw(o ?? '')
 
   const { data: runs } = useQuery<ScanRun[]>({
     queryKey: ['discovery', 'runs'],

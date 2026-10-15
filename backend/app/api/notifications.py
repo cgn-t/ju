@@ -17,18 +17,18 @@ import hmac
 import logging
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.schemas import MailHistoryDetailOut, MailHistoryOut
+from app.api.schemas import MailHistoryDetailOut, MailHistoryListOut, MailHistoryOut
 from app.core.security import ROLE_LEVELS, get_current_user, require_role
 from app.db.models import Certificate, Domain, MailQueue, Notification, User
 from app.db.session import get_db
-from app.services import notifier
+from app.core.timeutil import time_window
+from app.services import mail_history, notifier
 from app.services.audit import log_action, log_standalone
 from app.services.settings_service import get_category
 
@@ -166,97 +166,74 @@ def run_proposal_notifications(request: Request, actor: str = Depends(_trigger_a
     return _run_scan(notifier.send_pending_proposal_notifications, "proposal-run", request, actor, db)
 
 
-@router.get("/history", response_model=list[MailHistoryOut])
+MAIL_HISTORY_LIMIT = 1000
+
+
+def _history_filters(channel, status, mail_type, q, recipient, subject, record,
+                     since_hours, start, end, date_from, date_to) -> mail_history._Filters:
+    lo, hi = time_window(since_hours=since_hours, start=start, end=end,
+                         date_from=date_from, date_to=date_to)
+    return mail_history._Filters(
+        channel=channel or None, status=status if status in mail_history.STATUSES else None,
+        mail_type=mail_type if mail_type in mail_history.MAIL_TYPES else None,
+        q=q or None, recipient=recipient or None, subject=subject or None, record=record or None,
+        lo=lo, hi=hi)
+
+
+@router.get("/history", response_model=MailHistoryListOut)
 def list_mail_history(
-        limit: int = Query(200, ge=1, le=1000),
-        channel: str | None = None,          # vars. frontend 'email' gönderir
+        limit: int = Query(MAIL_HISTORY_LIMIT, ge=1, le=MAIL_HISTORY_LIMIT),
+        channel: str | None = None,          # vars. frontend 'email' gönderir; boş = tüm kanallar
         status: str | None = None,           # sent | pending | failed
-        search: str | None = None,           # alıcı / konu ilike
-        date_from: date | None = None,
-        date_to: date | None = None,
+        mail_type: str | None = None,        # expiry | expired | deactivated | proposal | other
+        q: str | None = None,                # genel arama: alıcı / konu / sertifika / domain
+        search: str | None = None,           # (geriye uyum: q ile aynı)
+        recipient: str | None = None, subject: str | None = None, record: str | None = None,
+        since_hours: int | None = Query(None, ge=1, le=24 * 366),
+        start: datetime | None = None, end: datetime | None = None,   # İstanbul saati
+        date_from: date | None = None, date_to: date | None = None,   # İstanbul günü
         db: Session = Depends(get_db),
         _: User = Depends(require_role("admin"))):
-    """Admin MAIL GÖNDERİM GEÇMİŞİ — iki kaynak birleşik, tarih-desc:
-      • notifications: karar/kuyruğa alınma anında yazılan kayıtlar. mail_queue_id doluysa
-        (queue_enabled akışı) GERÇEK durum/zaman ilişkili mail_queue satırından okunur — böylece
-        kuyruğa girip SONRADAN gerçekten başarısız olan bir mail artık yanlışlıkla 'Gönderildi'
-        görünmez. mail_queue_id NULL ise doğrudan gönderim başarılıdır (status='sent').
-      • mail_queue: yukarıdaki gibi bir notifications satırına BAĞLI OLMAYAN pending/failed
-        satırlar (bağlı olanlar zaten yukarıda GERÇEK durumuyla gösterildi — mükerrer olmasın).
-    Salt-okunur, admin-only (require_role). Audit'teki limit-only sayfalama deseni."""
-    like = f"%{search}%" if search else None
-    start = datetime(date_from.year, date_from.month, date_from.day) if date_from else None
-    end = (datetime(date_to.year, date_to.month, date_to.day) + timedelta(days=1)) if date_to else None
-    rows: list[MailHistoryOut] = []
-    linked_queue_ids: set[int] = set()
+    """Admin MAIL GÖNDERİM GEÇMİŞİ — filtreye uyan en yeni `limit` (≤1000) kayıt. Tüm filtreler
+    (durum dahil) SQL'de, limitten ÖNCE uygulanır. Ayrıntı: services/mail_history."""
+    f = _history_filters(channel, status, mail_type, q or search, recipient, subject, record,
+                         since_hours, start, end, date_from, date_to)
+    items, capped = mail_history.list_history(db, f, limit)
+    return MailHistoryListOut(items=[MailHistoryOut(**r) for r in items], capped=capped, limit=limit)
 
-    # 1) notifications — ilişkili mail_queue satırıyla (varsa) birlikte
-    q = (db.query(Notification, Certificate.name, Domain.domain, MailQueue)
-         .outerjoin(Certificate, Certificate.id == Notification.certificate_id)
-         .outerjoin(Domain, Domain.id == Notification.domain_id)
-         .outerjoin(MailQueue, MailQueue.id == Notification.mail_queue_id))
-    if channel:
-        q = q.filter(Notification.channel == channel)
-    if like is not None:
-        q = q.filter(Notification.recipient.ilike(like) | Notification.subject.ilike(like))
-    if start is not None:
-        q = q.filter(Notification.sent_at >= start)
-    if end is not None:
-        q = q.filter(Notification.sent_at < end)
-    for n, cname, dname, mq in q.order_by(Notification.sent_at.desc()).limit(limit).all():
-        if mq is not None:
-            linked_queue_ids.add(mq.id)
-            eff_status = mq.status
-            queued_at, delivered_at = mq.created_at, mq.sent_at
-            error, attempts = mq.last_error, mq.attempts
-        else:
-            eff_status = "sent"
-            queued_at = delivered_at = n.sent_at
-            error = attempts = None
-        if status is not None and eff_status != status:
-            continue
-        rows.append(MailHistoryOut(
-            id=n.id, source="notification", certificate_id=n.certificate_id,
-            certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
-            recipient=n.recipient, subject=n.subject,
-            days_left=n.days_left, channel=n.channel, status=eff_status,
-            error=error, attempts=attempts, sent_at=delivered_at or queued_at,
-            queued_at=queued_at, delivered_at=delivered_at))
 
-    # 2) mail_queue — bir notifications satırına bağlı OLMAYAN pending/failed satırlar
-    if channel in (None, "email") and status in (None, "pending", "failed"):
-        ts = func.coalesce(MailQueue.sent_at, MailQueue.created_at)  # gönderilmemişte created_at
-        q2 = db.query(MailQueue).filter(MailQueue.status.in_(["pending", "failed"]))
-        if linked_queue_ids:
-            q2 = q2.filter(MailQueue.id.notin_(linked_queue_ids))
-        if status in ("pending", "failed"):
-            q2 = q2.filter(MailQueue.status == status)
-        if like is not None:
-            q2 = q2.filter(MailQueue.to_addresses.ilike(like) | MailQueue.subject.ilike(like))
-        if start is not None:
-            q2 = q2.filter(ts >= start)
-        if end is not None:
-            q2 = q2.filter(ts < end)
-        items = q2.order_by(ts.desc()).limit(limit).all()
-        cids = {i.certificate_id for i in items if i.certificate_id}
-        names = (dict(db.query(Certificate.id, Certificate.name)
-                      .filter(Certificate.id.in_(cids)).all()) if cids else {})
-        dids = {i.domain_id for i in items if i.domain_id}
-        dnames = (dict(db.query(Domain.id, Domain.domain)
-                       .filter(Domain.id.in_(dids)).all()) if dids else {})
-        for i in items:
-            rows.append(MailHistoryOut(
-                id=i.id, source="queue", certificate_id=i.certificate_id,
-                certificate_name=names.get(i.certificate_id),
-                domain_id=i.domain_id, domain_name=dnames.get(i.domain_id),
-                recipient=i.to_addresses,
-                subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
-                error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at,
-                queued_at=i.created_at, delivered_at=i.sent_at))
+@router.get("/history/facets")
+def mail_history_facets(
+        channel: str | None = None, status: str | None = None, mail_type: str | None = None,
+        q: str | None = None, recipient: str | None = None, subject: str | None = None,
+        record: str | None = None,
+        since_hours: int | None = Query(None, ge=1, le=24 * 366),
+        start: datetime | None = None, end: datetime | None = None,
+        date_from: date | None = None, date_to: date | None = None,
+        db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Sekme (durum) ve tür filtresi sayaçları — liste ile aynı filtreler."""
+    f = _history_filters(channel, status, mail_type, q, recipient, subject, record,
+                         since_hours, start, end, date_from, date_to)
+    return mail_history.facets(db, f)
 
-    # birleşik: zaman-desc (naive-UTC), limit'e kırp
-    rows.sort(key=lambda r: r.sent_at or datetime.min, reverse=True)
-    return rows[:limit]
+
+@router.post("/history/{source}/{item_id}/retry")
+def retry_mail(request: Request, source: str, item_id: int, db: Session = Depends(get_db),
+               user: User = Depends(require_role("admin"))):
+    """Başarısız maili yeniden kuyruğa alır (pending, deneme sayacı sıfırlanır); periyodik kuyruk
+    boşaltma işi gönderir. Alıcısı bilinmeyen (hiç denenemeyen) hata kayıtları alınamaz."""
+    mq = mail_history.queue_row_for(db, source, item_id)
+    if mq is None:
+        raise HTTPException(status_code=404, detail="Bu kayda bağlı bir kuyruk satırı yok")
+    if not mail_history._retryable(mq):
+        raise HTTPException(status_code=409, detail="Yalnız alıcısı belli BAŞARISIZ mailler yeniden kuyruğa alınabilir")
+    prev_error = mq.last_error
+    mail_history.requeue(mq)
+    log_action(db, user.username, "mail_retry", "mail_queue", mq.id,
+               {"subject": mq.subject, "recipients": mail_history.recipients_of(mq.to_addresses),
+                "previous_error": (prev_error or "")[:300]}, request)
+    db.commit()
+    return {"ok": True, "status": mq.status}
 
 
 @router.get("/history/{source}/{item_id}", response_model=MailHistoryDetailOut)
@@ -286,9 +263,11 @@ def get_mail_history_detail(source: str, item_id: int, db: Session = Depends(get
             id=n.id, source="notification", certificate_id=n.certificate_id,
             certificate_name=cname, domain_id=n.domain_id, domain_name=dname,
             recipient=n.recipient, subject=n.subject, days_left=n.days_left,
-            channel=n.channel, status=status, error=error, attempts=attempts,
+            channel=n.channel or "email", status=status, error=error, attempts=attempts,
             sent_at=delivered_at or queued_at, queued_at=queued_at, delivered_at=delivered_at,
-            body_text=body_text, body_html=body_html)
+            body_text=body_text, body_html=body_html, mail_type=mail_history.classify(n.subject),
+            stakeholder=mail_history.stakeholder_of(n.subject),
+            recipients=mail_history.recipients_of(n.recipient), retryable=mail_history._retryable(mq))
     if source == "queue":
         i = db.get(MailQueue, item_id)
         if i is None:
@@ -301,5 +280,7 @@ def get_mail_history_detail(source: str, item_id: int, db: Session = Depends(get
             subject=i.subject, days_left=i.days_left, channel="email", status=i.status,
             error=i.last_error, attempts=i.attempts, sent_at=i.sent_at or i.created_at,
             queued_at=i.created_at, delivered_at=i.sent_at,
-            body_text=i.body_text, body_html=i.body_html)
+            body_text=i.body_text, body_html=i.body_html, mail_type=mail_history.classify(i.subject),
+            stakeholder=mail_history.stakeholder_of(i.subject, i.stakeholder),
+            recipients=mail_history.recipients_of(i.to_addresses), retryable=mail_history._retryable(i))
     raise HTTPException(status_code=400, detail="Geçersiz source (notification|queue olmalı)")

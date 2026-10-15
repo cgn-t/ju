@@ -10,6 +10,7 @@ import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { formatDuration } from '../utils/duration'
 import { StatusChip, TRIGGER_TYPE_LABELS } from './Deployments'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 /** Uygulamalar arası TÜM dağıtım çalıştırmaları — Dağıtım sayfasındaki "Çalıştırmalar" tablosu
  * tek bir uygulamayla sınırlıyken, burada "bu CERTKEY en son ne zaman/hangi uygulamada dağıtıldı"
@@ -24,8 +25,8 @@ export default function DeploymentRunsAll() {
     queryFn: async () => (await api.get('/applications')).data,
   })
 
-  const [appId, setAppId] = useState<number | null>(null)
-  const [search, setSearch] = useState('')
+  const [appId, setAppId] = useUrlId('app')
+  const [search, setSearch] = useUrlState<string>('q', '')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)

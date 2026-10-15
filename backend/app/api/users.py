@@ -1,7 +1,6 @@
 import csv
 import io
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import Unicode, cast, func, or_
@@ -22,6 +21,7 @@ from app.api.schemas import (
 from app.core.security import effective_role, get_current_user, hash_password, require_role
 from app.db.models import (Application, AuditLog, Certificate, DeploymentFlow, Domain, ScanTarget, Tag,
                             Team, TransferProposal, User, UserTeam)
+from app.core.timeutil import ISTANBUL, ist_day_start_utc, ist_to_utc, utcnow
 from app.db.session import get_db
 from app.services.audit import (CATEGORIES, MASK, category_filter, category_of, diff_fields, log_action,
                                 snapshot)
@@ -283,14 +283,8 @@ def remove_team_member(request: Request, team_id: int, user_id: int,
     return {"ok": True}
 
 
-_IST = ZoneInfo("Europe/Istanbul")
+_IST = ISTANBUL
 AUDIT_LIST_LIMIT = 1000
-
-
-def _ist_day_start_utc(d: date) -> datetime:
-    """İstanbul günü başlangıcı → naive-UTC (DB naive-UTC saklar; ekran İstanbul gösterir)."""
-    return (datetime(d.year, d.month, d.day, tzinfo=_IST).astimezone(timezone.utc)
-            .replace(tzinfo=None))
 
 
 def _csv_list(v: str | None) -> list[str]:
@@ -308,14 +302,23 @@ def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | 
                  category: str | None = None, username: str | None = None,
                  action: str | None = None, table_name: str | None = None,
                  record_id: str | None = None, q: str | None = None, ip: str | None = None,
-                 record: str | None = None, details: str | None = None):
+                 record: str | None = None, details: str | None = None,
+                 since_hours: int | None = None, start: datetime | None = None,
+                 end: datetime | None = None):
     """Ortak audit filtresi (liste + export + facets). Tarihler İSTANBUL günüdür; date_to GÜN
     SONUNA kadar dâhildir. action/table_name virgülle çoklu değer alır."""
     qry = db.query(AuditLog)
     if date_from:
-        qry = qry.filter(AuditLog.created_at >= _ist_day_start_utc(date_from))
+        qry = qry.filter(AuditLog.created_at >= ist_day_start_utc(date_from))
     if date_to:
-        qry = qry.filter(AuditLog.created_at < _ist_day_start_utc(date_to + timedelta(days=1)))
+        qry = qry.filter(AuditLog.created_at < ist_day_start_utc(date_to + timedelta(days=1)))
+    if since_hours:  # kayan pencere (ör. son 24 saat) — gün sınırından bağımsız
+        qry = qry.filter(AuditLog.created_at >= utcnow() - timedelta(hours=since_hours))
+    # Mutlak aralık (saat hassasiyetinde; Grafana tarzı seçici). Saat dilimi yoksa İSTANBUL kabul edilir.
+    if start:
+        qry = qry.filter(AuditLog.created_at >= ist_to_utc(start))
+    if end:
+        qry = qry.filter(AuditLog.created_at <= ist_to_utc(end))
     if category in CATEGORIES:
         qry = qry.filter(category_filter(category))
     if username:
@@ -406,6 +409,8 @@ def list_audit(limit: int = Query(AUDIT_LIST_LIMIT, ge=1, le=AUDIT_LIST_LIMIT),
                record_id: str | None = None, q: str | None = None, ip: str | None = None,
                record: str | None = None, details: str | None = None,
                date_from: date | None = None, date_to: date | None = None,
+               since_hours: int | None = Query(None, ge=1, le=24 * 366),
+               start: datetime | None = None, end: datetime | None = None,
                db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     """Filtreye uyan EN YENİ `limit` kayıt (varsayılan/en çok 1000). Sınır filtreden SONRA
     uygulanır → eski bir kayıt filtreyle yine bulunur. Daha fazlası için tarih aralığı + CSV."""
@@ -413,18 +418,32 @@ def list_audit(limit: int = Query(AUDIT_LIST_LIMIT, ge=1, le=AUDIT_LIST_LIMIT),
     rows = (_audit_query(db, date_from=date_from, date_to=date_to, category=category,
                          username=username, action=action, table_name=table_name,
                          record_id=record_id, q=q, ip=ip, record=record,
-                         details=details)
+                         details=details, since_hours=since_hours,
+                         start=start, end=end)
             .order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(limit + 1).all())
     capped = len(rows) > limit
     return AuditListOut(items=_to_audit_out(db, rows[:limit]), capped=capped, limit=limit)
 
 
+@router.get("/audit/{entry_id:int}", response_model=AuditOut)
+def get_audit_entry(entry_id: int, db: Session = Depends(get_db),
+                    _: User = Depends(require_role("admin"))):
+    """Tek kayıt — URL'de açık kalan detay paneli, liste filtresinde olmasa da yüklenebilsin."""
+    row = db.get(AuditLog, entry_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Kayıt bulunamadı")
+    return _to_audit_out(db, [row])[0]
+
+
 @router.get("/audit/facets")
 def audit_facets(date_from: date | None = None, date_to: date | None = None,
+                 since_hours: int | None = Query(None, ge=1, le=24 * 366),
+                 start: datetime | None = None, end: datetime | None = None,
                  db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     """Filtre menüleri için seçenekler + kayıt sayıları (seçili tarih aralığında).
     Kategori sayaçları sekmelerde gösterilir."""
-    base = lambda: _audit_query(db, date_from=date_from, date_to=date_to)  # noqa: E731
+    base = lambda: _audit_query(db, date_from=date_from, date_to=date_to,  # noqa: E731
+                                since_hours=since_hours, start=start, end=end)
 
     def grouped(col):
         return [{"value": v, "count": c} for v, c in
@@ -443,6 +462,8 @@ def export_audit(category: str | None = None, username: str | None = None,
                  record_id: str | None = None, q: str | None = None, ip: str | None = None,
                  record: str | None = None, details: str | None = None,
                  date_from: date | None = None, date_to: date | None = None,
+                 since_hours: int | None = Query(None, ge=1, le=24 * 366),
+                 start: datetime | None = None, end: datetime | None = None,
                  db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     """Seçili tarih aralığı (+ AYNI filtreler) için tüm denetim kayıtlarını CSV olarak indirir.
     Tarih aralığı limitin yerini alır → limit YOK (aralık sınırlar; aylık rapor). UTF-8 BOM ile
@@ -450,7 +471,8 @@ def export_audit(category: str | None = None, username: str | None = None,
     rows = (_audit_query(db, date_from=date_from, date_to=date_to, category=category,
                          username=username, action=action, table_name=table_name,
                          record_id=record_id, q=q, ip=ip, record=record,
-                         details=details)
+                         details=details, since_hours=since_hours,
+                         start=start, end=end)
             .order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).all())
     labels = audit_labels_meta()
     buf = io.StringIO()

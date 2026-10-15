@@ -24,6 +24,7 @@ import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 // Uygulama tablosu kolon-başı (huni) filtreleri — metin kolonları + Durum (Aktif/Pasif) seçimi.
 const APP_STATUS_OPTS = [
@@ -60,11 +61,11 @@ export default function Applications() {
   const { canEdit, isAdmin } = useAuth()
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useUrlState<string>('q', '')
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Application | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null)
-  const [detailId, setDetailId] = useState<number | null>(null)
+  const [detailId, setDetailId] = useUrlId('app')
   const [form, setForm] = useState<Record<string, string>>(EMPTY)
   const [formTags, setFormTags] = useState<Tag[]>([])
   const [newTagCategory, setNewTagCategory] = useState('Ürün')
@@ -77,7 +78,7 @@ export default function Applications() {
       params: { search: search || undefined },
     })).data,
   })
-  const cf = useColumnFilters(APP_COLS)  // kolon-başı (huni) filtreleri
+  const cf = useColumnFilters(APP_COLS, { urlPrefix: 'f_' })  // kolon-başı (huni) filtreleri
   const rows = useMemo(() => (apps ?? []).filter(cf.matches), [apps, cf.values])
   const { data: allTags } = useQuery<Tag[]>({
     queryKey: ['tags'],

@@ -32,6 +32,7 @@ import SkiText from '../components/SkiText'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, nodeColors, sourceLabel } from '../theme'
 import { exportSheet } from '../utils/exportSheet'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
@@ -123,15 +124,17 @@ export default function Certificates() {
   const actionsColWidth = isAdmin ? ACTIONS_COL_WIDTH.admin : ACTIONS_COL_WIDTH.other
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [view, setView] = useState<'table' | 'cards'>('table')
-  const [search, setSearch] = useState('')
+  const [view, setView] = useUrlState<'table' | 'cards'>('view', 'table', ['table', 'cards'])
+  const [search, setSearch] = useUrlState<string>('q', '')
   const [importOpen, setImportOpen] = useState(false)
-  const [detailId, setDetailId] = useState<number | null>(null)
+  const [detailId, setDetailId] = useUrlId('cert')
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
   const [deactivateTarget, setDeactivateTarget] = useState<Certificate | null>(null)
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
-  const [showInactive, setShowInactive] = useState(false)
+  const [inactiveParam, setInactiveParam] = useUrlState<string>('inactive', '')
+  const showInactive = inactiveParam === '1'
+  const setShowInactive = (on: boolean) => setInactiveParam(on ? '1' : '')
   const twoCols = useMediaQuery('(min-width:1200px)')
 
   const { data: certs, isLoading, isError, error, refetch } = useQuery<Certificate[]>({
@@ -231,7 +234,7 @@ export default function Certificates() {
     return result
   }, [certs, collapsed])
 
-  const cf = useColumnFilters(CERT_COLS)  // kolon-başı (huni) filtreleri
+  const cf = useColumnFilters(CERT_COLS, { urlPrefix: 'f_' })  // kolon-başı (huni) filtreleri
   // Kolon filtresi AKTİFSE ağaç yerine DÜZ eşleşen liste (hiyerarşi filtrede korunamaz); yoksa ağaç.
   const displayRows = useMemo(() =>
     cf.anyActive

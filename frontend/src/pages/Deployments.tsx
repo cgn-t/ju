@@ -22,7 +22,7 @@ import { useTheme } from '@mui/material/styles'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dagre from 'dagre'
 import { useSnackbar } from 'notistack'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react'
 import ReactFlow, {
   addEdge, Background, Controls, Handle, MarkerType, MiniMap, Position, ReactFlowProvider,
   useEdgesState, useNodesState, useReactFlow,
@@ -42,6 +42,7 @@ import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { deploymentNodeColors } from '../theme'
 import { formatDuration } from '../utils/duration'
+import { useUrlId, useUrlPatch, useUrlState } from '../hooks/useUrlState'
 
 const NODE_W = 220
 const NODE_H = 64
@@ -296,7 +297,9 @@ function DeploymentsInner() {
     queryFn: async () => (await api.get('/applications')).data,
   })
 
-  const [selectedAppId, setSelectedAppId] = useState<number | null>(null)
+  // Seçili uygulama / akış / çalıştırma URL'de (?app=&flow=&run=) — yenileyince aynı ekran
+  const [selectedAppId, setSelectedAppId] = useUrlId('app')
+  const patchUrl = useUrlPatch()
   useEffect(() => {
     if (selectedAppId === null && apps && apps.length > 0) setSelectedAppId(apps[0].id)
   }, [apps, selectedAppId])
@@ -310,9 +313,17 @@ function DeploymentsInner() {
     enabled: !!selectedAppId,
   })
 
-  const [selectedFlowId, setSelectedFlowId] = useState<number | null>(null)
+  const [selectedFlowId, setSelectedFlowId] = useUrlId('flow')
   const [isDraft, setIsDraft] = useState(false)  // henüz kaydedilmemiş yeni akış
-  useEffect(() => { setSelectedFlowId(null); setIsDraft(false) }, [selectedAppId])
+  // Uygulama GERÇEKTEN değişince akış seçimini sıfırla. İlk açılışta (URL'den gelen app+flow)
+  // sıfırlama YOK — yoksa yenilemede URL'deki akış silinirdi.
+  const prevAppId = useRef(selectedAppId)
+  useEffect(() => {
+    if (prevAppId.current !== null && prevAppId.current !== selectedAppId) {
+      setSelectedFlowId(null); setIsDraft(false)
+    }
+    prevAppId.current = selectedAppId
+  }, [selectedAppId])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: flowDetail } = useQuery<DeploymentFlow>({
     queryKey: ['deployment-flow', selectedFlowId],
@@ -567,8 +578,8 @@ function DeploymentsInner() {
   })
 
   // ---- Çalıştırma (run) ----
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
-  const [runSearch, setRunSearch] = useState('')
+  const [selectedRunId, setSelectedRunId] = useUrlId('run')
+  const [runSearch, setRunSearch] = useUrlState<string>('run_q', '')
   const [debouncedRunSearch, setDebouncedRunSearch] = useState('')
   useEffect(() => {
     const t = setTimeout(() => setDebouncedRunSearch(runSearch.trim()), 300)
@@ -631,8 +642,8 @@ function DeploymentsInner() {
                                                    nodes?: FlowNode[]; edges?: FlowEdge[] }
       if (!Array.isArray(parsed?.nodes)) throw new Error('YAML içinde "nodes" listesi bulunamadı')
       const targetAppId = importTargetAppId ?? selectedAppId
-      if (targetAppId !== selectedAppId) setSelectedAppId(targetAppId)
-      setSelectedFlowId(null)
+      // Tek URL güncellemesi (ayrı set'ler birbirini ezer)
+      patchUrl({ app: targetAppId === null ? null : String(targetAppId), flow: null })
       setIsDraft(true)
       setFlowName(parsed.name ? `${parsed.name} (kopya)` : 'İçe Aktarılan Akış')
       setFlowDescription(parsed.description ?? '')

@@ -5,7 +5,7 @@ filtreleri, 1000 sınırı ve CSV dışa aktarma."""
 import csv
 import io
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from app.db.models import AuditLog
 from app.db.session import SessionLocal
@@ -269,6 +269,49 @@ def test_export_uses_same_filters_and_readable_columns(client, auth_headers):
     assert all(row[2] == "Güvenlik" for row in body)
 
 
+def test_since_hours_rolling_window(client, auth_headers):
+    db = SessionLocal()
+    try:
+        db.add(AuditLog(username="eski-kayit", action="update", table_name="domains", record_id="",
+                        created_at=datetime.utcnow() - timedelta(hours=30)))
+        db.commit()
+    finally:
+        db.close()
+    recent = _audit(client, auth_headers, since_hours=24)["items"]
+    assert recent and all(e["username"] != "eski-kayit" for e in recent)
+    assert any(e["username"] == "eski-kayit" for e in _audit(client, auth_headers, since_hours=48)["items"])
+    f = client.get("/api/audit/facets", headers=auth_headers, params={"since_hours": 24}).json()
+    assert all(u["value"] != "eski-kayit" for u in f["users"])
+    assert client.get("/api/audit", headers=auth_headers, params={"since_hours": 0}).status_code == 422
+
+
+def test_get_single_entry(client, auth_headers):
+    e = _latest(client, auth_headers)
+    r = client.get(f"/api/audit/{e['id']}", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["id"] == e["id"] and r.json()["category"]
+    assert client.get("/api/audit/999999999", headers=auth_headers).status_code == 404
+    assert client.get("/api/audit/meta", headers=auth_headers).status_code == 200   # rota çakışmaz
+
+
+def test_absolute_datetime_range_is_istanbul_local(client, auth_headers):
+    db = SessionLocal()
+    try:   # DB naive-UTC 09:30 → İstanbul 12:30
+        db.add(AuditLog(username="aralik-testi", action="update", table_name="domains", record_id="",
+                        created_at=datetime(2026, 3, 10, 9, 30)))
+        db.commit()
+    finally:
+        db.close()
+
+    def count(start, end):
+        return len(_audit(client, auth_headers, start=start, end=end, username="aralik-testi")["items"])
+    assert count("2026-03-10T12:00", "2026-03-10T13:00") == 1   # İstanbul 12:30 aralıkta
+    assert count("2026-03-10T09:00", "2026-03-10T10:00") == 0   # UTC saatiyle aranmaz
+    assert count("2026-03-10T12:31", "2026-03-10T13:00") == 0
+    f = client.get("/api/audit/facets", headers=auth_headers,
+                   params={"start": "2026-03-10T12:00", "end": "2026-03-10T13:00"}).json()
+    assert any(u["value"] == "aralik-testi" for u in f["users"])
+
+
 def test_audit_endpoints_require_admin(client):
-    for path in ("/api/audit", "/api/audit/facets", "/api/audit/meta", "/api/audit/export"):
+    for path in ("/api/audit", "/api/audit/facets", "/api/audit/meta", "/api/audit/export", "/api/audit/1"):
         assert client.get(path).status_code == 401

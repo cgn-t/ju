@@ -5,7 +5,7 @@ import type { Theme } from '@mui/material/styles'
 import { useQuery } from '@tanstack/react-query'
 import dagre from 'dagre'
 import { toPng } from 'html-to-image'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactFlow, {
   Background, Controls, MarkerType, MiniMap, Position, ReactFlowProvider, useReactFlow,
   type Edge, type Node,
@@ -18,6 +18,7 @@ import DomainDetailDrawer from '../components/DomainDetailDrawer'
 import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { nodeColors } from '../theme'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const EDGE_COLORS: Record<string, string> = {
   hierarchy: '#90a4ae', server: '#ef5350', client: '#42a5f5',
@@ -124,16 +125,17 @@ function CertMapInner() {
   useDocumentTitle('Sertifika Haritası')
   const [connFilter, setConnFilter] = useState<string[]>(['server', 'client'])
   const [typeFilter, setTypeFilter] = useState<string[]>(['root', 'intermediate', 'leaf'])
-  const [detailCertId, setDetailCertId] = useState<number | null>(null)
-  const [detailDomainId, setDetailDomainId] = useState<number | null>(null)
-  const [view, setView] = useState<'certs' | 'relationships'>('certs')
+  const [detailCertId, setDetailCertId] = useUrlId('cert')
+  const [detailDomainId, setDetailDomainId] = useUrlId('domain')
+  const [view, setView] = useUrlState<'certs' | 'relationships'>('view', 'certs', ['certs', 'relationships'])
   const [focusId, setFocusId] = useState<string | null>(null)
   const { fitView } = useReactFlow()
 
   // Takım filtresi: 'all' = tüm ekipler; sayı = o SY takımının mapping'i. Harita GLOBAL'dir
   // (herkes tümünü görebilir), ama VARSAYILAN olarak kullanıcının kendi SY takımı seçilir.
-  const [syFilter, setSyFilter] = useState<number | 'all'>('all')
-  const syInit = useRef(false)
+  // SY filtresi URL'de (?sy=3 | ?sy=all). Parametre yoksa kullanıcının ilk SY takımı varsayılandır;
+  // "Tümü" açıkça 'all' yazılır ki yenilemede kendi takıma geri dönmesin.
+  const [syRaw, setSyRaw] = useUrlState<string>('sy', '')
   const { data: me } = useQuery<AppUser>({
     queryKey: ['auth-me'], queryFn: async () => (await api.get('/auth/me')).data,
   })
@@ -141,13 +143,9 @@ function CertMapInner() {
     queryKey: ['teams'], queryFn: async () => (await api.get('/teams')).data,
   })
   const syTeams = useMemo(() => (teams ?? []).filter((t) => t.type === 'SY'), [teams])
-  // İlk yüklemede kullanıcının kendi (ilk) SY takımını varsayılan filtre yap
-  useEffect(() => {
-    if (syInit.current) return
-    const mine = me?.sy_team_ids ?? []
-    if (mine.length) { setSyFilter(mine[0]); syInit.current = true }
-    else if (me) syInit.current = true  // admin/allviewer: kendi SY yok → 'all' kalır
-  }, [me])
+  const syFilter: number | 'all' = syRaw === 'all' ? 'all'
+    : /^\d+$/.test(syRaw) ? Number(syRaw) : (me?.sy_team_ids?.[0] ?? 'all')
+  const setSyFilter = (v: number | 'all') => setSyRaw(String(v))
   const syParam = syFilter === 'all' ? {} : { sy_team_id: syFilter }
 
   const { data, isLoading, isError, error, refetch } = useQuery<CertMapData>({

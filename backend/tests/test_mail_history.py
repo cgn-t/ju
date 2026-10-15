@@ -52,7 +52,7 @@ def test_mail_history_merges_and_filters(client, auth_headers):
         db.close()
 
     rows = client.get("/api/notifications/history", headers=h,
-                      params={"channel": "email", "search": "MHIST"}).json()
+                      params={"channel": "email", "search": "MHIST"}).json()["items"]
     by = {r["recipient"]: r for r in rows}
     assert "sent-a@test" in by and "failed-b@test" in by and "pending-c@test" in by
     assert "queued-sent-d@test" not in by, "queue 'sent' satırı gösterilmemeli (mükerrer)"
@@ -68,7 +68,7 @@ def test_mail_history_merges_and_filters(client, auth_headers):
 
     # status filtresi: yalnız başarısız
     failed = client.get("/api/notifications/history", headers=h,
-                        params={"status": "failed", "search": "MHIST"}).json()
+                        params={"status": "failed", "search": "MHIST"}).json()["items"]
     assert {r["recipient"] for r in failed} == {"failed-b@test"}
 
 
@@ -92,7 +92,7 @@ def test_mail_history_queued_notification_reflects_real_queue_status(client, aut
         db.close()
 
     rows = client.get("/api/notifications/history", headers=h,
-                      params={"search": "MHIST linked failed"}).json()
+                      params={"search": "MHIST linked failed"}).json()["items"]
     assert len(rows) == 1, "bağlı mail_queue satırı AYRICA (mükerrer) gösterilmemeli"
     row = rows[0]
     assert row["source"] == "notification"
@@ -104,11 +104,11 @@ def test_mail_history_queued_notification_reflects_real_queue_status(client, aut
 
     # status=failed filtresi artık bu (notification kaynaklı) satırı da bulmalı
     failed = client.get("/api/notifications/history", headers=h,
-                        params={"status": "failed", "search": "MHIST linked failed"}).json()
+                        params={"status": "failed", "search": "MHIST linked failed"}).json()["items"]
     assert len(failed) == 1
     # status=sent filtresi ARTIK bu satırı GETİRMEMELİ (gerçek durumu failed)
     sent = client.get("/api/notifications/history", headers=h,
-                      params={"status": "sent", "search": "MHIST linked failed"}).json()
+                      params={"status": "sent", "search": "MHIST linked failed"}).json()["items"]
     assert sent == []
 
 
@@ -157,7 +157,7 @@ def test_mail_history_queued_notification_delivered(client, auth_headers):
         db.close()
 
     rows = client.get("/api/notifications/history", headers=h,
-                      params={"search": "MHIST linked sent"}).json()
+                      params={"search": "MHIST linked sent"}).json()["items"]
     assert len(rows) == 1
     assert rows[0]["status"] == "sent"
     assert rows[0]["delivered_at"] is not None
@@ -265,5 +265,108 @@ def test_direct_send_failure_recorded(client, auth_headers, monkeypatch):
         db.close()
 
     # ve geçmişte görünür
-    failed = client.get("/api/notifications/history", headers=h, params={"status": "failed"}).json()
+    failed = client.get("/api/notifications/history", headers=h, params={"status": "failed"}).json()["items"]
     assert any("fail-sy@test" in (r["recipient"] or "") for r in failed)
+
+
+# ---- Kullanılabilirlik yenilemesi: sınır/durum, tür, sayaçlar, yeniden kuyruğa alma, zaman ----
+
+def _hist(client, h, **params):
+    r = client.get("/api/notifications/history", headers=h, params=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_status_filter_applies_before_limit(client, auth_headers):
+    """Eskiden durum filtresi limitten SONRA Python'da uygulanıyordu → yeni bildirimler sınırı
+    doldurunca daha eski bir başarısız mail hiç görünmüyordu."""
+    db = SessionLocal()
+    try:
+        old_q = MailQueue(to_addresses="mhx-old@test", subject="MHX eski başarısız", body_text="x",
+                          status="failed", last_error="SMTP 550", attempts=5,
+                          created_at=datetime.utcnow() - timedelta(days=3))
+        db.add(old_q)
+        db.flush()
+        db.add(Notification(recipient="mhx-old@test", subject="MHX eski başarısız", channel="email",
+                            mail_queue_id=old_q.id, sent_at=datetime.utcnow() - timedelta(days=3)))
+        for i in range(3):
+            db.add(Notification(recipient=f"mhx-new{i}@test", subject=f"MHX yeni {i}", channel="email"))
+        db.commit()
+    finally:
+        db.close()
+    got = _hist(client, auth_headers, status="failed", q="MHX", limit=1)
+    assert [r["recipient"] for r in got["items"]] == ["mhx-old@test"]
+    assert got["items"][0]["status"] == "failed"
+    allr = _hist(client, auth_headers, q="MHX", limit=2)
+    assert len(allr["items"]) == 2 and allr["capped"] is True
+
+
+def test_mail_type_classification_filter_and_facets(client, auth_headers):
+    h = auth_headers
+    db = SessionLocal()
+    try:
+        db.add(Notification(recipient="t1@test", channel="email",
+                            subject="[JUMBO] Sertifika süresi doluyor: mht.test (10 gün kaldı) → Sertifika sahibi"))
+        db.add(Notification(recipient="t2@test", channel="email",
+                            subject="[JUMBO] SÜRESİ GEÇMİŞ sertifika: mht.test (-2 gün)"))
+        db.add(Notification(recipient="t3@test, t4@test", channel="email",
+                            subject="[JUMBO] Onayınızı bekleyen 2 devir önerisi"))
+        db.commit()
+    finally:
+        db.close()
+    rows = _hist(client, h, q="t", recipient="@test", subject="[JUMBO]")["items"]
+    by = {r["recipient"]: r for r in rows if r["recipient"] in ("t1@test", "t2@test", "t3@test, t4@test")}
+    assert by["t1@test"]["mail_type"] == "expiry" and by["t1@test"]["stakeholder"] == "Sertifika sahibi"
+    assert by["t2@test"]["mail_type"] == "expired"
+    assert by["t3@test, t4@test"]["mail_type"] == "proposal"
+    assert by["t3@test, t4@test"]["recipients"] == ["t3@test", "t4@test"]
+    expired_only = _hist(client, h, mail_type="expired", subject="mht.test")["items"]
+    assert [r["recipient"] for r in expired_only] == ["t2@test"]
+    f = client.get("/api/notifications/history/facets", headers=h, params={"subject": "mht.test"}).json()
+    assert f["types"]["expiry"] == 1 and f["types"]["expired"] == 1
+    assert f["statuses"]["sent"] == 2 and f["total"] == 2
+
+
+def test_retry_failed_mail(client, auth_headers):
+    h = auth_headers
+    db = SessionLocal()
+    try:
+        ok = MailQueue(to_addresses="retry-me@test", subject="MHR tekrar", body_text="x",
+                       status="failed", last_error="SMTP 451", attempts=5)
+        unknown = MailQueue(to_addresses="(bilinmiyor — mail hiç denenemedi)", subject="MHR hata",
+                            body_text="x", status="failed", last_error="KeyError", attempts=1)
+        db.add_all([ok, unknown])
+        db.commit()
+        ok_id, unknown_id = ok.id, unknown.id
+    finally:
+        db.close()
+    rows = {r["id"]: r for r in _hist(client, h, q="MHR")["items"] if r["source"] == "queue"}
+    assert rows[ok_id]["retryable"] is True and rows[unknown_id]["retryable"] is False
+    r = client.post(f"/api/notifications/history/queue/{ok_id}/retry", headers=h)
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+    db = SessionLocal()
+    try:
+        q = db.get(MailQueue, ok_id)
+        assert q.status == "pending" and q.attempts == 0 and q.last_error is None
+    finally:
+        db.close()
+    assert client.post(f"/api/notifications/history/queue/{unknown_id}/retry", headers=h).status_code == 409
+    assert client.post(f"/api/notifications/history/queue/{ok_id}/retry", headers=h).status_code == 409  # artık pending
+    audit = client.get("/api/audit", headers=h, params={"action": "mail_retry"}).json()["items"]
+    assert any(e["record_id"] == str(ok_id) for e in audit)
+
+
+def test_time_window_filters(client, auth_headers):
+    db = SessionLocal()
+    try:
+        db.add(Notification(recipient="mhw-old@test", subject="MHW", channel="email",
+                            sent_at=datetime.utcnow() - timedelta(hours=30)))
+        db.add(Notification(recipient="mhw-new@test", subject="MHW", channel="email"))
+        db.commit()
+    finally:
+        db.close()
+    recent = {r["recipient"] for r in _hist(client, auth_headers, subject="MHW", since_hours=24)["items"]}
+    assert recent == {"mhw-new@test"}
+    both = {r["recipient"] for r in _hist(client, auth_headers, subject="MHW", since_hours=48)["items"]}
+    assert both == {"mhw-old@test", "mhw-new@test"}
+

@@ -224,5 +224,5 @@ def test_proposal_reminder_unexpected_error_visible_in_history_and_isolated(clie
     assert row.last_error == "RuntimeError: kasıtlı render hatası (test)"
 
     hist = client.get("/api/notifications/history", headers=h,
-                      params={"status": "failed", "search": "Devir hatırlatması işlenemedi"}).json()
+                      params={"status": "failed", "search": "Devir hatırlatması işlenemedi"}).json()["items"]
     assert any("kasıtlı render hatası" in (r["error"] or "") for r in hist)

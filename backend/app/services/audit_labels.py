@@ -29,7 +29,7 @@ ACTION_LABELS = {
     "revocation_run": "İptal denetimi başlatma", "revocation_check": "İptal kontrolü",
     "scan": "Keşif taraması", "test": "Bağlantı testi", "job_summary": "Zamanlanmış iş",
     "trigger": "Tetikleme", "rerun": "Yeniden çalıştırma", "retry": "Adım tekrarı",
-    "cancel": "İptal", "ct-scan": "CT taraması",
+    "cancel": "İptal", "ct-scan": "CT taraması", "mail_retry": "Mail yeniden kuyruğa",
 }
 
 # İşlem rengi (UI çip) — kategori renginden bağımsız, işlemin doğasına göre
@@ -52,6 +52,7 @@ TABLE_LABELS = {
     "discovered_certificates": "Keşfedilen sertifika", "notifications": "Bildirim",
     "deployment_flows": "Dağıtım akışı", "deployment_run": "Dağıtım çalıştırması",
     "deployment_run_step": "Dağıtım adımı", "jenkins_job": "Jenkins işi", "jobs": "Zamanlanmış iş",
+    "mail_queue": "Mail kuyruğu",
 }
 
 FIELD_LABELS = {
@@ -99,7 +100,7 @@ FIELD_LABELS = {
     "issuance_zero_touch": "Zero-touch", "issuance_renew_before_days": "Yenileme (gün önce)",
     "old_id": "Eski sertifika #", "new_id": "Yeni sertifika #", "proposal_id": "Öneri #",
     "dep_id": "Bağımlılık #", "target_domain_id": "Hedef domain #", "run_id": "Çalıştırma #",
-    "source_run_id": "Kaynak çalıştırma #",
+    "source_run_id": "Kaynak çalıştırma #", "recipients": "Alıcılar", "previous_error": "Önceki hata",
 }
 
 # Bilinen kod değerlerinin okunur karşılığı (alan → {değer: etiket})

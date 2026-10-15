@@ -7,7 +7,7 @@ import {
   TableRow, Tooltip, Typography,
 } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { api } from '../api/client'
 import type { PolicyReport } from '../api/types'
 import PageHeader from '../components/PageHeader'
@@ -16,6 +16,7 @@ import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
+import { useUrlState } from '../hooks/useUrlState'
 
 const RULE_LABELS: Record<string, string> = {
   untrusted_issuer: 'Güvenilmeyen Issuer',
@@ -33,7 +34,9 @@ const SEVERITY: Record<string, { label: string; color: 'error' | 'warning' | 'de
 export default function Policy() {
   useDocumentTitle('Uyum')
   const { policy: canSee } = usePageAccess()
-  const [ruleFilter, setRuleFilter] = useState<string | null>(null)
+  const [ruleRaw, setRuleRaw] = useUrlState<string>('rule', '')
+  const ruleFilter = ruleRaw || null
+  const setRuleFilter = (r: string | null) => setRuleRaw(r ?? '')
 
   const { data, isLoading, isError, error, refetch } = useQuery<PolicyReport>({
     queryKey: ['policy', 'report'],

@@ -2,7 +2,6 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import GroupsIcon from '@mui/icons-material/Groups'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
@@ -15,14 +14,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppUser, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
+import type { AppUser, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import AuditLogPanel from '../components/AuditLogPanel'
-import MailHistoryDetailDrawer from '../components/MailHistoryDetailDrawer'
+import MailHistoryPanel from '../components/MailHistoryPanel'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { daysLeftColor, daysLeftLabel } from '../theme'
-import { exportSheet } from '../utils/exportSheet'
+import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 // ---------- Ortak kategori formu kancası ----------
 function useCategory(category: string) {
@@ -385,7 +383,7 @@ function UsersTab() {
   // Takım düzenleme diyaloğu: hangi kullanıcı + seçili takım id'leri
   const [teamEdit, setTeamEdit] = useState<AppUser | null>(null)
   const [teamSel, setTeamSel] = useState<number[]>([])
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useUrlState<string>('users_q', '')
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(25)
 
@@ -647,7 +645,7 @@ function TeamsTab() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Team | null>(null)
   const [form, setForm] = useState({ name: '', type: 'SY', email: '' })
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useUrlState<string>('teams_q', '')
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(25)
 
@@ -797,7 +795,7 @@ function TeamsTab() {
 function MembershipsTab() {
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [teamId, setTeamId] = useState<number | null>(null)
+  const [teamId, setTeamId] = useUrlId('member_team')  // seçili ekip URL'de
   const [toAdd, setToAdd] = useState<AppUser | null>(null)
   const [emailDraft, setEmailDraft] = useState('')
   const [page, setPage] = useState(0)
@@ -954,147 +952,6 @@ function MembershipsTab() {
 
 
 // ---------- Mail Gönderim Geçmişi ----------
-const MAIL_STATUS: Record<string, { color: 'success' | 'warning' | 'error'; label: string }> = {
-  sent: { color: 'success', label: 'Gönderildi' },
-  pending: { color: 'warning', label: 'Kuyrukta' },
-  failed: { color: 'error', label: 'Başarısız' },
-}
-
-function MailHistoryTab() {
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('')
-  const [channel, setChannel] = useState('email')  // vars. mail; 'Tümü' → tüm kanallar
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [detail, setDetail] = useState<{ source: string; id: number } | null>(null)
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(50)
-  const params = {
-    search: search || undefined, status: status || undefined, channel: channel || undefined,
-    date_from: dateFrom || undefined, date_to: dateTo || undefined,
-  }
-  const { data: entries, isLoading } = useQuery<MailHistoryEntry[]>({
-    queryKey: ['mail-history', search, status, channel, dateFrom, dateTo],
-    queryFn: async () => (await api.get('/notifications/history', { params })).data,
-  })
-  const rows = entries ?? []
-  // Filtre değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
-  useEffect(() => setPage(0), [search, status, channel, dateFrom, dateTo])
-  const pageRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-  // Ekranda görünen = indirilen (aynı satırlar). .xlsx — çok-satırlı konu/hata metni hücrede bozulmaz.
-  const onExport = () => exportSheet(
-    `mail_gecmisi_${dateFrom || 'all'}_${dateTo || 'all'}.xlsx`,
-    ['Tarih', 'Alıcı', 'Sertifika / Domain', 'Konu', 'Kalan Gün', 'Kanal', 'Durum', 'Hata'],
-    rows.map((r) => [
-      r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '',
-      r.recipient ?? '', r.certificate_name ?? (r.domain_name ? `${r.domain_name} (domain)` : ''), r.subject ?? '',
-      r.days_left ?? '', r.channel, MAIL_STATUS[r.status]?.label ?? r.status, r.error ?? '',
-    ]),
-  )
-  return (
-    <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}
-             sx={{ alignItems: { md: 'center' }, flexWrap: 'wrap' }}>
-        <TextField size="small" label="Alıcı / konu ara" value={search}
-                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 220 }} />
-        <TextField select size="small" label="Durum" value={status}
-                   onChange={(e) => setStatus(e.target.value)} sx={{ width: 150 }}
-                   slotProps={{ inputLabel: { shrink: true } }}>
-          <MenuItem value="">Tümü</MenuItem>
-          <MenuItem value="sent">Gönderildi</MenuItem>
-          <MenuItem value="pending">Kuyrukta</MenuItem>
-          <MenuItem value="failed">Başarısız</MenuItem>
-        </TextField>
-        <TextField select size="small" label="Kanal" value={channel}
-                   onChange={(e) => setChannel(e.target.value)} sx={{ width: 150 }}
-                   slotProps={{ inputLabel: { shrink: true } }}>
-          <MenuItem value="email">E-posta</MenuItem>
-          <MenuItem value="">Tümü</MenuItem>
-        </TextField>
-        <TextField size="small" type="date" label="Başlangıç" value={dateFrom}
-                   onChange={(e) => setDateFrom(e.target.value)} sx={{ width: 170 }}
-                   slotProps={{ inputLabel: { shrink: true } }} />
-        <TextField size="small" type="date" label="Bitiş" value={dateTo}
-                   onChange={(e) => setDateTo(e.target.value)} sx={{ width: 170 }}
-                   slotProps={{ inputLabel: { shrink: true } }} />
-        <Box sx={{ flexGrow: 1 }} />
-        <Button variant="outlined" startIcon={<FileDownloadIcon />} onClick={onExport}
-                disabled={!rows.length}>Dışa Aktar (Excel)</Button>
-      </Stack>
-      <Typography variant="caption" color="text.secondary">
-        Gönderilen bilgilendirme e-postaları <b>ve teslim edilemeyen</b> (kuyrukta/başarısız)
-        kayıtlar. Tarihler <b>dâhil</b>dir; liste en çok 1000 satır gösterir. Boş tarih = sınırsız uç.
-        Detayını görmek için bir satıra tıklayın.
-      </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Tarih</TableCell>
-            <TableCell>Alıcı</TableCell>
-            <TableCell>Sertifika / Domain</TableCell>
-            <TableCell>Konu</TableCell>
-            <TableCell>Kalan Gün</TableCell>
-            <TableCell>Kanal</TableCell>
-            <TableCell>Durum</TableCell>
-            <TableCell>Hata</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {pageRows.map((r) => (
-            <TableRow key={`${r.source}-${r.id}`} hover sx={{ cursor: 'pointer' }}
-                      onClick={() => setDetail({ source: r.source, id: r.id })}>
-              <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                {r.sent_at ? new Date(r.sent_at).toLocaleString('tr-TR') : '—'}
-              </TableCell>
-              <TableCell sx={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {r.recipient ?? '—'}
-              </TableCell>
-              <TableCell>{r.certificate_name ?? (r.domain_name ? `${r.domain_name} (domain)` : '—')}</TableCell>
-              <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {r.subject ?? '—'}
-              </TableCell>
-              <TableCell>
-                {r.days_left === null || r.days_left === undefined
-                  ? '—'
-                  : <Chip size="small" color={daysLeftColor(r.days_left)} label={daysLeftLabel(r.days_left)} />}
-              </TableCell>
-              <TableCell>{r.channel}</TableCell>
-              <TableCell>
-                <Chip size="small" color={MAIL_STATUS[r.status]?.color ?? 'default'}
-                      label={MAIL_STATUS[r.status]?.label ?? r.status} />
-              </TableCell>
-              <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis',
-                               whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11, color: 'error.main' }}>
-                {r.error ?? '—'}
-              </TableCell>
-            </TableRow>
-          ))}
-          {!isLoading && !rows.length && (
-            <TableRow>
-              <TableCell colSpan={8}>
-                <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                  Kayıt yok — henüz mail gönderilmemiş ya da filtrelerle eşleşen kayıt bulunamadı.
-                </Typography>
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={rows.length}
-        page={page}
-        onPageChange={(_e, newPage) => setPage(newPage)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
-        rowsPerPageOptions={[25, 50, 100]}
-        labelRowsPerPage="Sayfa başına satır"
-        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
-      />
-      <MailHistoryDetailDrawer item={detail} onClose={() => setDetail(null)} />
-    </Stack>
-  )
-}
 
 // ---------- Etiketler (tag kataloğu) ----------
 function TagsTab() {
@@ -2075,7 +1932,7 @@ const NAV_GROUPS: NavGroup[] = [
   ] },
   { title: 'Bildirimler', items: [
     { key: 'smtp', label: 'E-posta (SMTP)', desc: 'Süresi yaklaşan sertifikalar için bilgilendirme e-postaları', el: <SmtpTab /> },
-    { key: 'mail-history', label: 'Mail Gönderim Geçmişi', desc: 'Gönderilen bilgilendirme e-postalarının kaydı (teslim edilemeyenler dâhil)', wide: true, el: <MailHistoryTab /> },
+    { key: 'mail-history', label: 'Mail Gönderim Geçmişi', desc: 'Gönderilen bilgilendirme e-postalarının kaydı (teslim edilemeyenler dâhil)', wide: true, el: <MailHistoryPanel /> },
     { key: 'slack', label: 'Slack', desc: 'Süre uyarılarını bir Slack kanalına yayınlar', el: <SlackTab /> },
     { key: 'teams-notify', label: 'Microsoft Teams', desc: 'Süre uyarılarını bir Teams kanalına yayınlar', el: <MsTeamsTab /> },
     { key: 'webhook', label: 'Webhook', desc: 'Olay verisini genel bir uç noktaya (URL) POST eder', el: <WebhookTab /> },
@@ -2102,7 +1959,9 @@ const NAV_GROUPS: NavGroup[] = [
 export default function Settings() {
   useDocumentTitle('Ayarlar')
   const { isAdmin } = useAuth()
-  const [active, setActive] = useState('users')
+  // Açık bölüm URL'de (?tab=audit) — yenileyince/bağlantı paylaşınca aynı bölüm açılır
+  const navKeys = useMemo(() => NAV_GROUPS.flatMap((g) => g.items.map((it) => it.key)), [])
+  const [active, setActive] = useUrlState('tab', 'users', navKeys)
   // Gruplar açılır/kapanır (accordion) — yer kaplamasın. Başlangıçta yalnız aktif öğenin grubu açık.
   const groupTitleOf = (key: string) =>
     NAV_GROUPS.find((g) => g.items.some((it) => it.key === key))?.title ?? ''

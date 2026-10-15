@@ -7,7 +7,6 @@ import {
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { TransferProposal } from '../api/types'
 import PageHeader from '../components/PageHeader'
@@ -16,6 +15,7 @@ import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { mappingTypeLabel, MONO_FONT } from '../theme'
+import { useUrlId } from '../hooks/useUrlState'
 
 const VIA_LABEL: Record<string, string> = {
   import: 'İçe aktarma', manual: 'Elle', 'vault-sync': 'Vault senkron',
@@ -27,7 +27,7 @@ export default function Proposals() {
   useDocumentTitle('Devir Önerileri')
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [reviewId, setReviewId] = useState<number | null>(null)
+  const [reviewId, setReviewId] = useUrlId('review')
 
   const { data: proposals, isLoading, isError, error, refetch } = useQuery<TransferProposal[]>({
     queryKey: ['proposals', 'pending'],

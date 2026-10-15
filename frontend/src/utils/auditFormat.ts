@@ -29,28 +29,35 @@ export function isoDay(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-export type TimePreset = 'all' | 'today' | '7d' | '30d' | 'this_month' | 'last_month' | 'custom'
+export type TimePreset = 'all' | '12h' | '24h' | '2d' | '7d' | '30d' | 'custom'
 
-export const TIME_PRESETS: { value: TimePreset; label: string }[] = [
-  { value: 'all', label: 'Tümü (son 1000 kayıt)' },
-  { value: 'today', label: 'Bugün' },
-  { value: '7d', label: 'Son 7 gün' },
-  { value: '30d', label: 'Son 30 gün' },
-  { value: 'this_month', label: 'Bu ay' },
-  { value: 'last_month', label: 'Geçen ay' },
-  { value: 'custom', label: 'Özel aralık…' },
+/** Grafana tarzı hızlı aralıklar (kayan pencere; saat → sunucuya since_hours). */
+export const QUICK_RANGES: { value: Exclude<TimePreset, 'all' | 'custom'>; label: string; hours: number }[] = [
+  { value: '12h', label: 'Son 12 saat', hours: 12 },
+  { value: '24h', label: 'Son 24 saat', hours: 24 },
+  { value: '2d', label: 'Son 2 gün', hours: 48 },
+  { value: '7d', label: 'Son 7 gün', hours: 168 },
+  { value: '30d', label: 'Son 30 gün', hours: 720 },
 ]
 
-/** Hazır aralık → [başlangıç, bitiş] (dahil). 'custom' / 'all' için null döner. */
-export function presetRange(p: TimePreset, now = new Date()): [string, string] | null {
-  const y = now.getFullYear(), m = now.getMonth()
-  const back = (days: number) => { const d = new Date(now); d.setDate(d.getDate() - days); return d }
-  switch (p) {
-    case 'today': return [isoDay(now), isoDay(now)]
-    case '7d': return [isoDay(back(6)), isoDay(now)]
-    case '30d': return [isoDay(back(29)), isoDay(now)]
-    case 'this_month': return [isoDay(new Date(y, m, 1)), isoDay(now)]
-    case 'last_month': return [isoDay(new Date(y, m - 1, 1)), isoDay(new Date(y, m, 0))]
-    default: return null
-  }
+export const TIME_PRESETS: { value: TimePreset; label: string }[] = [
+  { value: 'all', label: 'Son 1000 kayıt' },
+  ...QUICK_RANGES.map(({ value, label }) => ({ value, label })),
+  { value: 'custom', label: 'Özel aralık' },
+]
+
+export function presetHours(p: TimePreset): number | undefined {
+  return QUICK_RANGES.find((q) => q.value === p)?.hours
+}
+
+/** datetime-local değeri (YYYY-MM-DDTHH:mm, yerel saat). */
+export function toLocalInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${isoDay(d)}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** "2026-10-15T08:00" → "15.10.2026 08:00" */
+export function formatLocalInput(v: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v)
+  return m ? `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}` : v
 }

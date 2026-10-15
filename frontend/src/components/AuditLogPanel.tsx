@@ -13,14 +13,16 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { AuditCategory, AuditEntry, AuditFacets, AuditList, AuditMeta } from '../api/types'
+import { useUrlId, useUrlPatch, useUrlState } from '../hooks/useUrlState'
 import { MONO_FONT } from '../theme'
 import ApplicationDetailDrawer from './ApplicationDetailDrawer'
 import AuditDetailDrawer from './AuditDetailDrawer'
-import { formatAuditTime, presetRange, relativeTime, TIME_PRESETS, type TimePreset } from '../utils/auditFormat'
+import { formatAuditTime, formatLocalInput, presetHours, relativeTime, TIME_PRESETS, type TimePreset } from '../utils/auditFormat'
 import ActionDot from './AuditActionDot'
 import CertificateDetailDrawer from './CertificateDetailDrawer'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from './ColumnFilters'
 import DomainDetailDrawer from './DomainDetailDrawer'
+import TimeRangePicker from './TimeRangePicker'
 
 /**
  * Audit Log — kurumsal denetim ekranı. Filtreler SUNUCUDA uygulanır (liste filtreye uyan en
@@ -57,14 +59,18 @@ function UserCell({ username }: { username: string }) {
 export default function AuditLogPanel() {
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<Tab_>('all')
-  const [search, setSearch] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [history, setHistory] = useState<{ table: string; recordId: string; label: string } | null>(null)
+  const [tab, setTab] = useUrlState<Tab_>('audit_tab', 'all', ['all', ...CATEGORY_TABS])
+  // Tüm görünüm durumu URL'de (audit_*) — yenileyince/bağlantı paylaşınca aynı ekran açılır
+  const [search, setSearch] = useUrlState<string>('audit_q', '')
+  // Özel (mutlak) aralık: datetime-local, İstanbul saati — Grafana tarzı seçiciden
+  const [dateFrom] = useUrlState<string>('audit_from', '')
+  const [dateTo] = useUrlState<string>('audit_to', '')
+  const [histTable] = useUrlState<string>('audit_hist_t', '')
+  const [histId] = useUrlState<string>('audit_hist_id', '')
+  const [selectedId, setSelectedId] = useUrlId('audit_entry')
+  const patchUrl = useUrlPatch()
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(50)
-  const [selected, setSelected] = useState<AuditEntry | null>(null)
   const [openRecord, setOpenRecord] = useState<{ table: string; id: number } | null>(null)
 
   const { data: meta } = useQuery<AuditMeta>({
@@ -76,7 +82,8 @@ export default function AuditLogPanel() {
   // ---- Kolon filtreleri (durum = useColumnFilters; süzme sunucuda) ----
   const [facetsForDefs, setFacetsForDefs] = useState<AuditFacets | undefined>()
   const defs = useMemo<ColDef<AuditEntry>[]>(() => [
-    { key: 'time', label: 'Zaman', kind: 'status', options: TIME_PRESETS, get: NOOP },
+    // Huni menüsünde yalnız hızlı aralıklar; özel aralık araç çubuğundaki seçiciden girilir
+    { key: 'time', label: 'Zaman', kind: 'status', options: TIME_PRESETS.filter((p) => p.value !== 'custom'), get: NOOP },
     { key: 'user', label: 'Kullanıcı', kind: 'text', get: NOOP },
     { key: 'action', label: 'İşlem', kind: 'status', get: NOOP, options: [
       { value: 'all', label: 'Tümü' },
@@ -90,12 +97,23 @@ export default function AuditLogPanel() {
     { key: 'details', label: 'Değişiklik', kind: 'text', get: NOOP },
     { key: 'ip', label: 'IP', kind: 'text', get: NOOP },
   ], [facetsForDefs, meta])
-  const cf = useColumnFilters(defs)
+  const cf = useColumnFilters(defs, { urlPrefix: 'audit_f_' })
   const v = cf.values
-  const preset = (v.time ?? 'all') as TimePreset
+  const preset = (TIME_PRESETS.some((p) => p.value === v.time) ? v.time : 'all') as TimePreset
+  // Özel aralıktan çıkılınca (menüden ya da başlık hunisinden) eski tarihler URL'de kalmasın
+  useEffect(() => {
+    if (preset !== 'custom' && (dateFrom || dateTo)) patchUrl({ audit_from: null, audit_to: null })
+  }, [preset])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Tarih aralığı: hazır seçim ya da özel aralık
-  const [from, to] = preset === 'custom' ? [dateFrom, dateTo] : (presetRange(preset) ?? ['', ''])
+  // Zaman: hızlı aralık → since_hours (kayan pencere); özel → start/end (mutlak, saatli)
+  const sinceHours = presetHours(preset)
+  const start = preset === 'custom' ? dateFrom || undefined : undefined
+  const end = preset === 'custom' ? dateTo || undefined : undefined
+  const changeTime = (p: TimePreset, f?: string, t?: string) => patchUrl({
+    audit_f_time: p === 'all' ? null : p,
+    audit_from: p === 'custom' ? (f ?? null) : null,
+    audit_to: p === 'custom' ? (t || null) : null,
+  })
   const dq = useDebounced({ search, user: v.user, record: v.record, details: v.details, ip: v.ip })
 
   const params = {
@@ -103,18 +121,21 @@ export default function AuditLogPanel() {
     q: dq.search || undefined,
     username: dq.user || undefined,
     action: v.action && v.action !== 'all' ? v.action : undefined,
-    table_name: history?.table ?? (v.table && v.table !== 'all' ? v.table : undefined),
-    record_id: history?.recordId,
+    table_name: histTable || (v.table && v.table !== 'all' ? v.table : undefined),
+    record_id: histId || undefined,
     record: dq.record || undefined,
     details: dq.details || undefined,
     ip: dq.ip || undefined,
-    date_from: from || undefined,
-    date_to: to || undefined,
+    since_hours: sinceHours,
+    start,
+    end,
   }
 
   const { data: facets } = useQuery<AuditFacets>({
-    queryKey: ['audit-facets', from, to],
-    queryFn: async () => (await api.get('/audit/facets', { params: { date_from: from || undefined, date_to: to || undefined } })).data,
+    queryKey: ['audit-facets', sinceHours, start, end],
+    queryFn: async () => (await api.get('/audit/facets', {
+      params: { since_hours: sinceHours, start, end },
+    })).data,
     placeholderData: keepPreviousData,
   })
   useEffect(() => setFacetsForDefs(facets), [facets])
@@ -125,6 +146,18 @@ export default function AuditLogPanel() {
     placeholderData: keepPreviousData,
   })
   const rows = data?.items ?? []
+  // Açık detay: listede varsa oradan, yoksa (filtre dışı / 1000 sınırı ötesi) tek kayıt ucu
+  const selectedInRows = selectedId !== null ? rows.find((r) => r.id === selectedId) : undefined
+  const { data: selectedFetched } = useQuery<AuditEntry>({
+    queryKey: ['audit-entry', selectedId],
+    queryFn: async () => (await api.get(`/audit/${selectedId}`)).data,
+    enabled: selectedId !== null && !selectedInRows && !isFetching,
+  })
+  const selected = selectedId === null ? null : (selectedInRows ?? selectedFetched ?? null)
+  const histLabel = histTable
+    ? (rows.find((r) => r.table_name === histTable && r.record_id === histId)?.record_label || `#${histId}`)
+    : ''
+  const history = histTable ? { table: histTable, label: histLabel } : null
   const paramsKey = JSON.stringify(params)
   useEffect(() => setPage(0), [paramsKey])
   const pageRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
@@ -142,7 +175,9 @@ export default function AuditLogPanel() {
       const url = URL.createObjectURL(res.data as Blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `audit_${from || 'all'}_${to || 'all'}.csv`
+      const stamp = (v?: string) => (v ?? '').replace(/[-:]/g, '').replace('T', '-')
+      a.download = sinceHours ? `audit_son${sinceHours}saat.csv`
+        : start ? `audit_${stamp(start)}_${end ? stamp(end) : 'simdi'}.csv` : 'audit_son1000.csv'
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
     },
@@ -151,22 +186,27 @@ export default function AuditLogPanel() {
 
   // ---- Aktif filtre çipleri ----
   const chips: { key: string; label: string; onDelete: () => void }[] = []
-  if (history) chips.push({ key: 'history', label: `Kayıt geçmişi: ${meta?.tables[history.table] ?? history.table} · ${history.label}`, onDelete: () => setHistory(null) })
+  if (history) chips.push({ key: 'history', label: `Kayıt geçmişi: ${meta?.tables[history.table] ?? history.table} · ${history.label}`, onDelete: () => patchUrl({ audit_hist_t: null, audit_hist_id: null }) })
   if (search) chips.push({ key: 'q', label: `Arama: ${search}`, onDelete: () => setSearch('') })
   for (const d of defs) {
     if (!cf.active(d.key)) continue
     let shown = v[d.key]
     if (d.kind === 'status') shown = d.options?.find((o) => o.value === v[d.key])?.label ?? v[d.key]
-    if (d.key === 'time' && preset === 'custom') shown = `${dateFrom || '…'} – ${dateTo || '…'}`
+    if (d.key === 'time' && preset === 'custom') {
+      shown = dateFrom ? `${formatLocalInput(dateFrom)} → ${dateTo ? formatLocalInput(dateTo) : 'şimdi'}`
+        : 'Özel aralık (tarih seçin)'
+    }
     chips.push({ key: d.key, label: `${d.label}: ${shown}`, onDelete: () => cf.set(d.key, d.kind === 'status' ? 'all' : '') })
   }
-  const clearAll = () => { cf.clearAll(); setSearch(''); setHistory(null); setDateFrom(''); setDateTo('') }
+  // TEK URL güncellemesi: ayrı ayrı set'ler aynı anda çalışınca birbirini ezer
+  const clearAll = () => patchUrl({
+    ...Object.fromEntries(defs.map((d) => [`audit_f_${d.key}`, null])),
+    audit_q: null, audit_hist_t: null, audit_hist_id: null, audit_from: null, audit_to: null,
+  })
 
-  const showHistory = (e: AuditEntry) => {
-    setHistory({ table: e.table_name, recordId: e.record_id!, label: e.record_label || `#${e.record_id}` })
-    setTab('all')
-    setSelected(null)
-  }
+  const showHistory = (e: AuditEntry) => patchUrl({
+    audit_hist_t: e.table_name, audit_hist_id: e.record_id ?? null, audit_tab: null, audit_entry: null,
+  })
 
   const colW = { time: 150, user: 130, action: 180, table: 160, record: 210, ip: 120 }
 
@@ -194,21 +234,7 @@ export default function AuditLogPanel() {
         <TextField size="small" placeholder="Kayıtlarda ara (ad, detay, kullanıcı)…" value={search}
                    onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 300 }}
                    slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }} />
-        <TextField select size="small" label="Zaman aralığı" value={preset}
-                   onChange={(e) => cf.set('time', e.target.value)} sx={{ width: 230 }}
-                   slotProps={{ select: { native: true } }}>
-          {TIME_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </TextField>
-        {preset === 'custom' && (
-          <>
-            <TextField size="small" type="date" label="Başlangıç" value={dateFrom}
-                       onChange={(e) => setDateFrom(e.target.value)} sx={{ width: 160 }}
-                       slotProps={{ inputLabel: { shrink: true } }} />
-            <TextField size="small" type="date" label="Bitiş" value={dateTo}
-                       onChange={(e) => setDateTo(e.target.value)} sx={{ width: 160 }}
-                       slotProps={{ inputLabel: { shrink: true } }} />
-          </>
-        )}
+        <TimeRangePicker preset={preset} from={dateFrom} to={dateTo} onChange={changeTime} />
         <Box sx={{ flexGrow: 1 }} />
         <Tooltip title="Yenile">
           <IconButton onClick={() => { queryClient.invalidateQueries({ queryKey: ['audit'] }); queryClient.invalidateQueries({ queryKey: ['audit-facets'] }) }}>
@@ -259,7 +285,7 @@ export default function AuditLogPanel() {
           </TableHead>
           <TableBody>
             {pageRows.map((e) => (
-              <TableRow key={e.id} hover onClick={() => setSelected(e)}
+              <TableRow key={e.id} hover onClick={() => setSelectedId(e.id)} selected={e.id === selectedId}
                         sx={{ cursor: 'pointer', verticalAlign: 'top',
                               ...(e.action === 'login_failed' && {
                                 bgcolor: (t) => alpha(t.palette.error.main, 0.06),
@@ -324,7 +350,7 @@ export default function AuditLogPanel() {
       />
 
       <ColumnFilterMenu cf={cf} facetCounts={facetCounts} />
-      <AuditDetailDrawer entry={selected} meta={meta} onClose={() => setSelected(null)}
+      <AuditDetailDrawer entry={selected} meta={meta} onClose={() => setSelectedId(null)}
                          onShowHistory={showHistory}
                          onOpenRecord={(e) => { setOpenRecord({ table: e.table_name, id: Number(e.record_id) }) }} />
       <CertificateDetailDrawer

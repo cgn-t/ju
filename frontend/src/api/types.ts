@@ -389,6 +389,25 @@ export interface MailHistoryEntry {
   sent_at?: string | null      // en son bilinen an: delivered_at varsa o, yoksa queued_at
   queued_at?: string | null    // karar/kuyruğa alınma anı
   delivered_at?: string | null // GERÇEK teslim anı — henüz teslim edilmediyse null
+  mail_type: MailType           // konudan türetilir (sunucu)
+  stakeholder?: string | null   // alıcı paydaş etiketi
+  recipients: string[]          // alıcılar ayrık
+  retryable: boolean            // başarısız + alıcısı belli → yeniden kuyruğa alınabilir
+}
+
+export type MailType = 'expiry' | 'expired' | 'deactivated' | 'proposal' | 'other'
+export type MailStatus = 'sent' | 'pending' | 'failed'
+
+export interface MailHistoryList {
+  items: MailHistoryEntry[]
+  capped: boolean
+  limit: number
+}
+
+export interface MailHistoryFacets {
+  statuses: Record<MailStatus, number>
+  types: Record<MailType, number>
+  total: number
 }
 
 export interface MailHistoryDetail extends MailHistoryEntry {

@@ -21,7 +21,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Domain } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -34,6 +33,7 @@ import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel } from '../theme'
 import { exportSheet } from '../utils/exportSheet'
+import { useUrlId, useUrlParams, useUrlPatch, useUrlState } from '../hooks/useUrlState'
 
 type StatusFilter = 'all' | 'valid' | 'expiring' | 'expired' | 'nocert'
 
@@ -73,15 +73,16 @@ export default function Domains() {
   const { canEdit } = useAuth()
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [view, setView] = useState<'cards' | 'table'>('table')
-  const [search, setSearch] = useState('')
-  const [status, setStatus] = useState<StatusFilter>('all')
-  const cf = useColumnFilters(COLS)  // tablo kolon-başı (huni) filtreleri
+  const [view, setView] = useUrlState<'cards' | 'table'>('view', 'table', ['cards', 'table'])
+  const [search, setSearch] = useUrlState<string>('q', '')
+  const [status, setStatus] = useUrlState<StatusFilter>('status', 'all', ['all', 'valid', 'expiring', 'expired', 'nocert'])
+  const cf = useColumnFilters(COLS, { urlPrefix: 'f_' })  // tablo kolon-başı (huni) filtreleri
   const [formOpen, setFormOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Domain | null>(null)
-  const [detailId, setDetailId] = useState<number | null>(null)
+  const [detailId, setDetailId] = useUrlId('domain')
   const [deleteTarget, setDeleteTarget] = useState<Domain | null>(null)
-  const [searchParams, setSearchParams] = useSearchParams()
+  const searchParams = useUrlParams()
+  const patchUrl = useUrlPatch()
   const syFilter = searchParams.get('sy')
   const excelInput = useRef<HTMLInputElement>(null)
 
@@ -231,7 +232,7 @@ export default function Domains() {
           <MenuItem value="nocert">Sertifikasız</MenuItem>
         </TextField>
         {syFilter && (
-          <Chip label={`SY: ${syFilter}`} color="success" onDelete={() => setSearchParams({})} />
+          <Chip label={`SY: ${syFilter}`} color="success" onDelete={() => patchUrl({ sy: null })} />
         )}
         {cf.anyActive && (
           <Chip label="Kolon filtreleri" color="primary" variant="outlined" onDelete={cf.clearAll} />
