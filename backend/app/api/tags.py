@@ -12,7 +12,7 @@ from app.api.schemas import TagCreate, TagOut, TagUpdate
 from app.core.security import ROLE_LEVELS, domain_scope_team_ids, require_role
 from app.db.models import Application, ApplicationTag, Tag, User
 from app.db.session import get_db
-from app.services.audit import log_action
+from app.services.audit import diff_fields, log_action
 
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
@@ -82,9 +82,11 @@ def update_tag(request: Request, tag_id: int, body: TagUpdate, db: Session = Dep
                                   Tag.id != tag_id).first())
     if clash is not None:
         raise HTTPException(status_code=409, detail="Bu kategoride aynı adlı etiket zaten var")
+    diff = diff_fields(tag, changes)
     for key, value in changes.items():
         setattr(tag, key, value)
-    log_action(db, user.username, "update", "tags", tag.id, changes, request)
+    log_action(db, user.username, "update", "tags", tag.id,
+               {"name": tag.name, "changes": diff}, request)
     db.commit()
     return tag
 

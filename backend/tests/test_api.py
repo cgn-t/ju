@@ -377,7 +377,7 @@ def test_certificate_soft_delete_filter(client, auth_headers):
 
 
 def test_audit_populated(client, auth_headers):
-    entries = client.get("/api/audit", headers=auth_headers).json()
+    entries = client.get("/api/audit", headers=auth_headers).json()["items"]
     actions = {e["action"] for e in entries}
     assert {"login", "import", "create"} <= actions
 
@@ -401,7 +401,7 @@ def test_audit_date_filter_future_range_empty(client, auth_headers):
     # Gelecekteki aralık → hiçbir kayıt (tüm kayıtlar bugünden). date_to gün sonuna kadar dâhil.
     r = client.get("/api/audit", headers=auth_headers,
                    params={"date_from": "2099-01-01", "date_to": "2099-01-02"})
-    assert r.status_code == 200 and r.json() == []
+    assert r.status_code == 200 and r.json()["items"] == [] and r.json()["capped"] is False
 
 
 # ---- Canlı zincir çekme (probe-chain / import-chain) ----

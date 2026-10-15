@@ -12,7 +12,7 @@ from app.core.security import (PAGE_SETTING_KEY, create_access_token, effective_
 from app.db.models import Team, User, UserTeam
 from app.db.session import get_db
 from app.services import ldap_auth
-from app.services.audit import log_action
+from app.services.audit import log_action, log_standalone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -51,6 +51,19 @@ def _login(db: Session, username: str, password: str, request: Request | None) -
                 user.full_name = result.full_name or user.full_name
 
     if not authenticated or user is None or not user.is_active:
+        # Güvenlik denetimi: başarısız deneme AYRI oturumda yazılır (401 bu isteğin
+        # transaction'ını geri alır). Şifre ASLA kaydedilmez; sebep yalnız admin'e görünür.
+        if user is None or user.id is None:
+            reason = "Bilinmeyen kullanıcı"
+        elif not authenticated:
+            reason = "Hatalı şifre"
+        else:
+            reason = "Hesap pasif"
+        log_standalone(username[:100] or "(boş)", "login_failed", "users",
+                       user.id if user is not None else None,
+                       {"reason": reason,
+                        "auth_source": user.auth_source if user is not None and user.id else None},
+                       request)
         raise HTTPException(status_code=401, detail="Kullanıcı adı veya şifre hatalı")
 
     user.last_login = utcnow()

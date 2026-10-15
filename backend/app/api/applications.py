@@ -12,7 +12,7 @@ from app.core.security import (
 from app.db.models import (AppDependency, Application, ApplicationTag, ApplicationTrustedCert,
                             Certificate, CertificateDomainMap, Domain, Tag, TransferProposal, User)
 from app.db.session import get_db
-from app.services.audit import log_action
+from app.services.audit import diff_fields, label_ids, log_action, snapshot
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
@@ -135,10 +135,18 @@ def update_application(request: Request, app_id: int, body: ApplicationUpdate,
     # oluşturulurken snapshot alınır. Uygulamanın SY ekibi sonradan değişince açık öneriler
     # eski ekipte kalırdı → yeni sahip onaylayamazdı. Değişimi uygulamadan ÖNCE tespit et.
     sy_changed = ("sy_team_id" in changes and changes["sy_team_id"] != app_row.sy_team_id)
+    diff = label_ids(db, diff_fields(app_row, changes))
+    old_tags = sorted(t for (t,) in db.query(Tag.name).join(ApplicationTag, ApplicationTag.tag_id == Tag.id)
+                      .filter(ApplicationTag.application_id == app_id).all())
     for key, value in changes.items():
         setattr(app_row, key, value)
     if tag_ids is not None:
         _sync_app_tags(db, app_id, tag_ids)
+        db.flush()
+        new_tags = sorted(t for (t,) in db.query(Tag.name).join(ApplicationTag, ApplicationTag.tag_id == Tag.id)
+                          .filter(ApplicationTag.application_id == app_id).all())
+        if new_tags != old_tags:
+            diff["tags"] = {"old": ", ".join(old_tags) or None, "new": ", ".join(new_tags) or None}
     if sy_changed:
         # Bu uygulamanın bağımlılıklarına ait HÂLÂ AÇIK (pending/approved) önerileri yeni sahibe taşı.
         dep_ids = [d.id for d in db.query(AppDependency.id)
@@ -155,7 +163,8 @@ def update_application(request: Request, app_id: int, body: ApplicationUpdate,
             TransferProposal.app_id == app_id,
             TransferProposal.status.in_(("pending", "approved")),
         ).update({TransferProposal.sy_team_id: app_row.sy_team_id}, synchronize_session=False)
-    log_action(db, user.username, "update", "applications", app_row.id, changes, request)
+    log_action(db, user.username, "update", "applications", app_row.id,
+               {"app_name": app_row.app_name, "changes": diff}, request)
     db.commit()
     return _query(db).filter(Application.id == app_id).first()
 
@@ -182,7 +191,10 @@ def delete_application(request: Request, app_id: int, db: Session = Depends(get_
     db.query(TransferProposal).filter(
         TransferProposal.app_id == app_id).delete(synchronize_session=False)
     log_action(db, user.username, "delete", "applications", app_row.id,
-               {"app_name": app_row.app_name}, request)
+               {"app_name": app_row.app_name,
+                "snapshot": snapshot(app_row, ("app_name", "server_name", "dns", "ip_address",
+                                               "app_user", "conf_path", "sy_team_id", "ug_team_id"))},
+               request)
     db.delete(app_row)
     db.commit()
     return {"ok": True}
@@ -276,7 +288,10 @@ def delete_dependency(request: Request, dep_id: int, db: Session = Depends(get_d
     db.query(TransferProposal).filter(
         TransferProposal.app_dependency_id == dep.id).delete(synchronize_session=False)
     log_action(db, user.username, "delete", "app_dependencies", dep.id,
-               {"app_id": dep.app_id, "target_domain_id": dep.target_domain_id}, request)
+               {"app_id": dep.app_id, "target_domain_id": dep.target_domain_id,
+                "snapshot": {"app": app_row.app_name if app_row else None,
+                             "domain": dep.target_domain.domain if getattr(dep, "target_domain", None) else None}},
+               request)
     db.delete(dep)
     db.commit()
     return {"ok": True}
@@ -338,8 +353,11 @@ def delete_trusted(request: Request, trusted_id: int, db: Session = Depends(get_
     if not can_manage_team_resource(db, user, app_row.sy_team_id if app_row else None):
         raise HTTPException(status_code=403,
                             detail="Bu uygulamanın trust store'unu yalnız sahibi SY ekibi veya admin yönetir")
+    cert = db.get(Certificate, row.cert_id)
     log_action(db, user.username, "delete", "app_trusted_certs", row.id,
-               {"app_id": row.app_id, "cert_id": row.cert_id}, request)
+               {"app_id": row.app_id, "cert_id": row.cert_id,
+                "snapshot": {"app": app_row.app_name if app_row else None,
+                             "cert": cert.name if cert else None}}, request)
     db.delete(row)
     db.commit()
     return {"ok": True}

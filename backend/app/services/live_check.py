@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate, Domain
+from app.services.audit import audited_job
 from app.services.cert_parser import parse_x509
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,8 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
     return seen
 
 
-def check_all_domains() -> None:
+@audited_job("Canlı doğrulama")
+def check_all_domains() -> dict:
     """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder. 'live_check.enabled'
     kapalıysa atlanır (Keşif/CT/İptal ile aynı patern) — manuel tetik (/domains/{id}/live-check)
     bundan bağımsız her zaman çalışır."""
@@ -251,14 +253,23 @@ def check_all_domains() -> None:
     try:
         if not get_category(db, "live_check", mask_secrets=False).get("enabled"):
             logger.info("Canlı doğrulama kapalı — zamanlanmış tarama atlandı")
-            return
+            return {"status": "skipped"}
         domains = db.query(Domain).all()
+        counts: dict[str, int] = {}
+        mismatched: list[str] = []
+        errors = 0
         for domain in domains:
             try:
                 check_domain(db, domain)
                 db.commit()
+                counts[domain.live_check_status or "?"] = counts.get(domain.live_check_status or "?", 0) + 1
+                if domain.live_check_status == "mismatch":
+                    mismatched.append(domain.domain)
             except Exception:
                 db.rollback()
+                errors += 1
                 logger.exception("Canlı kontrol hatası: %s", domain.domain)
+        return {"status": "error" if errors else "ok", "total": len(domains), "by_status": counts,
+                "errors": errors, "mismatched": mismatched[:50]}
     finally:
         db.close()

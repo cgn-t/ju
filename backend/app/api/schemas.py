@@ -665,6 +665,16 @@ class AuditOut(ORMModel):
     details: str | None
     ip_address: str | None
     created_at: IstanbulDateTime
+    # Okunurluk (sunucuda türetilir — bkz. services/audit_labels)
+    category: str | None = None
+    summary: str | None = None
+    record_label: str | None = None
+
+
+class AuditListOut(BaseModel):
+    items: list[AuditOut]
+    capped: bool          # filtreye uyan kayıt sayısı limiti aştı → yalnız en yeni `limit` kayıt döndü
+    limit: int
 
 
 # ---- Mail gönderim geçmişi (notifications + mail_queue birleşik) ----

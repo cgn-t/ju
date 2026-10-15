@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import DiscoveredCertificate, Domain, ScanRun
+from app.services.audit import audited_job, scan_run_summary
 from app.services.cert_parser import ParsedCertificate, find_existing, parse_x509
 from app.services.settings_service import get_category
 
@@ -244,7 +245,8 @@ def run_ct_scan_by_id(run_id: int) -> None:
         db.close()
 
 
-def run_ct_scan_job() -> None:
+@audited_job("CT log taraması")
+def run_ct_scan_job() -> dict:
     """Zamanlanmış gece işi (APScheduler). Yalnız CT izleme ETKİNSE çalışır."""
     from app.db.session import SessionLocal
 
@@ -253,13 +255,15 @@ def run_ct_scan_job() -> None:
         config = get_config(db)
         if not config.get("enabled"):
             logger.info("CT izleme kapalı — zamanlanmış tarama atlandı")
-            return
+            return {"status": "skipped"}
         run = ScanRun(status="running", trigger="schedule", kind="ct")
         db.add(run)
         db.commit()
         _execute_ct_scan(db, run)
-    except Exception:
+        return scan_run_summary(run)
+    except Exception as exc:
         db.rollback()
         logger.exception("Zamanlanmış CT taraması hatası")
+        return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()

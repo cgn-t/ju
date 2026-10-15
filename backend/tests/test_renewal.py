@@ -232,7 +232,7 @@ def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_heade
     server_ids = [c["certificate_id"] for c in dom["certificates"]
                   if c["mapping_type"] == "server" and c["cert_type"] == "leaf"]
     assert server_ids == [v2_id]
-    entries = client.get("/api/audit", headers=auth_headers).json()
+    entries = client.get("/api/audit", headers=auth_headers).json()["items"]
     assert any(e["action"] == "supersede_apply" for e in entries)
 
 

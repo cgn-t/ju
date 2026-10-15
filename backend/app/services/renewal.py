@@ -185,9 +185,12 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
 
     db.flush()
     if created:
+        domains = sorted({d.domain for d in (db.get(Domain, p.domain_id) for p in created
+                                             if p.domain_id) if d is not None})
         log_action(db, username, "propose", "transfer_proposals", new_cert.id,
                    {"old_id": old_cert.id, "old_name": old_cert.name, "new_name": new_cert.name,
-                    "count": len(created), "via": via, "live_seen": live_seen}, request)
+                    "count": len(created), "via": via, "live_seen": live_seen,
+                    "domains": domains}, request)
     return created
 
 
@@ -303,6 +306,7 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
     log_action(db, username, "supersede_apply", "certificates", new_cert.id,
                {"proposal_id": prop.id, "old_id": old_cert.id, "old_name": old_cert.name,
                 "new_name": new_cert.name, "domain_id": prop.domain_id,
+                "domain": dom.domain if (dom := db.get(Domain, prop.domain_id) if prop.domain_id else None) else None,
                 "mapping_type": prop.mapping_type, "dep_id": prop.app_dependency_id}, request)
     _maybe_deactivate_old(db, old_cert)
 

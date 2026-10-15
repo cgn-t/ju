@@ -18,7 +18,7 @@ from app.core.security import can_manage_team_resource, require_page_access, req
 from app.core.timeutil import utcnow
 from app.db.models import Application, DeploymentFlow, DeploymentRun, DeploymentRunStep, User
 from app.db.session import get_db
-from app.services.audit import log_action
+from app.services.audit import diff_fields, log_action
 from app.services.deployment_engine import rerun_run, retry_step, start_run
 
 router = APIRouter(prefix="/api/deployments", tags=["deployments"])
@@ -120,6 +120,9 @@ def update_flow(request: Request, flow_id: int, body: DeploymentFlowUpdate,
                 db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     flow = _get_flow_or_404(db, flow_id)
     _require_design_access(db, user, flow.app)
+    diff = diff_fields(flow, {k: v for k, v in (("name", body.name), ("description", body.description))
+                              if v is not None})
+    old_definition = flow.definition
     if body.name is not None:
         exists = (db.query(DeploymentFlow)
                   .filter(DeploymentFlow.app_id == flow.app_id, DeploymentFlow.name == body.name,
@@ -135,7 +138,15 @@ def update_flow(request: Request, flow_id: int, body: DeploymentFlowUpdate,
         _validate_dag(nodes, edges)
         flow.definition = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
     flow.updated_by = user.username
-    log_action(db, user.username, "update", "deployment_flows", flow.id, {"app_id": flow.app_id}, request)
+    if flow.definition != old_definition:
+        def _steps(raw):
+            try:
+                return len(json.loads(raw or "{}").get("nodes") or [])
+            except ValueError:
+                return None
+        diff["definition"] = {"old": f"{_steps(old_definition)} adım", "new": f"{_steps(flow.definition)} adım"}
+    log_action(db, user.username, "update", "deployment_flows", flow.id,
+               {"name": flow.name, "app_id": flow.app_id, "changes": diff}, request)
     db.commit()
     return (db.query(DeploymentFlow).options(joinedload(DeploymentFlow.app))
             .filter(DeploymentFlow.id == flow_id).first())

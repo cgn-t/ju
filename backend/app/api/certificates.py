@@ -23,7 +23,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services import cert_parser, notifier, renewal, revocation
-from app.services.audit import log_action
+from app.services.audit import diff_fields, label_ids, log_action, snapshot
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
 
@@ -494,9 +494,11 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                                 detail="Sertifikayı yalnız admin pasife alabilir/aktifleştirebilir")
         if changes["is_active"] is False:  # pasife alma → server bağı engeller (deactivate ile aynı kural)
             _ensure_deactivatable(db, cert)
+    diff = label_ids(db, diff_fields(cert, changes))
     for key, value in changes.items():
         setattr(cert, key, value)
-    log_action(db, user.username, "update", "certificates", cert.id, changes, request)
+    log_action(db, user.username, "update", "certificates", cert.id,
+               {"name": cert.name, "changes": diff}, request)
     db.commit()
     return _to_out(cert)
 
@@ -577,7 +579,13 @@ def delete_certificate(request: Request, cert_id: int, db: Session = Depends(get
     db.query(TransferProposal).filter(
         (TransferProposal.old_cert_id == cert.id)
         | (TransferProposal.new_cert_id == cert.id)).delete(synchronize_session=False)
-    log_action(db, user.username, "delete", "certificates", cert.id, {"name": cert.name}, request)
+    log_action(db, user.username, "delete", "certificates", cert.id,
+               {"name": cert.name,
+                "snapshot": snapshot(cert, ("name", "cert_type", "subject", "issuer", "serial_number",
+                                            "fingerprint_sha256", "valid_from", "valid_to",
+                                            "environment", "source", "is_active")),
+                "domains": [f"{m.domain.domain} ({m.mapping_type})"
+                            for m in cert.domain_mappings if m.domain]}, request)
     db.delete(cert)
     db.commit()
     return {"ok": True}

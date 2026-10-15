@@ -1,11 +1,14 @@
 import csv
 import io
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import Unicode, cast, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
+    AuditListOut,
     AuditOut,
     MemberAdd,
     TeamCreate,
@@ -17,9 +20,13 @@ from app.api.schemas import (
     UserUpdate,
 )
 from app.core.security import effective_role, get_current_user, hash_password, require_role
-from app.db.models import Application, AuditLog, Domain, Team, TransferProposal, User, UserTeam
+from app.db.models import (Application, AuditLog, Certificate, DeploymentFlow, Domain, ScanTarget, Tag,
+                            Team, TransferProposal, User, UserTeam)
 from app.db.session import get_db
-from app.services.audit import log_action
+from app.services.audit import (CATEGORIES, MASK, category_filter, category_of, diff_fields, log_action,
+                                snapshot)
+from app.services.audit_labels import meta as audit_labels_meta
+from app.services.audit_labels import parse_details, summarize
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -103,10 +110,12 @@ def update_user(request: Request, user_id: int, body: UserUpdate, db: Session = 
     for k in ("role", "is_active"):
         if k in changes and changes[k] is None:
             del changes[k]
+    pw_changed = False
     if "password" in changes:
         password = changes.pop("password")
         if password:
             user.password_hash = hash_password(password)
+            pw_changed = True
     # BREAK-GLASS: rol düşürme VEYA pasife alma son aktif admin'i düşürüyorsa engelle.
     new_role = changes.get("role")
     new_active = changes.get("is_active")
@@ -114,9 +123,13 @@ def update_user(request: Request, user_id: int, body: UserUpdate, db: Session = 
             db, user, new_role=new_role, new_active=new_active):
         raise HTTPException(status_code=400,
                             detail="Son aktif admin'in rolü/erişimi düşürülemez (önce başka bir admin atayın)")
+    diff = diff_fields(user, changes)
+    if pw_changed:
+        diff["password"] = {"old": MASK, "new": MASK, "masked": True}
     for key, value in changes.items():
         setattr(user, key, value)
-    log_action(db, admin.username, "update", "users", user.id, sorted(changes.keys()), request)
+    log_action(db, admin.username, "update", "users", user.id,
+               {"username": user.username, "changes": diff}, request)
     db.commit()
     return _user_out(db, user)
 
@@ -131,7 +144,10 @@ def delete_user(request: Request, user_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="Kendi hesabınızı silemezsiniz")
     if _would_orphan_admin(db, user, new_active=False):  # silme = son etkin admin'i kaldırma
         raise HTTPException(status_code=400, detail="Son aktif admin silinemez")
-    log_action(db, admin.username, "delete", "users", user.id, {"username": user.username}, request)
+    log_action(db, admin.username, "delete", "users", user.id,
+               {"username": user.username,
+                "snapshot": snapshot(user, ("username", "full_name", "email", "role", "auth_source",
+                                            "is_active"))}, request)
     db.delete(user)
     db.commit()
     return {"ok": True}
@@ -171,9 +187,11 @@ def update_team(request: Request, team_id: int, body: TeamUpdate, db: Session = 
     if team is None:
         raise HTTPException(status_code=404, detail="Ekip bulunamadı")
     changes = body.model_dump(exclude_unset=True)
+    diff = diff_fields(team, changes)
     for key, value in changes.items():
         setattr(team, key, value)
-    log_action(db, admin.username, "update", "teams", team.id, changes, request)
+    log_action(db, admin.username, "update", "teams", team.id,
+               {"name": team.name, "changes": diff}, request)
     db.commit()
     return team
 
@@ -231,13 +249,14 @@ def add_team_member(request: Request, team_id: int, body: MemberAdd,
     team = db.get(Team, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="Ekip bulunamadı")
-    if db.get(User, body.user_id) is None:
+    member = db.get(User, body.user_id)
+    if member is None:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
     exists = db.query(UserTeam).filter_by(user_id=body.user_id, team_id=team_id).first()
     if exists is None:
         db.add(UserTeam(user_id=body.user_id, team_id=team_id))
         log_action(db, admin.username, "add_member", "user_teams", team_id,
-                   {"user_id": body.user_id, "team": team.name}, request)
+                   {"user_id": body.user_id, "member": member.username, "team": team.name}, request)
         db.commit()
     rows = (db.query(User).join(UserTeam, UserTeam.user_id == User.id)
             .filter(UserTeam.team_id == team_id).order_by(User.username).all())
@@ -257,52 +276,200 @@ def remove_team_member(request: Request, team_id: int, user_id: int,
         raise HTTPException(status_code=400,
                             detail="ADMIN takımının son aktif üyesi çıkarılamaz (önce başka bir ADMIN ekleyin)")
     log_action(db, admin.username, "remove_member", "user_teams", team_id,
-               {"user_id": user_id}, request)
+               {"user_id": user_id, "member": target.username if target else None,
+                "team": team.name if team else None}, request)
     db.delete(row)
     db.commit()
     return {"ok": True}
 
 
-def _audit_query(db: Session, date_from: date | None, date_to: date | None,
-                 table_name: str | None, username: str | None):
-    """Ortak audit filtresi (liste + export). date_to GÜN SONUNA kadar dâhildir (< ertesi gün 00:00)."""
-    q = db.query(AuditLog)
+_IST = ZoneInfo("Europe/Istanbul")
+AUDIT_LIST_LIMIT = 1000
+
+
+def _ist_day_start_utc(d: date) -> datetime:
+    """İstanbul günü başlangıcı → naive-UTC (DB naive-UTC saklar; ekran İstanbul gösterir)."""
+    return (datetime(d.year, d.month, d.day, tzinfo=_IST).astimezone(timezone.utc)
+            .replace(tzinfo=None))
+
+
+def _csv_list(v: str | None) -> list[str]:
+    return [x.strip() for x in (v or "").split(",") if x.strip()]
+
+
+# Prod AuditLog.Details NTEXT'tir; SQL Server LOWER(ntext)'e izin vermez (ilike → LOWER(...) LIKE
+# → hata 8116). NVARCHAR(MAX)'e CAST ile aranır — şema değişmez, ORM'in oluşturduğu
+# nvarchar(max) kolonda da aynen çalışır. DİKKAT: UnicodeText KULLANMA — MSSQL dialect'i onu
+# NTEXT'e derler; uzunluksuz Unicode() → NVARCHAR(max).
+_DETAILS_TEXT = cast(AuditLog.details, Unicode())
+
+
+def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | None = None,
+                 category: str | None = None, username: str | None = None,
+                 action: str | None = None, table_name: str | None = None,
+                 record_id: str | None = None, q: str | None = None, ip: str | None = None,
+                 record: str | None = None, details: str | None = None):
+    """Ortak audit filtresi (liste + export + facets). Tarihler İSTANBUL günüdür; date_to GÜN
+    SONUNA kadar dâhildir. action/table_name virgülle çoklu değer alır."""
+    qry = db.query(AuditLog)
     if date_from:
-        q = q.filter(AuditLog.created_at >= datetime(date_from.year, date_from.month, date_from.day))
+        qry = qry.filter(AuditLog.created_at >= _ist_day_start_utc(date_from))
     if date_to:
-        end = datetime(date_to.year, date_to.month, date_to.day) + timedelta(days=1)
-        q = q.filter(AuditLog.created_at < end)
-    if table_name:
-        q = q.filter(AuditLog.table_name == table_name)
+        qry = qry.filter(AuditLog.created_at < _ist_day_start_utc(date_to + timedelta(days=1)))
+    if category in CATEGORIES:
+        qry = qry.filter(category_filter(category))
     if username:
-        q = q.filter(AuditLog.username.ilike(f"%{username}%"))
-    return q.order_by(AuditLog.created_at.desc())
+        qry = qry.filter(AuditLog.username.ilike(f"%{username}%"))
+    if actions := _csv_list(action):
+        qry = qry.filter(AuditLog.action.in_(actions))
+    if tables := _csv_list(table_name):
+        qry = qry.filter(AuditLog.table_name.in_(tables))
+    if record_id:
+        qry = qry.filter(AuditLog.record_id == record_id)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(_DETAILS_TEXT.ilike(like), AuditLog.record_id.ilike(like),
+                             AuditLog.username.ilike(like)))
+    if ip:
+        qry = qry.filter(AuditLog.ip_address.ilike(f"%{ip}%"))
+    if record:  # "Kayıt" kolonu: kimlik birebir VEYA ad detayda geçiyor (ör. web.aa.com)
+        qry = qry.filter(or_(AuditLog.record_id == record, _DETAILS_TEXT.ilike(f"%{record}%")))
+    if details:  # "Değişiklik" kolonu: yalnız detay metni
+        qry = qry.filter(_DETAILS_TEXT.ilike(f"%{details}%"))
+    return qry
 
 
-@router.get("/audit", response_model=list[AuditOut])
-def list_audit(limit: int = Query(200, ge=1, le=1000), table_name: str | None = None,
-               username: str | None = None, date_from: date | None = None, date_to: date | None = None,
+_LABEL_MODELS = {
+    "certificates": (Certificate, "name"), "SSLCertificates": (Certificate, "name"),
+    "domains": (Domain, "domain"), "applications": (Application, "app_name"),
+    "users": (User, "username"), "teams": (Team, "name"), "user_teams": (Team, "name"),
+    "tags": (Tag, "name"), "scan_targets": (ScanTarget, "name"),
+    "deployment_flows": (DeploymentFlow, "name"),
+}
+_LABEL_KEYS = ("name", "domain", "app_name", "username", "job", "category", "target")
+
+
+def _record_labels(db: Session, rows: list[AuditLog], parsed: dict[int, object]) -> dict[int, str]:
+    """Kayıt kimliği → okunur ad. Önce detaydaki ad (o anki ad; silinen kayıtta da durur),
+    yoksa tablodan TOPLU çözüm (tablo başına tek sorgu)."""
+    labels: dict[int, str] = {}
+    pending: dict[str, set[int]] = {}
+    for r in rows:
+        d = parsed.get(r.id)
+        if isinstance(d, dict):
+            if r.table_name == "transfer_proposals" and (d.get("old_name") or d.get("new_name")):
+                labels[r.id] = f"{d.get('old_name') or '?'} → {d.get('new_name') or '?'}"
+                continue
+            snap = d.get("snapshot") if isinstance(d.get("snapshot"), dict) else {}
+            val = next((src[k] for src in (d, snap) for k in _LABEL_KEYS
+                        if isinstance(src.get(k), str) and src.get(k)), None)
+            if val:
+                labels[r.id] = val
+                continue
+        if r.table_name in _LABEL_MODELS and (r.record_id or "").isdigit():
+            pending.setdefault(r.table_name, set()).add(int(r.record_id))
+    resolved: dict[tuple[str, int], str] = {}
+    for table, ids in pending.items():
+        model, attr = _LABEL_MODELS[table]
+        for rid, val in db.query(model.id, getattr(model, attr)).filter(model.id.in_(ids)).all():
+            resolved[(table, rid)] = val
+    for r in rows:
+        if r.id not in labels and (r.record_id or "").isdigit():
+            if (val := resolved.get((r.table_name, int(r.record_id)))):
+                labels[r.id] = val
+    return labels
+
+
+def _to_audit_out(db: Session, rows: list[AuditLog]) -> list[AuditOut]:
+    parsed = {r.id: parse_details(r.details) for r in rows}
+    labels = _record_labels(db, rows, parsed)
+    out = []
+    for r in rows:
+        item = AuditOut.model_validate(r)
+        item.category = category_of(r.action, r.table_name, r.username)
+        item.summary = summarize(r.action, parsed[r.id])
+        item.record_label = labels.get(r.id)
+        out.append(item)
+    return out
+
+
+@router.get("/audit/meta")
+def audit_meta(_: User = Depends(require_role("admin"))):
+    """UI etiketleri (işlem/nesne/alan/kategori) — tek kaynak services/audit_labels."""
+    return audit_labels_meta()
+
+
+@router.get("/audit", response_model=AuditListOut)
+def list_audit(limit: int = Query(AUDIT_LIST_LIMIT, ge=1, le=AUDIT_LIST_LIMIT),
+               category: str | None = None, username: str | None = None,
+               action: str | None = None, table_name: str | None = None,
+               record_id: str | None = None, q: str | None = None, ip: str | None = None,
+               record: str | None = None, details: str | None = None,
+               date_from: date | None = None, date_to: date | None = None,
                db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Filtreye uyan EN YENİ `limit` kayıt (varsayılan/en çok 1000). Sınır filtreden SONRA
+    uygulanır → eski bir kayıt filtreyle yine bulunur. Daha fazlası için tarih aralığı + CSV."""
     # limit Query ile [1,1000] arası doğrulanır — negatif limit MSSQL'de geçersiz TOP/FETCH → 500 olurdu.
-    return _audit_query(db, date_from, date_to, table_name, username).limit(limit).all()
+    rows = (_audit_query(db, date_from=date_from, date_to=date_to, category=category,
+                         username=username, action=action, table_name=table_name,
+                         record_id=record_id, q=q, ip=ip, record=record,
+                         details=details)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(limit + 1).all())
+    capped = len(rows) > limit
+    return AuditListOut(items=_to_audit_out(db, rows[:limit]), capped=capped, limit=limit)
+
+
+@router.get("/audit/facets")
+def audit_facets(date_from: date | None = None, date_to: date | None = None,
+                 db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Filtre menüleri için seçenekler + kayıt sayıları (seçili tarih aralığında).
+    Kategori sayaçları sekmelerde gösterilir."""
+    base = lambda: _audit_query(db, date_from=date_from, date_to=date_to)  # noqa: E731
+
+    def grouped(col):
+        return [{"value": v, "count": c} for v, c in
+                base().with_entities(col, func.count(AuditLog.id)).group_by(col)
+                .order_by(func.count(AuditLog.id).desc()).all() if v]
+
+    categories = {cat: base().filter(category_filter(cat)).count() for cat in CATEGORIES}
+    return {"actions": grouped(AuditLog.action), "tables": grouped(AuditLog.table_name),
+            "users": grouped(AuditLog.username), "categories": categories,
+            "total": sum(categories.values())}
 
 
 @router.get("/audit/export")
-def export_audit(table_name: str | None = None, username: str | None = None,
+def export_audit(category: str | None = None, username: str | None = None,
+                 action: str | None = None, table_name: str | None = None,
+                 record_id: str | None = None, q: str | None = None, ip: str | None = None,
+                 record: str | None = None, details: str | None = None,
                  date_from: date | None = None, date_to: date | None = None,
                  db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
-    """Seçili tarih aralığı (+ filtreler) için tüm denetim kayıtlarını CSV olarak indirir. Tarih aralığı
-    limitin yerini alır → limit YOK (aralık sınırlar). UTF-8 BOM ile Excel'de TR karakterler doğru açılır."""
-    rows = _audit_query(db, date_from, date_to, table_name, username).all()
+    """Seçili tarih aralığı (+ AYNI filtreler) için tüm denetim kayıtlarını CSV olarak indirir.
+    Tarih aralığı limitin yerini alır → limit YOK (aralık sınırlar; aylık rapor). UTF-8 BOM ile
+    Excel'de TR karakterler doğru açılır. Zaman İstanbul saatidir (ekranla aynı)."""
+    rows = (_audit_query(db, date_from=date_from, date_to=date_to, category=category,
+                         username=username, action=action, table_name=table_name,
+                         record_id=record_id, q=q, ip=ip, record=record,
+                         details=details)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).all())
+    labels = audit_labels_meta()
     buf = io.StringIO()
-    buf.write("﻿")  # UTF-8 BOM → Excel TR karakterleri doğru açar
+    buf.write("\ufeff")  # UTF-8 BOM → Excel TR karakterleri doğru açar
     writer = csv.writer(buf)
-    writer.writerow(["Tarih (UTC)", "Kullanıcı", "İşlem", "Tablo", "Kayıt", "Detay", "IP"])
-    for r in rows:
-        writer.writerow([
-            r.created_at.isoformat(sep=" ", timespec="seconds") if r.created_at else "",
-            r.username, r.action, r.table_name, r.record_id or "", r.details or "", r.ip_address or "",
-        ])
+    writer.writerow(["Tarih (İstanbul)", "Kullanıcı", "Kategori", "İşlem", "Nesne", "Kayıt",
+                     "Değişiklik", "Detay (ham)", "IP"])
+    for chunk_start in range(0, len(rows), 500):
+        chunk = rows[chunk_start:chunk_start + 500]
+        for r in _to_audit_out(db, chunk):
+            ts = (r.created_at.replace(tzinfo=timezone.utc).astimezone(_IST)
+                  .strftime("%Y-%m-%d %H:%M:%S")) if r.created_at else ""
+            writer.writerow([
+                ts, r.username, labels["categories"].get(r.category, r.category),
+                labels["actions"].get(r.action, r.action),
+                labels["tables"].get(r.table_name, r.table_name),
+                r.record_label or r.record_id or "", r.summary or "", r.details or "",
+                r.ip_address or "",
+            ])
     fname = f"audit_{date_from or 'all'}_{date_to or 'all'}.csv"
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})

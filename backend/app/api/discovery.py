@@ -32,7 +32,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services import ct_monitor, discovery
-from app.services.audit import log_action
+from app.services.audit import diff_fields, label_ids, log_action
 from app.services.cert_parser import (
     find_existing,
     parse_pem_text,
@@ -253,6 +253,12 @@ def update_target(request: Request, target_id: int, body: ScanTargetUpdate,
     if body.value is not None or body.ports is not None:
         _validate_target(t.kind, body.value if body.value is not None else t.value,
                          body.ports if body.ports is not None else t.ports)
+    proposed = {k: v for k, v in {
+        "name": body.name, "value": (body.value or None) if body.value is not None else None,
+        "ports": (body.ports or None) if body.ports is not None else None,
+        "enabled": body.enabled, "sy_team_id": body.sy_team_id}.items()
+        if getattr(body, k) is not None}
+    diff = diff_fields(t, proposed)
     if body.name is not None:
         t.name = body.name
     if body.value is not None:
@@ -265,7 +271,8 @@ def update_target(request: Request, target_id: int, body: ScanTargetUpdate,
         if db.get(Team, body.sy_team_id) is None:
             raise HTTPException(status_code=400, detail="Geçersiz SY ekip")
         t.sy_team_id = body.sy_team_id
-    log_action(db, user.username, "update", "scan_targets", t.id, {"name": t.name}, request)
+    log_action(db, user.username, "update", "scan_targets", t.id,
+               {"name": t.name, "changes": label_ids(db, diff)}, request)
     db.commit()
     db.refresh(t)
     return _target_out(t)

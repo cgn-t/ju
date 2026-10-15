@@ -1,4 +1,5 @@
 import io
+import json
 from datetime import datetime
 
 import openpyxl
@@ -38,7 +39,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services import cert_parser, renewal
-from app.services.audit import log_action
+from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
 from app.services.live_check import check_domain, fetch_served_chain, parse_target
 
@@ -327,6 +328,7 @@ def update_domain(request: Request, domain_id: int, body: DomainUpdate,
     # zaten açık olan öneriler "sahipsiz" kalıp yalnız admin'e görünürdü → yeni sahip kendi
     # domaininin bekleyen önerisini onaylayamazdı. Değişikliği uygulamadan ÖNCE tespit et.
     sy_changed = ("sy_team_id" in changes and changes["sy_team_id"] != domain.sy_team_id)
+    diff = label_ids(db, diff_fields(domain, changes))
     for key, value in changes.items():
         setattr(domain, key, value)
     if sy_changed:
@@ -336,7 +338,8 @@ def update_domain(request: Request, domain_id: int, body: DomainUpdate,
             TransferProposal.domain_id == domain.id,
             TransferProposal.status.in_(("pending", "approved")),
         ).update({TransferProposal.sy_team_id: domain.sy_team_id}, synchronize_session=False)
-    log_action(db, user.username, "update", "domains", domain.id, changes, request)
+    log_action(db, user.username, "update", "domains", domain.id,
+               {"domain": domain.domain, "changes": diff}, request)
     db.commit()
     return _to_out(domain)
 
@@ -360,14 +363,19 @@ def delete_domain(request: Request, domain_id: int, db: Session = Depends(get_db
     if dep_ids:
         cond = cond | TransferProposal.app_dependency_id.in_(dep_ids)
     db.query(TransferProposal).filter(cond).delete(synchronize_session=False)
-    log_action(db, user.username, "delete", "domains", domain.id, {"domain": domain.domain}, request)
+    log_action(db, user.username, "delete", "domains", domain.id,
+               {"domain": domain.domain,
+                "snapshot": snapshot(domain, ("domain", "cert_owner", "ug_team_name", "notify_days",
+                                              "mail_addresses", "external_address")),
+                "certificates": [f"{m.certificate.name} ({m.mapping_type})"
+                                 for m in domain.certificate_mappings if m.certificate]}, request)
     db.delete(domain)
     db.commit()
     return {"ok": True}
 
 
 @router.post("/{domain_id}/live-check", response_model=DomainOut)
-def live_check(domain_id: int, db: Session = Depends(get_db),
+def live_check(request: Request, domain_id: int, db: Session = Depends(get_db),
                user: User = Depends(require_role("editor"))):
     """Domain'in gerçekte sunduğu sertifikayı çekip eşlenmiş server sertifikalarıyla
     karşılaştırır (drift detection). Sonuç domain kaydına YAZILIR → salt-okur viewer çalıştıramaz;
@@ -379,6 +387,15 @@ def live_check(domain_id: int, db: Session = Depends(get_db),
         raise HTTPException(status_code=403,
                             detail="Bu domainin canlı doğrulamasını yalnız sahibi SY ekibi veya admin çalıştırır")
     check_domain(db, domain)
+    try:
+        detail = json.loads(domain.live_check_detail or "{}")
+    except ValueError:
+        detail = {}
+    log_action(db, user.username, "live_check_run", "domains", domain.id,
+               {"domain": domain.domain, "status": domain.live_check_status,
+                "served_cn": detail.get("served_cn"), "reason": detail.get("reason"),
+                "proposals": detail.get("superseded_live_seen") or detail.get("chain_sync_superseded")},
+               request)
     db.commit()
     return _to_out(domain)
 

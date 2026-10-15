@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import Certificate
+from app.services.audit import audited_job
 from app.services.cert_parser import find_ca_by_ski
 from app.services.settings_service import get_category
 
@@ -168,7 +169,8 @@ def run_check(db: Session, cert: Certificate, client: httpx.Client, config: dict
     return status, detail
 
 
-def check_all_certificates() -> None:
+@audited_job("İptal (OCSP/CRL) denetimi")
+def check_all_certificates() -> dict:
     """Zamanlanmış gece işi. Yalnız revocation ETKİNSE çalışır. Aktif leaf'leri sıralı denetler
     (check_certificate DB okur → thread havuzu yok; egress-gated + gecelik → sıralı yeterli)."""
     from app.db.session import SessionLocal
@@ -178,7 +180,7 @@ def check_all_certificates() -> None:
         config = get_config(db)
         if not config.get("enabled"):
             logger.info("Revocation kapalı — zamanlanmış denetim atlandı")
-            return
+            return {"status": "skipped"}
         q = db.query(Certificate).filter(Certificate.cert_type == "leaf")
         if config.get("check_active_only", True):
             q = q.filter(Certificate.is_active == True)  # noqa: E712
@@ -195,8 +197,10 @@ def check_all_certificates() -> None:
                     db.rollback()
                     logger.exception("Revocation denetim hatası (cert #%s)", cert.id)
         logger.info("Revocation denetimi bitti: %s leaf, %s revoked", len(certs), revoked)
-    except Exception:
+        return {"status": "ok", "checked": len(certs), "revoked": revoked}
+    except Exception as exc:
         db.rollback()
         logger.exception("Zamanlanmış revocation denetimi hatası")
+        return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()

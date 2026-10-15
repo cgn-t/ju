@@ -105,6 +105,19 @@ def proposal_group(proposal_id: int, db: Session = Depends(get_db),
             if db.get(Certificate, p.old_cert_id) and db.get(Certificate, p.new_cert_id)]
 
 
+def _audit_ctx(db: Session, prop: TransferProposal, note: str | None = None) -> dict:
+    """Karar kayıtları için okunur bağlam: hangi devir, hangi domain/uygulama, gerekçe."""
+    old, new = db.get(Certificate, prop.old_cert_id), db.get(Certificate, prop.new_cert_id)
+    dom = db.get(Domain, prop.domain_id) if prop.domain_id else None
+    ctx = {"old_id": prop.old_cert_id, "new_id": prop.new_cert_id,
+           "old_name": old.name if old else None, "new_name": new.name if new else None,
+           "domain": dom.domain if dom else None, "mapping_type": prop.mapping_type,
+           "kind": prop.kind, "via": prop.via}
+    if note:
+        ctx["note"] = note
+    return {k: v for k, v in ctx.items() if v is not None}
+
+
 @router.post("/{proposal_id}/approve", response_model=TransferProposalOut)
 def approve_proposal(request: Request, proposal_id: int, body: ProposalDecision | None = None,
                      db: Session = Depends(get_db), user: User = Depends(require_team_or_admin)):
@@ -124,6 +137,8 @@ def approve_proposal(request: Request, proposal_id: int, body: ProposalDecision 
         raise HTTPException(status_code=409, detail="Bu öneri zaten karara bağlanmış")
     db.flush()
     db.refresh(prop)
+    log_action(db, user.username, "approve", "transfer_proposals", proposal_id,
+               _audit_ctx(db, prop, body.note if body else None), request)
     renewal.apply_proposal(db, prop, user.username, request)
     db.commit()
     team_ids = user_team_ids(db, user)
@@ -146,7 +161,7 @@ def reject_proposal(request: Request, proposal_id: int, body: ProposalDecision |
     if not updated:
         raise HTTPException(status_code=409, detail="Bu öneri zaten karara bağlanmış")
     log_action(db, user.username, "propose_reject", "transfer_proposals", proposal_id,
-               {"old_id": prop.old_cert_id, "new_id": prop.new_cert_id}, request)
+               _audit_ctx(db, prop, body.note if body else None), request)
     db.commit()
     db.refresh(prop)
     return _to_out(db, prop, user_team_ids(db, user), user.role == "admin", _can_decide(user))
@@ -183,7 +198,7 @@ def cancel_proposal(request: Request, proposal_id: int, db: Session = Depends(ge
     if not updated:
         raise HTTPException(status_code=409, detail="Yalnız açık öneriler iptal edilebilir")
     log_action(db, user.username, "propose_cancel", "transfer_proposals", proposal_id,
-               {"old_id": prop.old_cert_id, "new_id": prop.new_cert_id}, request)
+               _audit_ctx(db, prop), request)
     db.commit()
     db.refresh(prop)
     return _to_out(db, prop, user_team_ids(db, user), user.role == "admin", _can_decide(user))

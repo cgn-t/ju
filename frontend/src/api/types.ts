@@ -330,6 +330,8 @@ export interface TeamMember {
   email?: string | null
 }
 
+export type AuditCategory = 'changes' | 'approval' | 'security' | 'system'
+
 export interface AuditEntry {
   id: number
   username: string
@@ -339,6 +341,34 @@ export interface AuditEntry {
   details?: string | null
   ip_address?: string | null
   created_at: string
+  category?: AuditCategory | null
+  summary?: string | null      // tek satırlık okunur özet (sunucuda üretilir)
+  record_label?: string | null // kaydın okunur adı (sertifika/domain adı…)
+}
+
+export interface AuditList {
+  items: AuditEntry[]
+  capped: boolean   // filtreye uyan kayıt sayısı limiti aştı
+  limit: number
+}
+
+export interface AuditFacet { value: string; count: number }
+
+export interface AuditFacets {
+  actions: AuditFacet[]
+  tables: AuditFacet[]
+  users: AuditFacet[]
+  categories: Record<AuditCategory, number>
+  total: number
+}
+
+export interface AuditMeta {
+  categories: Record<AuditCategory, string>
+  actions: Record<string, string>
+  action_tone: Record<string, 'success' | 'info' | 'error' | 'warning'>
+  tables: Record<string, string>
+  fields: Record<string, string>
+  values: Record<string, Record<string, string>>  // alan → {kod değeri: etiket}
 }
 
 // ---- Mail gönderim geçmişi (notifications + mail_queue birleşik) ----

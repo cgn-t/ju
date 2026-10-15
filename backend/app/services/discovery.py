@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import Certificate, DiscoveredCertificate, Domain, ScanRun, ScanTarget
+from app.services.audit import audited_job, scan_run_summary
 from app.services.cert_parser import ParsedCertificate, find_existing, parse_x509
 from app.services.live_check import fetch_served_certificate, parse_target
 from app.services.settings_service import get_category
@@ -232,7 +233,9 @@ def run_scan_by_id(run_id: int) -> None:
         db.close()
 
 
-def run_scan_job() -> None:
+
+@audited_job("Ağ keşfi")
+def run_scan_job() -> dict:
     """Zamanlanmış gece işi (APScheduler). Yalnız keşif ETKİNSE çalışır."""
     from app.db.session import SessionLocal
 
@@ -241,14 +244,16 @@ def run_scan_job() -> None:
         config = get_config(db)
         if not config.get("enabled"):
             logger.info("Keşif kapalı — zamanlanmış tarama atlandı")
-            return
+            return {"status": "skipped"}
         run = ScanRun(status="running", trigger="schedule")
         db.add(run)
         db.commit()
         _execute_scan(db, run)
-    except Exception:
+        return scan_run_summary(run)
+    except Exception as exc:
         db.rollback()
         logger.exception("Zamanlanmış keşif taraması hatası")
+        return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()
 

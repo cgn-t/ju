@@ -29,7 +29,7 @@ from app.core.security import ROLE_LEVELS, get_current_user, require_role
 from app.db.models import Certificate, Domain, MailQueue, Notification, User
 from app.db.session import get_db
 from app.services import notifier
-from app.services.audit import log_action
+from app.services.audit import log_action, log_standalone
 from app.services.settings_service import get_category
 
 logger = logging.getLogger(__name__)
@@ -101,6 +101,9 @@ def _trigger_actor(request: Request,
         _register_failed_attempt()
         logger.warning("Geçersiz bildirim API anahtarı denemesi (ip=%s)",
                        request.client.host if request.client else "?")
+        log_standalone("external-api", "login_failed", "notifications", None,
+                       {"reason": "Geçersiz bildirim API anahtarı", "endpoint": request.url.path},
+                       request)
         raise HTTPException(status_code=401, detail="Geçersiz API anahtarı")
     if token is not None:
         user = get_current_user(token=token, db=db)  # geçersiz/bayat token → 401

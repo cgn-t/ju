@@ -92,11 +92,18 @@ export function ColHeaderCell<T>(
  * `facetRows`: durum sayaçlarının hesaplanacağı temel satır kümesi (genelde kolon-filtresi
  * öncesi görünen liste).
  */
-export function ColumnFilterMenu<T>({ cf, facetRows = [] }: { cf: ColumnFilterState<T>; facetRows?: T[] }) {
+export function ColumnFilterMenu<T>({ cf, facetRows = [], facetCounts }: {
+  cf: ColumnFilterState<T>
+  facetRows?: T[]
+  // Sunucu-taraflı filtrelenen tablolar için hazır sayaçlar: kolon anahtarı → {seçenek: adet}.
+  // Verilen kolonda facetRows sayımı yerine bu kullanılır.
+  facetCounts?: Record<string, Record<string, number>>
+}) {
   const def = cf.menu ? cf.defs.find((d) => d.key === cf.menu!.key) ?? null : null
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     if (!def || def.kind !== 'status') return c
+    if (facetCounts?.[def.key]) return facetCounts[def.key]
     for (const o of def.options ?? []) c[o.value] = 0
     for (const r of facetRows) {
       const v = def.get(r)
@@ -104,7 +111,7 @@ export function ColumnFilterMenu<T>({ cf, facetRows = [] }: { cf: ColumnFilterSt
     }
     c.all = facetRows.length   // 'all' seçeneği toplam sayıyı gösterir (option döngüsünden SONRA)
     return c
-  }, [def, facetRows])
+  }, [def, facetRows, facetCounts])
 
   return (
     <Popover
@@ -148,7 +155,7 @@ export function ColumnFilterMenu<T>({ cf, facetRows = [] }: { cf: ColumnFilterSt
                   <CheckIcon sx={{ fontSize: 16, color: 'primary.main', visibility: sel ? 'visible' : 'hidden' }} />
                   <Box sx={{ flexGrow: 1 }}>{o.label}</Box>
                   <Typography variant="caption" color="text.secondary"
-                              sx={{ fontVariantNumeric: 'tabular-nums' }}>{counts[o.value] ?? 0}</Typography>
+                              sx={{ fontVariantNumeric: 'tabular-nums' }}>{counts[o.value] ?? ''}</Typography>
                 </MenuItem>
               )
             })}

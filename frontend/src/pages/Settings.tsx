@@ -15,8 +15,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { AppUser, AuditEntry, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
+import type { AppUser, MailHistoryEntry, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import AuditLogPanel from '../components/AuditLogPanel'
 import MailHistoryDetailDrawer from '../components/MailHistoryDetailDrawer'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -951,113 +952,6 @@ function MembershipsTab() {
   )
 }
 
-// ---------- Audit ----------
-function AuditTab() {
-  const { enqueueSnackbar } = useSnackbar()
-  const [filterUser, setFilterUser] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(50)
-  // Aynı parametreler hem listeyi filtreler hem export'a gider → ekranda gördüğün = indirdiğin.
-  const params = {
-    username: filterUser || undefined,
-    date_from: dateFrom || undefined,
-    date_to: dateTo || undefined,
-  }
-  const { data: entries } = useQuery<AuditEntry[]>({
-    queryKey: ['audit', filterUser, dateFrom, dateTo],
-    queryFn: async () => (await api.get('/audit', { params })).data,
-  })
-  const rows = entries ?? []
-  // Filtre değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
-  useEffect(() => setPage(0), [filterUser, dateFrom, dateTo])
-  const pageRows = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-  const exportCsv = useMutation({
-    mutationFn: async () => {
-      const res = await api.get('/audit/export', { params, responseType: 'blob' })
-      const url = URL.createObjectURL(res.data as Blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `audit_${dateFrom || 'all'}_${dateTo || 'all'}.csv`
-      document.body.appendChild(a); a.click(); a.remove()
-      URL.revokeObjectURL(url)
-    },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-  const ACTION_COLOR: Record<string, 'success' | 'info' | 'error' | 'warning' | 'default'> = {
-    create: 'success', import: 'success', update: 'info', delete: 'error', login: 'default',
-  }
-  return (
-    <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ alignItems: { md: 'center' } }}>
-        <TextField size="small" label="Kullanıcıya göre filtrele" value={filterUser}
-                   onChange={(e) => setFilterUser(e.target.value)} sx={{ minWidth: 220 }} />
-        <TextField size="small" type="date" label="Başlangıç" value={dateFrom}
-                   onChange={(e) => setDateFrom(e.target.value)} sx={{ width: 170 }}
-                   slotProps={{ inputLabel: { shrink: true } }} />
-        <TextField size="small" type="date" label="Bitiş" value={dateTo}
-                   onChange={(e) => setDateTo(e.target.value)} sx={{ width: 170 }}
-                   slotProps={{ inputLabel: { shrink: true } }} />
-        <Box sx={{ flexGrow: 1 }} />
-        <Button variant="outlined" startIcon={<FileDownloadIcon />}
-                onClick={() => exportCsv.mutate()} disabled={exportCsv.isPending}>
-          Dışa Aktar (CSV)
-        </Button>
-      </Stack>
-      <Typography variant="caption" color="text.secondary">
-        Tarihler <b>dâhil</b>dir (bitiş günü gün sonuna kadar). Liste en çok 1000 satır gösterir; <b>export
-        tüm aralığı</b> indirir. Boş bırakılan tarih = sınırsız uç.
-      </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Tarih</TableCell>
-            <TableCell>Kullanıcı</TableCell>
-            <TableCell>İşlem</TableCell>
-            <TableCell>Tablo</TableCell>
-            <TableCell>Kayıt</TableCell>
-            <TableCell>Detay</TableCell>
-            <TableCell>IP</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {pageRows.map((e) => (
-            <TableRow key={e.id} hover>
-              <TableCell>{new Date(e.created_at).toLocaleString('tr-TR')}</TableCell>
-              <TableCell>{e.username}</TableCell>
-              <TableCell><Chip size="small" color={ACTION_COLOR[e.action] ?? 'default'} label={e.action} /></TableCell>
-              <TableCell>{e.table_name}</TableCell>
-              <TableCell>{e.record_id ?? '—'}</TableCell>
-              <TableCell sx={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: 11 }}>
-                {e.details ?? '—'}
-              </TableCell>
-              <TableCell sx={{ fontFamily: 'monospace', fontSize: 11 }}>{e.ip_address ?? '—'}</TableCell>
-            </TableRow>
-          ))}
-          {!rows.length && (
-            <TableRow>
-              <TableCell colSpan={7} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                Kayıt yok
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={rows.length}
-        page={page}
-        onPageChange={(_e, newPage) => setPage(newPage)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
-        rowsPerPageOptions={[25, 50, 100]}
-        labelRowsPerPage="Sayfa başına satır"
-        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
-      />
-    </Stack>
-  )
-}
 
 // ---------- Mail Gönderim Geçmişi ----------
 const MAIL_STATUS: Record<string, { color: 'success' | 'warning' | 'error'; label: string }> = {
@@ -2201,7 +2095,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'tags', label: 'Etiketler', desc: 'Uygulama etiketi kataloğu', wide: true, el: <TagsTab /> },
     { key: 'vault', label: 'Vault (Hazırlık)', desc: 'Vault PKI entegrasyonu (yakında)', el: <VaultTab /> },
     { key: 'jenkins', label: 'Jenkins', desc: 'Jenkins bağlantı ayarları (tetikleme → Dağıtım sayfası)', el: <JenkinsTab /> },
-    { key: 'audit', label: 'Audit Log', desc: 'Denetim kaydı — filtrele ve CSV dışa aktar', wide: true, el: <AuditTab /> },
+    { key: 'audit', label: 'Audit Log', desc: 'Denetim kaydı — kim, neyi, ne zaman değiştirdi (eski → yeni); her kolon filtrelenir, CSV dışa aktarılır', wide: true, el: <AuditLogPanel /> },
   ] },
 ]
 

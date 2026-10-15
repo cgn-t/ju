@@ -16,6 +16,7 @@ from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
 from app.db.session import SessionLocal
+from app.services.audit import audited_job
 from app.services.settings_service import get_category
 
 logger = logging.getLogger(__name__)
@@ -1121,7 +1122,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             "message": f"{len(pending)} bekleyen öneri; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
-def check_pending_proposals() -> None:
+@audited_job("Devir onayı hatırlatması")
+def check_pending_proposals() -> dict:
     """Zamanlanmış devir-onayı hatırlatma job'ı. `smtp.auto_proposal_reminder_enabled` KAPALIYSA
     atlar (job zamanlıdır ama mail atmaz). Dış API tetiği (/notifications/proposal-run) bu
     bayraktan ETKİLENMEZ — send_pending_proposal_notifications'ı DOĞRUDAN çağırır."""
@@ -1130,15 +1132,18 @@ def check_pending_proposals() -> None:
         cfg = get_category(db, "smtp", mask_secrets=False)
         if not cfg.get("auto_proposal_reminder_enabled", False):
             logger.info("Devir hatırlatması: otomatik gönderim kapalı — atlandı")
-            return
+            return {"status": "skipped"}
         result = send_pending_proposal_notifications(db, force=False)
         if result["sent"]:
             logger.info("Devir hatırlatması: %s", result["message"])
-    except Exception:
+        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
+                "skipped": result.get("skipped")}
+    except Exception as exc:
         # Öğe-bazlı hatalar send_pending_proposal_notifications içinde zaten yakalanıp
         # atlanıyor; bu yalnız döngüye girmeden ÖNCEKİ (ör. sorgu) beklenmeyen hatalar
         # için son güvenlik ağı — run_mail_queue_drain ile aynı ilke.
         logger.exception("Devir hatırlatması job'ı başarısız")
+        return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()
 
@@ -1155,7 +1160,8 @@ def _proposal_reminder_hour() -> int:
         db.close()
 
 
-def check_expiring_certificates() -> None:
+@audited_job("Süre uyarısı maili")
+def check_expiring_certificates() -> dict:
     """Günlük 08:00 zamanlanmış job — ortak çekirdeği tekrar-önleme AÇIK çağırır.
     `smtp.auto_expiry_enabled` KAPALIYSA otomatik tarama atlanır (job yine zamanlıdır ama
     mail atmaz). Dış API tetiği (/notifications/expiry-run) bu bayraktan ETKİLENMEZ —
@@ -1165,15 +1171,18 @@ def check_expiring_certificates() -> None:
         cfg = get_category(db, "smtp", mask_secrets=False)
         if not cfg.get("auto_expiry_enabled", True):
             logger.info("Süre uyarısı: günlük otomatik tarama kapalı (auto_expiry_enabled=false) — atlandı")
-            return
+            return {"status": "skipped"}
         result = send_expiry_notifications(db, force=False)
         if result["sent"]:
             logger.info("Süre uyarısı: %s", result["message"])
-    except Exception:
+        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
+                "skipped": result.get("skipped")}
+    except Exception as exc:
         # Bkz. check_pending_proposals'taki aynı gerekçe: öğe-bazlı hatalar zaten
         # _dispatch_cert_mails/_dispatch_domain_mails içinde yakalanıyor; bu yalnız
         # döngüye girmeden önceki beklenmeyen hatalar için son güvenlik ağı.
         logger.exception("Süre uyarısı job'ı başarısız")
+        return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()
 
