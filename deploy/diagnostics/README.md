@@ -2,6 +2,23 @@
 
 Bu klasördeki hiçbir araç veri değiştirmez.
 
+## Pod'un İÇİNDEYKEN (terminal açık) — sertifika kontrolü
+
+Pod'a bağlıysanız (`oc rsh deploy/jumbo` ya da konsol Terminal sekmesi) şunu doğrudan çalıştırın:
+
+```sh
+openssl s_client -connect stablex.net:443 -servername stablex.net </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -dates -serial -fingerprint -sha256
+```
+
+Başka bir adres için iki yerdeki `stablex.net`'i değiştirin (port farklıysa `:443`'ü de). Joker (`*.stablex.net`)
+yazılmaz — gerçek host adı yazılır.
+
+v3.6.1 ve sonrası imajda daha ayrıntılı (envanter + açık önerilerle karşılaştırmalı):
+
+```sh
+cd /app && python -m scripts.live_cert_check stablex.net
+```
+
 | Araç | Ne için |
 |---|---|
 | `cert-type-proposal-check.sql` | Tipler arası (root/intermediate → leaf) devir önerisi teşhis sorguları (Q0–Q9) |
