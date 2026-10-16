@@ -17,7 +17,7 @@ sertifikasına bakar. Tarayıcı ise yönlendirme sonrası adresin sertifikasın
 `deploy/jumbo` pod adını bilmeden çalışan pod'a bağlanır (belirli bir pod için: `oc get pods -l app=jumbo`
 ile adı bulup `deploy/jumbo` yerine onu yazın). Namespace farklıysa `-n <namespace>` ekleyin.
 
-### 1) JUMBO aracıyla (v3.6.0 ve sonrası imajda)
+### 1) JUMBO aracıyla (v3.6.1 ve sonrası imajda)
 
 ```bash
 oc exec -it deploy/jumbo -- python -m scripts.live_cert_check stablex.net
