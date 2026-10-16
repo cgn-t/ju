@@ -79,3 +79,19 @@ WHERE Action IN ('propose', 'approve', 'supersede_apply', 'live_check_run', 'imp
        OR CAST(Details AS NVARCHAR(MAX)) LIKE '%akbank%'
        OR CAST(Details AS NVARCHAR(MAX)) LIKE '%akportfoy%')
 ORDER BY CreatedAt;
+
+
+-- Q8) 7, 8, 13, 36 için Geçiş (backfill) DIŞINDAKİ öneriler — ilk tipler arası öneri nereden geldi
+SELECT id, status, via, mapping_type, old_cert_id, new_cert_id, domain_id,
+       created_by, created_at, decided_by, decided_at, applied_at
+FROM transfer_proposals
+WHERE old_cert_id IN (7, 8, 13, 36) AND via <> 'backfill'
+ORDER BY created_at;
+
+
+-- Q9) 2026-10-16 sabahı 177/160/161 oluşurken Audit Log'da ne var (saatler UTC; İstanbul = +3)
+SELECT ID, Username, Action, TableName, RecordID, CreatedAt,
+       CAST(Details AS NVARCHAR(MAX)) AS Details
+FROM AuditLog
+WHERE CreatedAt BETWEEN '2026-10-16 06:55' AND '2026-10-16 07:05'
+ORDER BY CreatedAt;
