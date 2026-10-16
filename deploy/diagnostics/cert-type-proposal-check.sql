@@ -52,3 +52,30 @@ SELECT CertType, LEN(CertType) AS uzunluk,
        CAST(CertType AS VARBINARY(64)) AS hex, COUNT(*) AS adet
 FROM SSLCertificates
 GROUP BY CertType, LEN(CertType), CAST(CertType AS VARBINARY(64));
+
+
+-- Q5) İlgili sertifikalar: kim, ne zaman, hangi kaynakla ekledi
+--     (JUMBO CertType'ı küçük harfle yazar; büyük harfli "Leaf"/"Root" dış kaynaktan eklenmiş olabilir)
+SELECT ID, NAME, CertType, source, CertificateCreator, CreatedDate, ModifiedDate,
+       fingerprint_sha256, superseded_by_id, IsActive
+FROM SSLCertificates
+WHERE ID IN (7, 8, 13, 36, 110, 113, 117);
+
+
+-- Q6) Onaylanmış/uygulanmış öneriler + attach önerilerinin eşleme tipi (server/client)
+SELECT id, status, via, mapping_type, kind, old_cert_id, new_cert_id, domain_id,
+       created_by, created_at, decided_by, decided_at, applied_at, note
+FROM transfer_proposals
+WHERE id IN (160, 161, 177) OR status IN ('approved', 'applied')
+ORDER BY created_at;
+
+
+-- Q7) Audit Log: bu sertifikalarla ilgili öneri / onay / devir kayıtları (en eski önce)
+SELECT ID, Username, Action, TableName, RecordID, CreatedAt,
+       CAST(Details AS NVARCHAR(MAX)) AS Details
+FROM AuditLog
+WHERE Action IN ('propose', 'approve', 'supersede_apply', 'live_check_run', 'import', 'update')
+  AND (RecordID IN ('7', '8', '13', '36', '110', '113', '117')
+       OR CAST(Details AS NVARCHAR(MAX)) LIKE '%akbank%'
+       OR CAST(Details AS NVARCHAR(MAX)) LIKE '%akportfoy%')
+ORDER BY CreatedAt;
