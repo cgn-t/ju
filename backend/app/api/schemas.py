@@ -343,6 +343,8 @@ class ChainImportOut(BaseModel):
     existing: list[str] = []      # zaten kayıtlı olanlar
     mapped_server: str | None = None  # domain'e server olarak bağlanan leaf
     superseded: list[str] = []    # devir ÖNERİSİ üretilen öncül adları (onay bekliyor)
+    added: list[str] = []         # EKLEME önerisi üretilen sertifika adları (onay bekliyor)
+    removed: list[str] = []       # KALDIRMA önerisi üretilen sertifika adları (onay bekliyor)
 
 
 # ---- Devir önerileri (onay) ----

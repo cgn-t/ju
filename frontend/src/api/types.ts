@@ -193,6 +193,8 @@ export interface ChainImportResult {
   existing: string[]
   mapped_server?: string | null
   superseded: string[]
+  added?: string[]
+  removed?: string[]
 }
 
 export interface Domain {
