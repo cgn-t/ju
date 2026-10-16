@@ -42,3 +42,13 @@ SELECT o.ID, o.NAME, o.CertType, o.IsActive,
 FROM SSLCertificates o
 JOIN SSLCertificates n ON n.ID = o.superseded_by_id
 WHERE LOWER(LTRIM(RTRIM(o.CertType))) <> LOWER(LTRIM(RTRIM(n.CertType)));
+
+
+-- Q4) CertType değerinde gizli karakter var mı? (SQL LTRIM/RTRIM yalnız boşluğu siler; satır sonu/tab
+--     kalırsa SQL filtresi kaydı 'leaf' sayar, Python tarafı ise doğru okur → tipler arası öneri)
+--     Beklenen uzunluk: Root=4, Leaf=4, Intermediate=12. Daha uzunsa ve hex şu değerlerle bitiyorsa gizli karakter var:
+--     0D00 = satır başı (CR)   0A00 = satır sonu (LF)   0900 = tab   A000 = bölünmez boşluk (NBSP)
+SELECT CertType, LEN(CertType) AS uzunluk,
+       CAST(CertType AS VARBINARY(64)) AS hex, COUNT(*) AS adet
+FROM SSLCertificates
+GROUP BY CertType, LEN(CertType), CAST(CertType AS VARBINARY(64));
