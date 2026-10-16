@@ -52,6 +52,22 @@ def _days_left(valid_to: datetime | None) -> int | None:
     return (valid_to - utcnow()).days if valid_to else None
 
 
+_MAPPING_ORDER = {"server": 0, "client": 1}
+_TYPE_ORDER = {"leaf": 0, "intermediate": 1, "root": 2}
+
+
+def _chain_depth(cert, limit: int = 10) -> int:
+    """Köke kadar parent (yayıncı) adım sayısı — döngüye karşı sınırlı."""
+    n, seen = 0, {cert.id}
+    while cert.parent_id is not None and n < limit:
+        cert = cert.parent
+        if cert is None or cert.id in seen:
+            break
+        seen.add(cert.id)
+        n += 1
+    return n
+
+
 def _to_out(domain: Domain, db: Session | None = None,
             precomputed_pending: int | None = None) -> DomainOut:
     out = DomainOut.model_validate(domain)
@@ -65,8 +81,10 @@ def _to_out(domain: Domain, db: Session | None = None,
                                          TransferProposal.status == "pending").count())
     certs = []
     server_days = client_days = None
+    depth: dict[int, int] = {}
     for m in domain.certificate_mappings:
         days = _days_left(m.certificate.valid_to)
+        depth[m.certificate_id] = _chain_depth(m.certificate)
         certs.append(MappedCertOut(
             certificate_id=m.certificate_id,
             name=m.certificate.name,
@@ -82,6 +100,11 @@ def _to_out(domain: Domain, db: Session | None = None,
                 server_days = days if server_days is None else min(server_days, days)
             else:
                 client_days = days if client_days is None else min(client_days, days)
+    # Zincir sırası: server → client; her grupta leaf → intermediate → root (eşleme ekleme
+    # sırasından bağımsız — zincir içe aktarmada root, intermediate'tan önce bağlanabilir).
+    # Birden çok intermediate varsa leaf'e yakın olan (köke uzak, derinliği büyük) önce gelir.
+    certs.sort(key=lambda c: (_MAPPING_ORDER.get(c.mapping_type, 9), _TYPE_ORDER.get(c.cert_type, 9),
+                              -depth.get(c.certificate_id, 0), (c.name or "").lower()))
     out.certificates = certs
     out.server_days_left = server_days
     out.client_days_left = client_days
