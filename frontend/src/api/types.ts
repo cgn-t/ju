@@ -11,6 +11,9 @@ export interface Team {
   name: string
   type: 'SY' | 'UG' | 'ADMIN' | 'VIEWER'
   email?: string | null
+  member_count?: number   // yalnız GET /teams
+  domain_count?: number
+  app_count?: number
 }
 
 export interface MappedDomain {
@@ -106,7 +109,7 @@ export interface TransferProposal {
   app_dependency_id?: number | null
   app_id?: number | null
   app_name?: string | null
-  kind?: 'transfer' | 'trusted_add'
+  kind?: 'transfer' | 'trusted_add' | 'server_add' | 'server_remove'
   sy_team_id?: number | null
   sy_team_name?: string | null
   status: 'pending' | 'approved' | 'applied' | 'rejected' | 'cancelled'
@@ -114,6 +117,7 @@ export interface TransferProposal {
   via?: string | null
   live_seen: boolean
   created_by?: string | null
+  created_by_name?: string | null
   created_at: string
   decided_by?: string | null
   decided_at?: string | null
@@ -313,6 +317,7 @@ export interface AppUser {
   auth_source: string
   is_active: boolean
   last_login?: string | null
+  created_at?: string | null
   sy_team_ids?: number[]        // yalnız SY tipi (domain formu auto-fill)
   sy_team_names?: string[]
   team_ids?: number[]           // TÜM takımlar (SY/ADMIN/VIEWER/UG) — UsersTab rozetleri
@@ -341,6 +346,7 @@ export interface AuditEntry {
   details?: string | null
   ip_address?: string | null
   created_at: string
+  user_full_name?: string | null  // işlemi yapanın Ad Soyad'ı (LDAP ile dolar)
   category?: AuditCategory | null
   summary?: string | null      // tek satırlık okunur özet (sunucuda üretilir)
   record_label?: string | null // kaydın okunur adı (sertifika/domain adı…)

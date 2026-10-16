@@ -151,7 +151,9 @@ def test_approve_is_recorded_with_context(client, auth_headers):
     did = client.post("/api/domains", headers=h, json={"domain": "audit-approve-dom.test"}).json()["id"]
     client.post(f"/api/domains/{did}/certificates", headers=h,
                 json={"certificate_id": v1_id, "mapping_type": "server"})
-    v2_id = imp(certgen.pem(v2), supersede=True)
+    v2_id = imp(certgen.pem(v2))
+    # İçe aktarma artık öneri üretmez — devir bilinçli elle başlatılır
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
     prop = next(p for p in client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
                 if p["new_cert_id"] == v2_id and p["domain_id"] == did)
     r = client.post(f"/api/proposals/{prop['id']}/approve", headers=h, json={"note": "planlı yenileme"})
@@ -265,8 +267,8 @@ def test_export_uses_same_filters_and_readable_columns(client, auth_headers):
     rows = list(csv.reader(io.StringIO(r.text.lstrip("﻿"))))
     assert rows[0][0] == "Tarih (İstanbul)" and "Değişiklik" in rows[0]
     body = rows[1:]
-    assert body and all(row[3] == "Başarısız giriş" for row in body)
-    assert all(row[2] == "Güvenlik" for row in body)
+    assert body and all(row[4] == "Başarısız giriş" for row in body)
+    assert all(row[3] == "Güvenlik" for row in body)
 
 
 def test_since_hours_rolling_window(client, auth_headers):

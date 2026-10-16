@@ -35,7 +35,8 @@ _SECRET_HINTS = ("password", "secret", "token", "private_key", "api_key", "ferne
 ACTION_CATEGORY: dict[str, str] = {
     # Onay & Devir
     "propose": "approval", "approve": "approval", "propose_reject": "approval",
-    "propose_cancel": "approval", "supersede_apply": "approval", "trusted_add_apply": "approval",
+    "propose_cancel": "approval", "supersede_apply": "approval", "trusted_add_apply": "approval", "server_add_apply": "approval",
+    "server_remove_apply": "approval",
     # Güvenlik
     "login": "security", "login_failed": "security", "add_member": "security",
     "remove_member": "security",

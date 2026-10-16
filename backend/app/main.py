@@ -559,26 +559,6 @@ def backfill_prod_defaults() -> None:
             conn.execute(text("UPDATE [deployment_runs] SET trigger_type='manual' WHERE trigger_type IS NULL"))
 
 
-def backfill_transfer_proposals() -> None:
-    """ONAY MODELİ geçişi: superseded_by dolu ama eski hâlâ aktif YARIM devirler için PENDING öneri
-    üretir. İdempotent (uq_proposal_grain)."""
-    from app.services import renewal
-
-    db = SessionLocal()
-    try:
-        halves = (db.query(models.Certificate)
-                  .filter(models.Certificate.superseded_by_id.isnot(None),
-                          models.Certificate.is_active == True).all())
-        for old in halves:
-            new = db.get(models.Certificate, old.superseded_by_id)
-            if new is None:
-                continue
-            renewal.propose(db, new, old, username="system", request=None, via="backfill")
-        db.commit()
-    finally:
-        db.close()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # GÜVENLİK (CWE-798): prod'da (MSSQL) JWT imza anahtarı varsayılan/boş bırakılamaz — kaynaktaki
@@ -600,7 +580,6 @@ async def lifespan(app: FastAPI):
     ensure_indexes()                # fingerprint kısmi unique index
     backfill_team_owners()          # sy/ug metin → teams + FK (+ [group] e-posta)
     backfill_prod_defaults()        # source/auto_renew/is_internal/role/... NULL doldur
-    backfill_transfer_proposals()
     ensure_initial_admin()
     ensure_rbac_seed()              # RBAC: ADMIN/VIEWER singleton + break-glass + tek-seferlik göç
     ensure_service_user()           # otomasyon kullanıcısı (+ ADMIN takım üyeliği)

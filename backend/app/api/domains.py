@@ -21,6 +21,7 @@ from app.api.schemas import (
     MappedCertOut,
     MappingCreate,
 )
+from app.api.trigger_auth import EXTERNAL_ACTOR, external_cooldown, trigger_actor
 from app.core.certtype import cert_type_filter, normalize_cert_type
 from app.core.security import (
     can_manage_team_resource,
@@ -41,6 +42,7 @@ from app.db.session import get_db
 from app.services import cert_parser, renewal
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
+from app.services import live_check as live_check_service
 from app.services.live_check import check_domain, fetch_served_chain, parse_target
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
@@ -92,6 +94,38 @@ def _query(db: Session):
         joinedload(Domain.sy_team),
         joinedload(Domain.ug_team),
     )
+
+
+_live_check_trigger = trigger_actor("live_check", "canlı doğrulama")
+
+
+@router.post("/live-check-run", status_code=202)
+def run_live_check_all(request: Request, actor: str = Depends(_live_check_trigger),
+                       db: Session = Depends(get_db)):
+    """TOPLU canlı doğrulamayı tetikler (gece taramasıyla aynı iş). Dış otomasyon
+    (`X-API-Key: <live_check.trigger_api_key>`) veya admin JWT. Gece taraması ayarı
+    (live_check.enabled) bunu ETKİLEMEZ. Tarama ARKA PLANDA çalışır — yanıt hemen döner (202);
+    ilerleme/sonuç `GET /api/domains/live-check-run/status` ve Audit Log'da (Zamanlanmış iş).
+    Zaten çalışıyorsa 409."""
+    if actor == EXTERNAL_ACTOR:
+        external_cooldown("live-check-run")
+    if not live_check_service.start_bulk_run(actor):
+        raise HTTPException(status_code=409, detail="Toplu canlı doğrulama zaten çalışıyor")
+    log_action(db, actor, "live_check_run", "domains", None, {"scope": "all"}, request)
+    db.commit()
+    return {"status": "started", "triggered_by": actor,
+            "status_url": "/api/domains/live-check-run/status"}
+
+
+@router.get("/live-check-run/status")
+def live_check_all_status(actor: str = Depends(_live_check_trigger)):
+    """Son toplu canlı doğrulamanın durumu: running, triggered_by, started_at, finished_at ve
+    bittiyse sayısal özet (toplam / durum dağılımı / hata). Dış anahtara domain adları dönmez."""
+    state = live_check_service.bulk_run_status()
+    result = state.get("result")
+    if actor == EXTERNAL_ACTOR and isinstance(result, dict):
+        state["result"] = {k: v for k, v in result.items() if k != "mismatched"}
+    return state
 
 
 @router.get("", response_model=list[DomainOut])
@@ -253,9 +287,9 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     leaf_row = sync.leaf_row
     if supersede and leaf_row is not None:
         # ONAY MODELİ: sertifika canlıdan çekilmiş olsa da (deploy kanıtlı) devir yine SY
-        # onayı bekler; öneri live_seen=True kanıtıyla doğar. Yalnız leaf'e özeldir (SKI/subject
-        # sinyali domain-bağımsız geniş arama yapar) — chain_sync'in domain-içi tip eşlemesinden
-        # bağımsız; propose()'un idempotent kontrolü sayesinde aynı granül ikinci kez önerilmez.
+        # onayı bekler; öneri live_seen=True kanıtıyla doğar. Yalnız leaf'e özeldir ve YALNIZ bu
+        # domain kapsamındadır (domain_id) — öncülün diğer domainlerine yayılmaz;
+        # propose()'un idempotent kontrolü sayesinde aynı granül ikinci kez önerilmez.
         for old in renewal.find_predecessors(
                 db, cert_type=leaf_row.cert_type,
                 fingerprint_sha256=leaf_row.fingerprint_sha256,
@@ -263,7 +297,7 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
                 subject=leaf_row.subject, issuer=leaf_row.issuer,
                 valid_from=leaf_row.valid_from, exclude_id=leaf_row.id):
             made = renewal.propose(db, leaf_row, old, username=user.username, request=request,
-                                   via="import-chain", live_seen=True,
+                                   via="import-chain", live_seen=True, domain_id=domain.id,
                                    signal=renewal.renewal_signal(
                                        old, subject_key_identifier=leaf_row.subject_key_identifier,
                                        subject=leaf_row.subject, issuer=leaf_row.issuer))
@@ -394,7 +428,9 @@ def live_check(request: Request, domain_id: int, db: Session = Depends(get_db),
     log_action(db, user.username, "live_check_run", "domains", domain.id,
                {"domain": domain.domain, "status": domain.live_check_status,
                 "served_cn": detail.get("served_cn"), "reason": detail.get("reason"),
-                "proposals": detail.get("superseded_live_seen") or detail.get("chain_sync_superseded")},
+                "proposals": detail.get("superseded_live_seen") or detail.get("chain_sync_superseded"),
+                "proposed_add": detail.get("proposed_add"),
+                "proposed_remove": detail.get("proposed_remove")},
                request)
     db.commit()
     return _to_out(domain)
@@ -422,10 +458,15 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
         # ONAY MODELİ — baypas kapatma: bu domainde aynı tipte başka bir sertifika EŞLİYSE
         # yeni eşleme eklemek fiilen DEVİRDİR (detach+attach ya da pause+attach ile onay
         # atlanmasın — is_active FİLTRESİ YOK; pasife alınıp eklenmesi de devir sayılır).
-        collision = (db.query(CertificateDomainMap)
-                     .filter(CertificateDomainMap.domain_id == domain.id,
-                             CertificateDomainMap.mapping_type == "client",
-                             CertificateDomainMap.certificate_id != cert.id).first())
+        # Yalnız AYNI seviyedeki (root/intermediate/leaf) client sertifika çakışmadır — farklı
+        # seviyeler trust olarak birlikte durabilir; root → leaf gibi devir önerisi ÜRETİLMEZ.
+        cert_level = normalize_cert_type(cert.cert_type)
+        collision = next(
+            (m for m in (db.query(CertificateDomainMap)
+                         .filter(CertificateDomainMap.domain_id == domain.id,
+                                 CertificateDomainMap.mapping_type == "client",
+                                 CertificateDomainMap.certificate_id != cert.id).all())
+             if normalize_cert_type(m.certificate.cert_type) == cert_level), None)
         if collision is not None:
             prop = renewal.propose_attach_transfer(
                 db, cert, collision.certificate, domain, "client",

@@ -83,8 +83,11 @@ def test_allviewer_sees_all_teams_pending_proposals(client, auth_headers):
                        json={"certificate_id": v1_id, "mapping_type": "server"}).status_code == 200
     r2 = client.post("/api/certificates/import", headers=auth_headers,
                      files={"file": ("c2.pem", certgen.pem(v2).encode(), "application/x-pem-file")},
-                     data={"supersede": "true"})
+                     )
     assert r2.status_code == 200, r2.text
+    v2_id = r2.json()[0]["id"]
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}",
+                       headers=auth_headers).status_code == 200
 
     _mk_user(client, auth_headers, "rbac_allviewer_prop", role="allviewer")
     h, _ = _login(client, "rbac_allviewer_prop")  # allviewer bu ekibin ÜYESİ DEĞİL

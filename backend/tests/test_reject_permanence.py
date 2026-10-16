@@ -8,6 +8,8 @@
 
 from datetime import datetime
 
+from app.db.models import Certificate
+from app.db.session import SessionLocal
 from tests import certgen
 
 
@@ -92,15 +94,21 @@ def test_rejected_granule_not_resurrected_by_backfill(client, auth_headers):
     old_row = client.get(f"/api/certificates/{old_id}", headers=auth_headers).json()
     assert old_row["is_active"] is True and old_row["superseded_by_id"] == new_id
 
-    # Açılış backfill'i (bug: her restart'ta reddedileni yeniden öneriyordu)
-    from app.main import backfill_transfer_proposals
-    backfill_transfer_proposals()
+    # Açılışta öneri üreten 'Geçiş' (backfill) adımı KALDIRILDI (bug: her restart'ta reddedileni
+    # yeniden öneriyordu). Otomatik (domain kapsamlı) yol da reddi hortlatmamalı.
+    from app import main
+    from app.services import renewal
+    assert not hasattr(main, "backfill_transfer_proposals")
+    db = SessionLocal()
+    try:
+        for _ in range(2):
+            renewal.propose(db, db.get(Certificate, new_id), db.get(Certificate, old_id),
+                            username="system", request=None, via="live-check", domain_id=d2)
+        db.commit()
+    finally:
+        db.close()
     assert _pending(client, auth_headers, old_id, new_id) == [], \
-        "reddedilen granül backfill ile hortladı"
-
-    # İkinci koşu da (idempotent) üretmemeli
-    backfill_transfer_proposals()
-    assert _pending(client, auth_headers, old_id, new_id) == []
+        "reddedilen granül otomatik yolla hortladı"
 
     # Bilinçli MANUEL tetik ise reddi yeniden açar (tek kaçış yolu)
     r = client.post(f"/api/certificates/{new_id}/supersede/{old_id}", headers=auth_headers)

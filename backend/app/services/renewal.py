@@ -91,11 +91,21 @@ def _dep_sy_team_id(db: Session, dep: AppDependency) -> int | None:
     return dep.app.sy_team_id if dep.app else None
 
 
+def same_type(a: Certificate, b: Certificate) -> bool:
+    """Devir yalnız AYNI seviyedeki sertifikalar arasında olabilir (leaf↔leaf,
+    intermediate↔intermediate, root↔root). Ham CertType normalize edilerek karşılaştırılır."""
+    return normalize_cert_type(a.cert_type) == normalize_cert_type(b.cert_type)
+
+
 def _granule_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_id,
-                      app_id=None, statuses: tuple[str, ...]):
+                      app_id=None, statuses: tuple[str, ...], kind: str | None = None):
     """Aynı granül için verilen durumlardaki ilk öneriyi döndürür. app_id yalnız
-    trusted_add önerilerinde doludur (grain'in bir boyutu)."""
-    return (db.query(TransferProposal)
+    trusted_add önerilerinde doludur (grain'in bir boyutu). `kind` verilirse yalnız o
+    türdeki öneriler sayılır (server_add / server_remove aynı granülü paylaşır)."""
+    q = db.query(TransferProposal)
+    if kind is not None:
+        q = q.filter(TransferProposal.kind == kind)
+    return (q
             .filter(TransferProposal.old_cert_id == old_id,
                     TransferProposal.new_cert_id == new_id,
                     TransferProposal.domain_id.is_(domain_id) if domain_id is None
@@ -119,7 +129,8 @@ def _open_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_
 
 def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, username: str,
             request: Request | None, via: str, signal: str | None = None,
-            live_seen: bool = False, reopen_rejected: bool = False) -> list[TransferProposal]:
+            live_seen: bool = False, reopen_rejected: bool = False,
+            domain_id: int | None = None) -> list[TransferProposal]:
     """Eski cert'in her (domain, mapping_type) eşlemesi ve her mTLS bağımlılığı için
     PENDING devir önerisi üretir. HİÇBİR mutasyon yapmaz (eşleme taşımaz, pasife almaz,
     superseded_by yazmaz). İdempotent: aynı granül için açık öneri varsa yenisini
@@ -127,8 +138,15 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
 
     RED KALICIDIR: SY ekibinin REDDETTİĞİ granül otomatik yollarla (import, vault-sync,
     live-check, backfill) yeniden önerilmez — aksi halde red kararı her restart/taramada
-    hortlardı. Yalnız reopen_rejected=True (bilinçli MANUEL devir tetiği) reddi yeniden açar."""
-    if new_cert.id == old_cert.id:
+    hortlardı. Yalnız reopen_rejected=True (bilinçli MANUEL devir tetiği) reddi yeniden açar.
+
+    KAPSAM: `domain_id` verilirse yalnız eski cert'in O domaindeki eşlemeleri için öneri
+    üretilir (mTLS/trust store kapsam dışı) — canlı doğrulama ve zincir içe aktarma yalnız
+    kendi domaini için kanıt taşır, eskinin diğer domainlerine YAYILMAZ (SSLVA vakası).
+    Elle devir domain_id geçmez: bilinçli karar, tüm bağlantılara yayılır.
+
+    TİP: farklı seviyeler (root/intermediate/leaf) arasında devir önerisi ÜRETİLMEZ."""
+    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
         return []
     db.flush()  # autoflush=False: bekleyen kayıtlar aşağıdaki sorgularda görünsün
     created: list[TransferProposal] = []
@@ -165,8 +183,14 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
         created.append(prop)
 
     for mapping in list(old_cert.domain_mappings):
+        if domain_id is not None and mapping.domain_id != domain_id:
+            continue
         upsert(domain_id=mapping.domain_id, mapping_type=mapping.mapping_type, dep_id=None,
                team_id=_domain_sy_team_id(db, mapping.domain_id))
+
+    if domain_id is not None:
+        return _log_proposals(db, created, new_cert, old_cert, username=username, request=request,
+                              via=via, live_seen=live_seen)
 
     for dep in db.query(AppDependency).filter(AppDependency.client_cert_id == old_cert.id).all():
         upsert(domain_id=None, mapping_type=None, dep_id=dep.id,
@@ -183,6 +207,13 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
         upsert(domain_id=None, mapping_type=None, dep_id=None, app_id=app_row.id,
                kind="trusted_add", team_id=app_row.sy_team_id)
 
+    return _log_proposals(db, created, new_cert, old_cert, username=username, request=request,
+                          via=via, live_seen=live_seen)
+
+
+def _log_proposals(db: Session, created: list[TransferProposal], new_cert: Certificate,
+                   old_cert: Certificate, *, username: str, request: Request | None, via: str,
+                   live_seen: bool) -> list[TransferProposal]:
     db.flush()
     if created:
         domains = sorted({d.domain for d in (db.get(Domain, p.domain_id) for p in created
@@ -194,20 +225,63 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
     return created
 
 
+def propose_server_mapping(db: Session, kind: str, cert: Certificate, domain: Domain, *,
+                           username: str, request: Request | None, via: str,
+                           live_seen: bool = False) -> TransferProposal | None:
+    """Canlı doğrulamanın EKLEME / KALDIRMA önerisi (tek domain, 'server' eşlemesi).
+
+    server_add: sertifika canlıda sunuluyor ama domaine bağlı değil → onayla eşleme eklenir.
+    server_remove: sertifika bağlı ama canlıda artık sunulmuyor → onayla eşleme kaldırılır.
+    Şema değişmeden (old/new NOT NULL) iki alana da AYNI sertifika yazılır; anlam `kind`'dadır.
+    Açık öneri varsa yalnız live_seen güncellenir; REDDEDİLEN aynı tür granül yeniden açılmaz."""
+    assert kind in ("server_add", "server_remove")
+    db.flush()
+    grain = dict(old_id=cert.id, new_id=cert.id, domain_id=domain.id, mapping_type="server",
+                 dep_id=None)
+    existing = _open_proposal(db, **grain)
+    if existing is not None:
+        if live_seen and not existing.live_seen:
+            existing.live_seen = True
+            existing.live_seen_at = utcnow()
+        return None
+    if _granule_proposal(db, **grain, statuses=("rejected",), kind=kind) is not None:
+        return None
+    prop = TransferProposal(
+        old_cert_id=cert.id, new_cert_id=cert.id, domain_id=domain.id, mapping_type="server",
+        kind=kind, sy_team_id=domain.sy_team_id, status="pending", via=via, live_seen=live_seen,
+        live_seen_at=utcnow() if live_seen else None, created_by=username)
+    db.add(prop)
+    db.flush()
+    log_action(db, username, "propose", "transfer_proposals", cert.id,
+               {"kind": kind, "cert_id": cert.id, "cert_name": cert.name,
+                "cert_type": normalize_cert_type(cert.cert_type), "domain": domain.domain,
+                "via": via, "live_seen": live_seen}, request)
+    return prop
+
+
 def propose_attach_transfer(db: Session, new_cert: Certificate, old_cert: Certificate,
                             domain: Domain, mapping_type: str, *, username: str,
-                            request: Request | None) -> TransferProposal | None:
+                            request: Request | None, via: str = "attach",
+                            live_seen: bool = False) -> TransferProposal | None:
     """Elle attach çakışması: bir domaine, aynı tipte zaten aktif başka bir sertifika
     eşliyken yeni eşleme eklenmek istenirse bu bir DEVİRDİR — doğrudan eklenmez, öneri olur.
 
     RED KALICI: bu granül daha önce REDDEDİLDİYSE None döner — attach çakışması ve
     import-chain fallback rutin yollardır, reddi yeniden açamazlar (yalnız bilinçli manuel
     supersede açar). Çağıranlar None'ı ele alır: import-chain sessizce atlar, attach ucu
-    kullanıcıyı 409 ile bilgilendirir."""
+    kullanıcıyı 409 ile bilgilendirir.
+
+    Canlı doğrulama da bu yolu `via="live-check"` + live_seen ile kullanır (tek domain).
+    TİP: çağıranlar çakışmayı aynı seviyede arar; farklı seviyeler yine de öneri üretmez."""
+    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
+        return None
     db.flush()
     existing = _open_proposal(db, old_id=old_cert.id, new_id=new_cert.id,
                               domain_id=domain.id, mapping_type=mapping_type, dep_id=None)
     if existing is not None:
+        if live_seen and not existing.live_seen:
+            existing.live_seen = True
+            existing.live_seen_at = utcnow()
         return existing
     if _granule_proposal(db, old_id=old_cert.id, new_id=new_cert.id, domain_id=domain.id,
                          mapping_type=mapping_type, dep_id=None, statuses=("rejected",)) is not None:
@@ -215,12 +289,13 @@ def propose_attach_transfer(db: Session, new_cert: Certificate, old_cert: Certif
     prop = TransferProposal(
         old_cert_id=old_cert.id, new_cert_id=new_cert.id, domain_id=domain.id,
         mapping_type=mapping_type, sy_team_id=domain.sy_team_id, status="pending",
-        via="attach", created_by=username)
+        via=via, live_seen=live_seen, live_seen_at=utcnow() if live_seen else None,
+        created_by=username)
     db.add(prop)
     db.flush()
     log_action(db, username, "propose", "transfer_proposals", new_cert.id,
                {"old_id": old_cert.id, "old_name": old_cert.name, "new_name": new_cert.name,
-                "domain": domain.domain, "type": mapping_type, "via": "attach"}, request)
+                "domain": domain.domain, "type": mapping_type, "via": via}, request)
     return prop
 
 
@@ -236,6 +311,31 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
     old_cert = db.get(Certificate, prop.old_cert_id)
     if new_cert is None or old_cert is None:
         prop.status = "cancelled"
+        return
+    # Eski sürümlerden kalan farklı seviyeli (ör. root → leaf) devir onaylansa bile UYGULANMAZ.
+    if prop.kind == "transfer" and not same_type(old_cert, new_cert):
+        prop.status = "cancelled"
+        prop.note = "Geçersiz: sertifika tipleri farklı — devir uygulanmadı"
+        return
+
+    # EKLEME / KALDIRMA (canlı doğrulama): devir DEĞİL — tek domainde 'server' eşlemesi
+    # eklenir ya da kaldırılır. superseded_by yazılmaz, sertifika pasife alınmaz.
+    if prop.kind in ("server_add", "server_remove"):
+        mapping = (db.query(CertificateDomainMap)
+                   .filter_by(certificate_id=new_cert.id, domain_id=prop.domain_id,
+                              mapping_type="server").first())
+        if prop.kind == "server_add" and mapping is None and prop.domain_id is not None:
+            db.add(CertificateDomainMap(certificate_id=new_cert.id, domain_id=prop.domain_id,
+                                        mapping_type="server"))
+        elif prop.kind == "server_remove" and mapping is not None:
+            db.delete(mapping)
+        prop.status = "applied"
+        prop.applied_at = utcnow()
+        db.flush()
+        dom = db.get(Domain, prop.domain_id) if prop.domain_id else None
+        log_action(db, username, f"{prop.kind}_apply", "certificate_domain_map", new_cert.id,
+                   {"proposal_id": prop.id, "cert_name": new_cert.name,
+                    "domain": dom.domain if dom else None, "mapping_type": "server"}, request)
         return
 
     # TRUSTED EKLEME: devir DEĞİL — yeni cert'i uygulamanın trust store'una EKLE, eskiyi KORU

@@ -43,8 +43,18 @@ function useDebounced<T>(value: T, ms = 350): T {
   return v
 }
 
-function UserCell({ username }: { username: string }) {
+function UserCell({ username, fullName }: { username: string; fullName?: string | null }) {
   const automated = username === 'system' || username === 'external-api'
+  if (!automated && fullName) {
+    return (
+      <Tooltip title={`${fullName} (${username})`} placement="top-start">
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>{fullName}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap component="div">{username}</Typography>
+        </Box>
+      </Tooltip>
+    )
+  }
   if (!automated) return <Typography variant="body2" noWrap>{username}</Typography>
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
@@ -208,7 +218,7 @@ export default function AuditLogPanel() {
     audit_hist_t: e.table_name, audit_hist_id: e.record_id ?? null, audit_tab: null, audit_entry: null,
   })
 
-  const colW = { time: 150, user: 130, action: 180, table: 160, record: 210, ip: 120 }
+  const colW = { time: 150, user: 160, action: 180, table: 140, record: 210, ip: 120 }
 
   return (
     <Stack spacing={1.5}>
@@ -297,7 +307,7 @@ export default function AuditLogPanel() {
                     </Typography>
                   </Tooltip>
                 </TableCell>
-                <TableCell><UserCell username={e.username} /></TableCell>
+                <TableCell><UserCell username={e.username} fullName={e.user_full_name} /></TableCell>
                 <TableCell><ActionDot action={e.action} meta={meta} withLabel /></TableCell>
                 <TableCell>
                   <Typography variant="body2" color="text.secondary" noWrap>

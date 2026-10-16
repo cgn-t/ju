@@ -183,7 +183,7 @@ def test_automatic_supersede_never_crosses_cert_type(client, auth_headers):
 
 
 def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_headers):
-    """Önizleme yenilemeyi işaretler; supersede=true import eşlemeyi devredip eskiyi pasifler."""
+    """Önizleme yenilemeyi işaretler; içe aktarma öneri üretmez, elle devir onayla uygulanır."""
     ca, ca_key = certgen.make_ca("Renew Root CA 2")
     v1, _ = certgen.make_leaf(ca, ca_key, "renew2.example.com",
                               not_before=datetime(2026, 1, 1))
@@ -207,7 +207,11 @@ def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_heade
 
     r = _import_pem(client, auth_headers, certgen.pem(v2), extra={"supersede": "true"})
     v2_id = r.json()[0]["id"]
-    # ONAY MODELİ: import anında DEVİR YOK — v1 hâlâ aktif ve eşli; öneri üretildi
+    # İçe aktarma devir önerisi ÜRETMEZ (supersede etkisiz) — devir elle başlatılır
+    assert not any(p["new_cert_id"] == v2_id for p in _proposals(client, auth_headers))
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}",
+                       headers=auth_headers).status_code == 200
+    # ONAY MODELİ: DEVİR YOK — v1 hâlâ aktif ve eşli; öneri üretildi
     v1_mid = client.get(f"/api/certificates/{v1_id}", headers=auth_headers).json()
     assert v1_mid["is_active"] is True
     assert v1_mid["superseded_by_id"] is None
@@ -386,12 +390,14 @@ def test_superseded_by_not_clobbered_on_branched_partial_transfer(client, auth_h
     assert _attach(client, h, dbb, v1_id).status_code == 200
 
     # v2 gelir → (v1→v2, A) ve (v1→v2, B); YALNIZ A onaylanır
-    v2_id = _import_pem(client, h, certgen.pem(v2), extra={"supersede": "true"}).json()[0]["id"]
+    v2_id = _import_pem(client, h, certgen.pem(v2)).json()[0]["id"]
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
     pa = next(p for p in _proposals(client, h) if p["new_cert_id"] == v2_id and p["domain_id"] == da)
     assert client.post(f"/api/proposals/{pa['id']}/approve", headers=h).status_code == 200
 
-    # v3 gelir → (v1→v3, B) ve (v2→v3, A); B'nin v1→v3'ünü onayla
-    v3_id = _import_pem(client, h, certgen.pem(v3), extra={"supersede": "true"}).json()[0]["id"]
+    # v3 gelir → elle (v1→v3, B); B'nin v1→v3'ünü onayla
+    v3_id = _import_pem(client, h, certgen.pem(v3)).json()[0]["id"]
+    assert client.post(f"/api/certificates/{v3_id}/supersede/{v1_id}", headers=h).status_code == 200
     pb = next(p for p in _proposals(client, h)
               if p["new_cert_id"] == v3_id and p["old_cert_id"] == v1_id and p["domain_id"] == dbb)
     assert client.post(f"/api/proposals/{pb['id']}/approve", headers=h).status_code == 200
@@ -449,9 +455,9 @@ def test_import_chain_supersede_creates_proposal_then_approve(client, auth_heade
 
 
 def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_headers, monkeypatch):
-    """ONAY MODELİ: vault-sync rotasyonu ÖNERİ üretir (eşleme kopyalanmaz, eski aktif,
-    superseded_by yazılmaz). Canlı doğrulama v2'yi sunucuda görünce öneriyi live_seen
-    işaretler ama devri UYGULAMAZ. Devir yalnız SY onayıyla olur."""
+    """Vault senkronu devir önerisi ÜRETMEZ (yalnız envantere ekler). Yeni sertifika domainde
+    canlıda görülünce canlı doğrulama YALNIZ o domain için devir önerisi (live_seen) üretir;
+    devri UYGULAMAZ. Devir yalnız SY onayıyla olur."""
     from app.services.providers.vault import VaultProvider
 
     ca, ca_key = certgen.make_ca("Vault Renew CA")
@@ -478,28 +484,21 @@ def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_
 
         r = client.post("/api/certificates/vault-sync", headers=auth_headers)
         assert r.status_code == 200, r.text
-        assert r.json()["superseded"] == 1  # 1 öneri üretildi
+        assert r.json()["superseded"] == 0  # Vault senkronu öneri üretmez
+        assert not [p for p in _proposals(client, auth_headers) if p["domain_id"] == domain_id]
 
-        # ÖNERİ üretildi ama devir YOK: v1 aktif, superseded_by boş, v2 EŞLİ DEĞİL
-        v1_mid = client.get(f"/api/certificates/{v1_id}", headers=auth_headers).json()
-        assert v1_mid["is_active"] is True
-        assert v1_mid["superseded_by_id"] is None
-        props = [p for p in _proposals(client, auth_headers) if p["domain_id"] == domain_id]
-        assert len(props) == 1
-        prop_id, v2_id = props[0]["id"], props[0]["new_cert_id"]
-        dom = client.get(f"/api/domains/{domain_id}", headers=auth_headers).json()
-        assert {c["certificate_id"] for c in dom["certificates"]
-                if c["mapping_type"] == "server" and c["cert_type"] == "leaf"} == {v1_id}  # kopyalanmadı
-        v2_out = client.get(f"/api/certificates/{v2_id}", headers=auth_headers).json()
-        assert v2_out["vault_path"] == "certs/renew-demo"
-
-        # canlı doğrulama v2'yi sunucuda görür → mismatch (v2 eşli değil) AMA kanıt işlenir
+        # canlı doğrulama v2'yi sunucuda görür → mismatch + YALNIZ bu domain için devir önerisi
         r = client.post(f"/api/domains/{domain_id}/live-check", headers=auth_headers)
         assert r.json()["live_check_status"] == "mismatch"
         props = [p for p in _proposals(client, auth_headers) if p["domain_id"] == domain_id]
+        assert len(props) == 1 and props[0]["kind"] == "transfer"
+        assert props[0]["old_cert_id"] == v1_id and props[0]["via"] == "live-check"
         assert props[0]["live_seen"] is True  # 'canlıda görüldü' güvenli-onay sinyali
+        prop_id, v2_id = props[0]["id"], props[0]["new_cert_id"]
+        v2_out = client.get(f"/api/certificates/{v2_id}", headers=auth_headers).json()
+        assert v2_out["vault_path"] == "certs/renew-demo"
         v1_still = client.get(f"/api/certificates/{v1_id}", headers=auth_headers).json()
-        assert v1_still["is_active"] is True  # devir UYGULANMADI
+        assert v1_still["is_active"] is True and v1_still["superseded_by_id"] is None  # devir YOK
 
         # SY onayı → devir uygulanır
         assert client.post(f"/api/proposals/{prop_id}/approve",

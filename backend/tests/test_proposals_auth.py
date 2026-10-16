@@ -283,7 +283,7 @@ def test_cancel_cannot_override_decided_proposal(client, auth_headers):
 
 
 def test_out_of_team_editor_cannot_cancel_auto_proposal(client, auth_headers):
-    """Bug #6 regresyonu: import(supersede) ile OTOMATİK üretilen öneride created_by tetikleyen
+    """Bug #6 regresyonu: OTOMATİK yolla üretilen öneride created_by tetikleyen
     editördür ama kapsam yoktur. Kapsam-dışı editör bu öneriyi (created_by=kendisi olsa da)
     İPTAL EDEMEZ — created_by istisnası yalnız via='manual'da geçerli."""
     team_y = _sy_team(client, auth_headers, "TeamY6")
@@ -297,14 +297,25 @@ def test_out_of_team_editor_cannot_cancel_auto_proposal(client, auth_headers):
     client.post(f"/api/domains/{dom_id}/certificates", headers=auth_headers,
                 json={"certificate_id": v1_id, "mapping_type": "server"})
 
-    # kapsam-dışı editör E: v2'yi supersede ile import → öneri created_by=E, sy_team=Y, via=import
+    # kapsam-dışı editör E adına OTOMATİK yol (via != manual) öneri üretmiş olsun
+    # (içe aktarma artık öneri üretmez; otomatik öneri doğrudan servis katmanından kurulur)
     _mk_user(client, auth_headers, "e_outsider6")
     eh = _login(client, "e_outsider6")
-    v2_id = _import_pem(client, eh, certgen.pem(v2), extra={"supersede": "true"}).json()[0]["id"]
+    v2_id = _import_pem(client, eh, certgen.pem(v2)).json()[0]["id"]
+    from app.db.models import Certificate
+    from app.db.session import SessionLocal
+    from app.services import renewal
+    db = SessionLocal()
+    try:
+        renewal.propose(db, db.get(Certificate, v2_id), db.get(Certificate, v1_id),
+                        username="e_outsider6", request=None, via="import-chain", domain_id=dom_id)
+        db.commit()
+    finally:
+        db.close()
     prop = next(p for p in client.get("/api/proposals", headers=auth_headers,
                                       params={"status": "pending"}).json()
                 if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id)
-    assert prop["created_by"] == "e_outsider6" and prop["via"] == "import"
+    assert prop["created_by"] == "e_outsider6" and prop["via"] == "import-chain"
 
     # E, created_by=kendisi olsa da iptal EDEMEZ (403) — otomatik öneri, kapsam yok
     assert client.post(f"/api/proposals/{prop['id']}/cancel", headers=eh).status_code == 403

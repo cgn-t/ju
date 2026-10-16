@@ -23,6 +23,7 @@ ACTION_LABELS = {
     "propose": "Devir önerisi", "approve": "Öneri onayı", "propose_reject": "Öneri reddi",
     "propose_cancel": "Öneri iptali", "supersede_apply": "Devir uygulandı",
     "trusted_add_apply": "Trust store'a eklendi",
+    "server_add_apply": "Eşleme eklendi (öneri)", "server_remove_apply": "Eşleme kaldırıldı (öneri)",
     "login": "Giriş", "login_failed": "Başarısız giriş",
     "add_member": "Ekibe üye ekleme", "remove_member": "Ekipten üye çıkarma",
     "live_check_run": "Canlı doğrulama", "notify": "Bildirim çalıştırma",
@@ -36,6 +37,7 @@ ACTION_LABELS = {
 ACTION_TONE = {
     "create": "success", "import": "success", "adopt": "success", "approve": "success",
     "supersede_apply": "success", "trusted_add_apply": "success", "add_member": "success",
+    "server_add_apply": "success", "server_remove_apply": "warning",
     "update": "info", "propose": "info", "vault_sync": "info",
     "delete": "error", "login_failed": "error", "propose_reject": "error", "remove_member": "error",
     "deactivate": "warning", "propose_cancel": "warning", "cancel": "warning",

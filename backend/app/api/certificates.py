@@ -222,9 +222,7 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                         creator: str | None = Form(None), environment: str | None = Form(None),
                         db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     """Binary import: PEM (fullchain destekli) / DER / PFX. Var olanları atlar,
-    zinciri SKI/AKI ile otomatik bağlar. supersede=true ise yeni leaf'lerin
-    öncülleri (aynı SKI veya aynı subject+issuer) devralınır: eşlemeler taşınır,
-    eski kayıt pasife alınır."""
+    zinciri SKI/AKI ile otomatik bağlar. Devir önerisi ÜRETMEZ (supersede etkisiz)."""
     if environment not in (None, "", "prod", "test"):
         raise HTTPException(status_code=400, detail="environment yalnız 'prod' veya 'test' olabilir")
     try:
@@ -249,18 +247,9 @@ def import_certificates(request: Request, file: UploadFile = File(...),
         cert_parser.relink_children(db, cert)
         log_action(db, user.username, "import", "certificates", cert.id,
                    {"name": cert.name, "serial": cert.serial_number}, request)
-        if supersede:
-            for old in renewal.find_predecessors(
-                    db, cert_type=cert.cert_type,
-                    fingerprint_sha256=cert.fingerprint_sha256,
-                    subject_key_identifier=cert.subject_key_identifier,
-                    subject=cert.subject, issuer=cert.issuer,
-                    valid_from=cert.valid_from, exclude_id=cert.id):
-                # ONAY MODELİ: anında devir YOK — SY onayına düşecek öneri üret
-                renewal.propose(db, cert, old, username=user.username, request=request,
-                                via="import", signal=renewal.renewal_signal(
-                                    old, subject_key_identifier=cert.subject_key_identifier,
-                                    subject=cert.subject, issuer=cert.issuer))
+        # Dosyadan içe aktarma devir önerisi ÜRETMEZ (`supersede` geriye uyum için kabul edilir,
+        # etkisizdir): öneri, yeni sertifikanın deploy edildiği domainin canlı doğrulamasından
+        # (yalnız o domain için) ya da bilinçli elle "Devir Öner"den gelir.
         created.append(cert)
     db.commit()
     if not created:
@@ -287,6 +276,10 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
     if not new_cert.is_active:
         raise HTTPException(status_code=400, detail="Pasif bir sertifika devralamaz")
+    if not renewal.same_type(new_cert, old_cert):
+        raise HTTPException(status_code=400, detail=(
+            "Devir yalnız aynı seviyedeki sertifikalar arasında yapılabilir "
+            "(leaf → leaf, intermediate → intermediate, root → root)"))
     if user.role != "admin":
         binding_teams = {m.domain.sy_team_id for m in old_cert.domain_mappings
                          if m.domain is not None}
@@ -377,24 +370,8 @@ def vault_sync(request: Request, db: Session = Depends(get_db),
             db.flush()
             cert_parser.relink_children(db, cert)
             created += 1
-            if is_primary and cert.cert_type == "leaf":
-                # Rotasyon algılama — ONAY MODELİ: Vault'ta yeni sürüm görüldü ama
-                # JUMBO kendiliğinden devretmez. Öncüller için PENDING öneri üretilir;
-                # eşlemeler taşınmaz, eski aktif kalır. Devir yalnız SY onayıyla olur.
-                same_path = (db.query(Certificate)
-                             .filter(Certificate.vault_path == path,
-                                     Certificate.id != cert.id,
-                                     Certificate.is_active == True).all())
-                candidates = same_path or renewal.find_predecessors(
-                    db, cert_type=cert.cert_type,
-                    fingerprint_sha256=cert.fingerprint_sha256,
-                    subject_key_identifier=cert.subject_key_identifier,
-                    subject=cert.subject, issuer=cert.issuer,
-                    valid_from=cert.valid_from, exclude_id=cert.id)
-                for old in candidates:
-                    made = renewal.propose(db, cert, old, username=user.username,
-                                           request=request, via="vault-sync")
-                    superseded += 1 if made else 0
+            # Vault senkronu devir önerisi ÜRETMEZ (superseded hep 0) — yalnız envantere ekler.
+            # Öneri, yeni sertifikanın deploy edildiği domainin canlı doğrulamasından gelir.
 
     log_action(db, user.username, "vault_sync", "certificates", None,
                {"created": created, "updated": updated, "skipped": skipped,

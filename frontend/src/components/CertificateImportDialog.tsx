@@ -9,7 +9,7 @@ import { useSnackbar } from 'notistack'
 import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { ImportPreview, Team } from '../api/types'
-import { MONO_FONT, TRANSFER_TOAST_MS, nodeColors } from '../theme'
+import { MONO_FONT, nodeColors } from '../theme'
 import ConfirmSaveDialog, { type ConfirmItem } from './ConfirmSaveDialog'
 
 interface Props {
@@ -39,7 +39,6 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const [purchasedBy, setPurchasedBy] = useState('')
   const [isInternal, setIsInternal] = useState(false)
   const [environment, setEnvironment] = useState('')
-  const [supersedeOld, setSupersedeOld] = useState(true)
   const [dragOver, setDragOver] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -54,7 +53,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
   const reset = () => {
     setFile(null); setPfxPassword(''); setPreview(null); setNotes(''); setPurchasedBy('')
-    setIsInternal(false); setEnvironment(''); setSupersedeOld(true); setManualName(''); setManualPem('')
+    setIsInternal(false); setEnvironment(''); setManualName(''); setManualPem('')
     setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setManualEnvironment('')
     setCreator(''); setTab(0)
     setConfirmOpen(false)
@@ -108,17 +107,12 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       if (creator) form.append('creator', creator)
       form.append('is_internal', String(isInternal))
       if (environment) form.append('environment', environment)
-      // Onay sözleşmesi: devir yalnız kullanıcı planı GÖRDÜYSE gönderilir
-      // (buton önizleme yüklenmeden kilitli, plan tüm öncülleri listeler)
-      form.append('supersede', String(renewals.length > 0 && supersedeOld))
+      // İçe aktarma devir önerisi ÜRETMEZ — öneri canlı doğrulamadan (o domain için) ya da
+      // sertifika detayındaki "Devir Öner"den gelir
       return (await api.post('/certificates/import', form)).data
     },
     onSuccess: (data) => {
-      const handedOver = supersedeOld && renewals.length > 0
-        ? ` — ${renewals.length} devir önerisi oluşturuldu (SY onayı bekliyor)`
-        : ''
-      enqueueSnackbar(`${data.length} sertifika eklendi${handedOver}`,
-                      { variant: 'success', autoHideDuration: handedOver ? TRANSFER_TOAST_MS : undefined })
+      enqueueSnackbar(`${data.length} sertifika eklendi`, { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['domains'] })
       invalidate(); close()
     },
@@ -264,7 +258,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                   <Box sx={{ mt: 1.5, p: 1.25, border: '1px solid', borderColor: 'info.main',
                              borderRadius: 1, bgcolor: 'action.hover' }}>
                     <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-                      Devir planı — onay gerektirir
+                      Yenileme tespit edildi — bilgi
                     </Typography>
                     <Stack spacing={1}>
                       {renewals.map((p) => (
@@ -295,31 +289,22 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                           <Typography variant="caption" component="div"
                                       color={p.renewal_of_domains?.length ? 'warning.main' : 'text.secondary'}>
                             {p.renewal_of_domains?.length
-                              ? `Devredilecek eşlemeler: ${p.renewal_of_domains.join(', ')}`
-                              : 'Devredilecek domain eşlemesi yok.'}
+                              ? `Eskinin bağlı olduğu eşlemeler: ${p.renewal_of_domains.join(', ')}`
+                              : 'Eskinin domain eşlemesi yok.'}
                           </Typography>
                           {(p.renewal_also?.length ?? 0) > 0 && (
                             <Typography variant="caption" component="div" color="warning.main">
-                              Ayrıca devralınacak: {p.renewal_also!.join(' • ')}
+                              Diğer olası öncüller: {p.renewal_also!.join(' • ')}
                             </Typography>
                           )}
                         </Box>
                       ))}
                     </Stack>
-                    <FormControlLabel
-                      sx={{ mt: 0.5 }}
-                      control={<Checkbox size="small" checked={supersedeOld}
-                                         onChange={(e) => setSupersedeOld(e.target.checked)} />}
-                      label={<Typography variant="body2">
-                        Devir önerisi oluştur — domain sahibi SY ekibinin onayına düşer
-                        (JUMBO devri kendiliğinden UYGULAMAZ)
-                      </Typography>}
-                    />
-                    {!supersedeOld && (
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        İşaretlenmezse öneri üretilmez; sertifika eklenir ama eski kayıt aynen kalır.
-                      </Typography>
-                    )}
+                    <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+                      İçe aktarma devir önerisi <strong>oluşturmaz</strong>. Yeni sertifika bir domainde canlıda
+                      görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> öneri açar; isterseniz
+                      sertifika detayından <strong>Devir Öner</strong> ile elle de başlatabilirsiniz.
+                    </Typography>
                   </Box>
                 )}
               </Box>

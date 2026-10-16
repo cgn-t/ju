@@ -35,7 +35,9 @@ def _pending_for_team(client, h, *, team_email, domain, cn):
                 if c["cert_type"] == "leaf")
     client.post(f"/api/domains/{dom}/certificates", headers=h,
                 json={"certificate_id": v1id, "mapping_type": "server"})
-    _import(client, h, certgen.pem(v2), supersede=True)
+    v2id = next(c["id"] for c in _import(client, h, certgen.pem(v2)).json()
+                if c["cert_type"] == "leaf")
+    assert client.post(f"/api/certificates/{v2id}/supersede/{v1id}", headers=h).status_code == 200
     return tid
 
 

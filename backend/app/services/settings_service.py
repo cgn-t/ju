@@ -158,6 +158,9 @@ DEFAULTS: dict[str, dict] = {
         # ayardan bağımsız her zaman çalışır.
         "enabled": True,              # gece cron canlı doğrulamasını aç/kapa
         "schedule_hour": 7,           # gece cron saati (0-23)
+        # Toplu taramayı dışarıdan tetikleme anahtarı (POST /api/domains/live-check-run,
+        # başlık X-API-Key). BOŞ = dış tetikleme kapalı (yalnız admin). Bildirim anahtarından AYRI.
+        "trigger_api_key": "",
     },
     "revocation": {
         # İptal (OCSP/CRL) denetimi. DIŞ ERİŞİM gerekir → varsayılan KAPALI; iç/özel CA'lar çoğu

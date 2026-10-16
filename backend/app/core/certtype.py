@@ -22,17 +22,24 @@ def normalize_cert_type(value) -> str:
     return value if value in VALID_CERT_TYPES else "leaf"
 
 
+# SQL karşılaştırmasında kabul edilen yazımlar. LOWER() KULLANILMAZ: Türkçe collation'da
+# (Turkish_CI_AS) LOWER('Intermediate') = 'ıntermediate' (noktasız ı) olur ve kayıt 'leaf'
+# sayılırdı (2026-10-16 prod vakası). Sabit yazım listesi collation'dan bağımsızdır.
+_SQL_SPELLINGS = {t: (t, t.capitalize(), t.upper()) for t in VALID_CERT_TYPES}
+
+
 def cert_type_filter(column, value):
     """SQL-seviyesi cert_type eşleme filtresi — normalize_cert_type ile SİMETRİK.
 
-    Kolon DB'de ham durabilir ("Intermediate", " LEAF ", NULL); LOWER/LTRIM/RTRIM
-    (MSSQL ve SQLite'ta ortak) ile kanonik forma indirip karşılaştırır. 'leaf'
+    Kolon DB'de ham durabilir ("Intermediate", " LEAF ", NULL); LTRIM/RTRIM sonrası
+    bilinen yazımlarla (küçük / Baş harf büyük / BÜYÜK) karşılaştırılır. 'leaf'
     aranıyorsa NULL ve tanınmayan değerler de eşleşir (Python normalize'ın
     NULL/tanınmayan→'leaf' kuralıyla aynı sonuç kümesi)."""
     from sqlalchemy import func
 
     canonical = normalize_cert_type(value)
-    norm_col = func.lower(func.ltrim(func.rtrim(column)))
+    trimmed = func.ltrim(func.rtrim(column))
     if canonical == "leaf":
-        return column.is_(None) | norm_col.notin_(("root", "intermediate"))
-    return norm_col == canonical
+        ca_spellings = _SQL_SPELLINGS["root"] + _SQL_SPELLINGS["intermediate"]
+        return column.is_(None) | trimmed.notin_(ca_spellings)
+    return trimmed.in_(_SQL_SPELLINGS[canonical])

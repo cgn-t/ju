@@ -971,10 +971,15 @@ def _proposal_label(p: TransferProposal) -> str:
     _proposal_rows'un ayrı 'Konum' satırında, burada yalnız eski → yeni."""
     old = p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"
     new = p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"
+    if p.kind == "server_add":
+        return f"Ekleme: {new}"
+    if p.kind == "server_remove":
+        return f"Kaldırma: {old}"
     return f"{old} → {new}"
 
 
-_PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Devri", "trusted_add": "Trust Store Ekleme"}
+_PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Devri", "trusted_add": "Trust Store Ekleme",
+                         "server_add": "Eşleme Ekleme", "server_remove": "Eşleme Kaldırma"}
 _PROPOSAL_SIGNAL_LABELS = {"ski": "SubjectKeyIdentifier", "subject": "Subject"}
 
 

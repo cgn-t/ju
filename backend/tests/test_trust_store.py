@@ -89,10 +89,11 @@ def test_trusted_add_proposal_keeps_old(client, auth_headers):
     assert client.post(f"/api/applications/{app_id}/trusted", headers=h,
                        json={"certificate_id": v1_id}).status_code == 200
 
-    # halef v2'yi supersede=true ile import → DEVİR değil trusted_add önerisi
-    r2 = _import(client, h, certgen.pem(v2), supersede=True)
+    # halef v2 import + ELLE devir → DEVİR değil trusted_add önerisi
+    r2 = _import(client, h, certgen.pem(v2))
     assert r2.status_code == 200, r2.text
     v2_id = r2.json()[0]["id"]
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
     props = client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
     ta = [p for p in props if p.get("kind") == "trusted_add"
           and p["new_cert_id"] == v2_id and p["app_id"] == app_id]
@@ -111,9 +112,11 @@ def test_trusted_add_proposal_keeps_old(client, auth_headers):
 
 def test_backfill_no_phantom_trusted_add(client, auth_headers):
     """Bug #4 regresyonu: v1 hem domaine SERVER eşli HEM trust store'da. Halef onaylanınca eski
-    trusted olduğu için AKTİF kalır → startup backfill onu seçer. Backfill, ZATEN UYGULANMIŞ
-    trusted_add grain'ini yeniden ÖNERMEMELİ (onay kuyruğunda phantom oluşturmamalı)."""
-    from app.main import backfill_transfer_proposals
+    trusted olduğu için AKTİF kalır. Açılışta öneri üreten 'Geçiş' (backfill) adımı KALDIRILDI;
+    otomatik (domain kapsamlı) yol da ZATEN UYGULANMIŞ granülü yeniden ÖNERMEMELİ (phantom yok)."""
+    from app import main
+    from app.services import renewal
+    assert not hasattr(main, "backfill_transfer_proposals"), "açılışta öneri üretimi kaldırıldı"
     h = auth_headers
     tid = _sy_team(client, h, "SY-Backfill", "bf@test")
     app_id = _app(client, h, "BackfillApp", tid)
@@ -129,7 +132,8 @@ def test_backfill_no_phantom_trusted_add(client, auth_headers):
     assert client.post(f"/api/applications/{app_id}/trusted", headers=h,
                        json={"certificate_id": v1_id}).status_code == 200   # + trust store
 
-    v2_id = _import(client, h, certgen.pem(v2), supersede=True).json()[0]["id"]
+    v2_id = _import(client, h, certgen.pem(v2)).json()[0]["id"]
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
     for p in client.get("/api/proposals", headers=h, params={"status": "pending"}).json():
         if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id:         # transfer + trusted_add
             assert client.post(f"/api/proposals/{p['id']}/approve", headers=h).status_code == 200
@@ -140,7 +144,13 @@ def test_backfill_no_phantom_trusted_add(client, auth_headers):
     finally:
         db.close()
 
-    backfill_transfer_proposals()   # startup simülasyonu
+    db = SessionLocal()
+    try:
+        renewal.propose(db, db.get(Certificate, v2_id), db.get(Certificate, v1_id),
+                        username="system", request=None, via="live-check", domain_id=dom)
+        db.commit()
+    finally:
+        db.close()
     pend = client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
     phantom = [p for p in pend if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id]
     assert phantom == [], f"backfill uygulanmış trusted_add'i yeniden önermemeli (phantom): {phantom}"
@@ -162,7 +172,8 @@ def test_trusted_add_proposal_rehomed_on_team_change(client, auth_headers):
                  if c["cert_type"] == "leaf")
     assert client.post(f"/api/applications/{app_id}/trusted", headers=h,
                        json={"certificate_id": v1_id}).status_code == 200
-    v2_id = _import(client, h, certgen.pem(v2), supersede=True).json()[0]["id"]
+    v2_id = _import(client, h, certgen.pem(v2)).json()[0]["id"]
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
 
     def _ta():
         return next(p for p in client.get("/api/proposals", headers=h,

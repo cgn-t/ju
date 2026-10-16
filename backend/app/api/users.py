@@ -3,7 +3,7 @@ import io
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import Unicode, cast, func, or_
+from sqlalchemy import Unicode, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -155,11 +155,29 @@ def delete_user(request: Request, user_id: int, db: Session = Depends(get_db),
 
 @router.get("/teams", response_model=list[TeamOut])
 def list_teams(type: str | None = None, db: Session = Depends(get_db),
-               _: User = Depends(get_current_user)):
+               user: User = Depends(get_current_user)):
     q = db.query(Team)
     if type:
         q = q.filter(Team.type == type)
-    return q.order_by(Team.name).all()
+    teams = q.order_by(Team.name).all()
+    if user.role != "admin":
+        return teams  # sayılar yalnız yönetim ekranı (admin) için
+
+    def counts(col_team, col_id):
+        return dict(db.query(col_team, func.count(col_id)).filter(col_team.isnot(None))
+                    .group_by(col_team).all())
+    members = counts(UserTeam.team_id, UserTeam.user_id)
+    # Sahiplik SY ya da UG kolonu üzerinden (silme kuralıyla aynı)
+    dom_sy, dom_ug = counts(Domain.sy_team_id, Domain.id), counts(Domain.ug_team_id, Domain.id)
+    app_sy, app_ug = counts(Application.sy_team_id, Application.id), counts(Application.ug_team_id, Application.id)
+    out = []
+    for t in teams:
+        item = TeamOut.model_validate(t)
+        item.member_count = members.get(t.id, 0)
+        item.domain_count = dom_sy.get(t.id, 0) + dom_ug.get(t.id, 0)
+        item.app_count = app_sy.get(t.id, 0) + app_ug.get(t.id, 0)
+        out.append(item)
+    return out
 
 
 @router.post("/teams", response_model=TeamOut)
@@ -298,8 +316,14 @@ def _csv_list(v: str | None) -> list[str]:
 _DETAILS_TEXT = cast(AuditLog.details, Unicode())
 
 
+def _user_like(like: str):
+    """Audit kullanıcı araması: kullanıcı adı ya da users.full_name eşleşmesi."""
+    by_name = select(User.username).where(User.full_name.ilike(like))
+    return or_(AuditLog.username.ilike(like), AuditLog.username.in_(by_name))
+
+
 def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | None = None,
-                 category: str | None = None, username: str | None = None,
+                 category: str | None = None, username: str | None = None, actor: str | None = None,
                  action: str | None = None, table_name: str | None = None,
                  record_id: str | None = None, q: str | None = None, ip: str | None = None,
                  record: str | None = None, details: str | None = None,
@@ -321,8 +345,10 @@ def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | 
         qry = qry.filter(AuditLog.created_at <= ist_to_utc(end))
     if category in CATEGORIES:
         qry = qry.filter(category_filter(category))
-    if username:
-        qry = qry.filter(AuditLog.username.ilike(f"%{username}%"))
+    if username:  # kullanıcı adı VEYA Ad Soyad (ör. "Ahmet Yıldız")
+        qry = qry.filter(_user_like(f"%{username}%"))
+    if actor:  # tam eşleşme — kullanıcı detayındaki "son işlemler"
+        qry = qry.filter(AuditLog.username == actor)
     if actions := _csv_list(action):
         qry = qry.filter(AuditLog.action.in_(actions))
     if tables := _csv_list(table_name):
@@ -332,7 +358,7 @@ def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | 
     if q:
         like = f"%{q}%"
         qry = qry.filter(or_(_DETAILS_TEXT.ilike(like), AuditLog.record_id.ilike(like),
-                             AuditLog.username.ilike(like)))
+                             _user_like(like)))
     if ip:
         qry = qry.filter(AuditLog.ip_address.ilike(f"%{ip}%"))
     if record:  # "Kayıt" kolonu: kimlik birebir VEYA ad detayda geçiyor (ör. web.aa.com)
@@ -386,9 +412,13 @@ def _record_labels(db: Session, rows: list[AuditLog], parsed: dict[int, object])
 def _to_audit_out(db: Session, rows: list[AuditLog]) -> list[AuditOut]:
     parsed = {r.id: parse_details(r.details) for r in rows}
     labels = _record_labels(db, rows, parsed)
+    usernames = {r.username for r in rows if r.username}
+    names = dict(db.query(User.username, User.full_name)
+                 .filter(User.username.in_(usernames), User.full_name.isnot(None)).all()) if usernames else {}
     out = []
     for r in rows:
         item = AuditOut.model_validate(r)
+        item.user_full_name = names.get(r.username) or None
         item.category = category_of(r.action, r.table_name, r.username)
         item.summary = summarize(r.action, parsed[r.id])
         item.record_label = labels.get(r.id)
@@ -404,7 +434,7 @@ def audit_meta(_: User = Depends(require_role("admin"))):
 
 @router.get("/audit", response_model=AuditListOut)
 def list_audit(limit: int = Query(AUDIT_LIST_LIMIT, ge=1, le=AUDIT_LIST_LIMIT),
-               category: str | None = None, username: str | None = None,
+               category: str | None = None, username: str | None = None, actor: str | None = None,
                action: str | None = None, table_name: str | None = None,
                record_id: str | None = None, q: str | None = None, ip: str | None = None,
                record: str | None = None, details: str | None = None,
@@ -416,7 +446,7 @@ def list_audit(limit: int = Query(AUDIT_LIST_LIMIT, ge=1, le=AUDIT_LIST_LIMIT),
     uygulanır → eski bir kayıt filtreyle yine bulunur. Daha fazlası için tarih aralığı + CSV."""
     # limit Query ile [1,1000] arası doğrulanır — negatif limit MSSQL'de geçersiz TOP/FETCH → 500 olurdu.
     rows = (_audit_query(db, date_from=date_from, date_to=date_to, category=category,
-                         username=username, action=action, table_name=table_name,
+                         username=username, actor=actor, action=action, table_name=table_name,
                          record_id=record_id, q=q, ip=ip, record=record,
                          details=details, since_hours=since_hours,
                          start=start, end=end)
@@ -478,7 +508,7 @@ def export_audit(category: str | None = None, username: str | None = None,
     buf = io.StringIO()
     buf.write("\ufeff")  # UTF-8 BOM → Excel TR karakterleri doğru açar
     writer = csv.writer(buf)
-    writer.writerow(["Tarih (İstanbul)", "Kullanıcı", "Kategori", "İşlem", "Nesne", "Kayıt",
+    writer.writerow(["Tarih (İstanbul)", "Kullanıcı", "Ad Soyad", "Kategori", "İşlem", "Nesne", "Kayıt",
                      "Değişiklik", "Detay (ham)", "IP"])
     for chunk_start in range(0, len(rows), 500):
         chunk = rows[chunk_start:chunk_start + 500]
@@ -486,7 +516,7 @@ def export_audit(category: str | None = None, username: str | None = None,
             ts = (r.created_at.replace(tzinfo=timezone.utc).astimezone(_IST)
                   .strftime("%Y-%m-%d %H:%M:%S")) if r.created_at else ""
             writer.writerow([
-                ts, r.username, labels["categories"].get(r.category, r.category),
+                ts, r.username, r.user_full_name or "", labels["categories"].get(r.category, r.category),
                 labels["actions"].get(r.action, r.action),
                 labels["tables"].get(r.table_name, r.table_name),
                 r.record_label or r.record_id or "", r.summary or "", r.details or "",

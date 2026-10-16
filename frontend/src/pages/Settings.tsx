@@ -2,7 +2,6 @@ import AddIcon from '@mui/icons-material/Add'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import GroupsIcon from '@mui/icons-material/Groups'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, ButtonBase, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
@@ -14,13 +13,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
+import { formatAuditTime } from '../utils/auditFormat'
 import type { AppUser, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import AuditLogPanel from '../components/AuditLogPanel'
 import MailHistoryPanel from '../components/MailHistoryPanel'
+import TeamsPanel from '../components/TeamsPanel'
+import UsersPanel from '../components/UsersPanel'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useUrlId, useUrlState } from '../hooks/useUrlState'
+import { TEAM_TYPE_LABEL } from '../utils/peopleLabels'
 
 // ---------- Ortak kategori formu kancası ----------
 function useCategory(category: string) {
@@ -354,440 +357,6 @@ function VaultTab() {
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => test.mutate()}>Bağlantıyı Test Et</Button>
       </Stack>
-    </Stack>
-  )
-}
-
-// ---------- Kullanıcılar ----------
-const ROLE_CHIP: Record<string, { label: string; color: 'default' | 'error' | 'primary' | 'warning' | 'info' }> = {
-  admin: { label: 'Yönetici', color: 'error' },
-  editor: { label: 'Ekip Editörü', color: 'primary' },
-  viewer: { label: 'Ekip İzleyici', color: 'info' },
-  allviewer: { label: 'Genel İzleyici', color: 'default' },
-  none: { label: 'Yetkisiz', color: 'warning' },
-}
-// Rol atama seçenekleri (Kullanıcılar sekmesi). Açıklamalar dropdown'da gösterilir.
-const ROLE_OPTIONS: { value: string; label: string; hint: string }[] = [
-  { value: 'admin', label: 'Yönetici', hint: 'Her şeyi görür ve düzenler' },
-  { value: 'editor', label: 'Ekip Editörü', hint: 'Yalnız kendi SY ekiplerini görür ve düzenler' },
-  { value: 'viewer', label: 'Ekip İzleyici', hint: 'Yalnız kendi SY ekiplerini görür (düzenleyemez)' },
-  { value: 'allviewer', label: 'Genel İzleyici', hint: 'Her şeyi görür ama düzenleyemez' },
-  { value: 'none', label: 'Yetkisiz', hint: 'Rol atanmadı — hiçbir şey göremez' },
-]
-
-function UsersTab() {
-  const { enqueueSnackbar } = useSnackbar()
-  const queryClient = useQueryClient()
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [form, setForm] = useState({ username: '', password: '', email: '', full_name: '', auth_source: 'local', role: 'none' })
-  // Takım düzenleme diyaloğu: hangi kullanıcı + seçili takım id'leri
-  const [teamEdit, setTeamEdit] = useState<AppUser | null>(null)
-  const [teamSel, setTeamSel] = useState<number[]>([])
-  const [search, setSearch] = useUrlState<string>('users_q', '')
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(25)
-
-  const { data: users } = useQuery<AppUser[]>({
-    queryKey: ['users'],
-    queryFn: async () => (await api.get('/users')).data,
-  })
-  const filteredUsers = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return users ?? []
-    return (users ?? []).filter((u) => [u.username, u.full_name, u.email]
-      .some((v) => (v ?? '').toLowerCase().includes(q)))
-  }, [users, search])
-  // Arama değişince eski sayfa numarası yeni sonuç kümesinde boş kalabilir — başa dön.
-  useEffect(() => setPage(0), [search])
-  const pageUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-  const { data: teams } = useQuery<Team[]>({
-    queryKey: ['teams', 'all'],
-    queryFn: async () => (await api.get('/teams')).data,
-  })
-  // Tüm takım tipleri (SY/ADMIN/VIEWER/UG) burada yönetilir — rol HER ZAMAN users.role'den atanır,
-  // üyelik tek başına rol VERMEZ (SY yalnız kapsam belirler; ADMIN/VIEWER/UG roster bilgi amaçlı).
-  const manageableTeams = useMemo(() => teams ?? [], [teams])
-
-  const openTeamEdit = (u: AppUser) => { setTeamEdit(u); setTeamSel(u.team_ids ?? []) }
-  const saveTeams = useMutation({
-    mutationFn: async () => {
-      if (!teamEdit) return
-      const before = new Set(teamEdit.team_ids ?? [])
-      const after = new Set(teamSel)
-      const toAdd = [...after].filter((id) => !before.has(id))
-      // yalnız bu picker'ın bildiği (manageableTeams) takımlardan çıkar
-      const toRemove = [...before].filter((id) => !after.has(id)
-        && manageableTeams.some((t) => t.id === id))
-      await Promise.all([
-        ...toAdd.map((tid) => api.post(`/teams/${tid}/members`, { user_id: teamEdit.id })),
-        ...toRemove.map((tid) => api.delete(`/teams/${tid}/members/${teamEdit.id}`)),
-      ])
-    },
-    onSuccess: () => {
-      enqueueSnackbar('Kullanıcının takımları güncellendi', { variant: 'success' })
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      queryClient.invalidateQueries({ queryKey: ['team-members'] })
-      setTeamEdit(null)
-    },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  const create = useMutation({
-    mutationFn: async () => api.post('/users', { ...form, password: form.password || null }),
-    onSuccess: () => {
-      enqueueSnackbar('Kullanıcı eklendi', { variant: 'success' })
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-      setDialogOpen(false)
-      setForm({ username: '', password: '', email: '', full_name: '', auth_source: 'local', role: 'none' })
-    },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  const update = useMutation({
-    mutationFn: async ({ id, body }: { id: number; body: Record<string, unknown> }) => api.put(`/users/${id}`, body),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  const remove = useMutation({
-    mutationFn: async (id: number) => api.delete(`/users/${id}`),
-    onSuccess: () => {
-      enqueueSnackbar('Kullanıcı silindi', { variant: 'success' })
-      queryClient.invalidateQueries({ queryKey: ['users'] })
-    },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  return (
-    <Stack spacing={2}>
-      <Alert severity="info">
-        Rolü doğrudan <b>Rol</b> sütunundan atarsınız: <b>Yönetici</b> (her şeyi görür+düzenler),
-        {' '}<b>Ekip Editörü</b> (kendi SY ekiplerini görür+düzenler), <b>Ekip İzleyici</b> (kendi SY
-        ekiplerini yalnız görür), <b>Genel İzleyici</b> (her şeyi görür, düzenleyemez). <b>Editör</b> ve
-        {' '}<b>Ekip İzleyici</b> takım-kapsamlıdır — kapsamı belirlemek için ayrıca bir <b>SY takımına</b>
-        {' '}(Takımlar sütunu) ekleyin. Rolü <b>Yetkisiz</b> olan hiçbir şey göremez.
-      </Alert>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
-          Kullanıcı Ekle
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <TextField size="small" label="Kullanıcı / ad / e-posta ara" value={search}
-                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 240 }} />
-      </Stack>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Kullanıcı</TableCell>
-            <TableCell>Ad Soyad</TableCell>
-            <TableCell>E-posta</TableCell>
-            <TableCell>Kaynak</TableCell>
-            <TableCell>Rol</TableCell>
-            <TableCell>Takımlar (kapsam)</TableCell>
-            <TableCell>Aktif</TableCell>
-            <TableCell>Son Giriş</TableCell>
-            <TableCell align="right" />
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {pageUsers.map((u) => (
-            <TableRow key={u.id} hover>
-              <TableCell sx={{ fontWeight: 600 }}>{u.username}</TableCell>
-              <TableCell>{u.full_name ?? '—'}</TableCell>
-              <TableCell>{u.email ?? '—'}</TableCell>
-              <TableCell><Chip size="small" variant="outlined" label={u.auth_source.toUpperCase()} /></TableCell>
-              <TableCell>
-                <TextField select size="small" variant="standard" value={u.role}
-                           onChange={(e) => update.mutate({ id: u.id, body: { role: e.target.value } })}
-                           sx={{ minWidth: 140 }}>
-                  {ROLE_OPTIONS.map((o) => (
-                    <MenuItem key={o.value} value={o.value}>
-                      <Chip size="small" color={ROLE_CHIP[o.value]?.color ?? 'default'} label={o.label}
-                            sx={{ mr: 1, pointerEvents: 'none' }} />
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </TableCell>
-              <TableCell>
-                {(u.team_names && u.team_names.length > 0)
-                  ? <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                      {u.team_names.map((n) => <Chip key={n} size="small" variant="outlined" label={n} />)}
-                    </Stack>
-                  : <span style={{ opacity: 0.5 }}>—</span>}
-              </TableCell>
-              <TableCell>
-                <Switch size="small" checked={u.is_active}
-                        onChange={(e) => update.mutate({ id: u.id, body: { is_active: e.target.checked } })} />
-              </TableCell>
-              <TableCell>{u.last_login ? new Date(u.last_login).toLocaleString('tr-TR') : '—'}</TableCell>
-              <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>
-                <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25 }}>
-                  <Tooltip title="Takımları Düzenle">
-                    <IconButton size="small" color="primary" onClick={() => openTeamEdit(u)}>
-                      <GroupsIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Sil">
-                    <IconButton size="small" color="error" onClick={() => remove.mutate(u.id)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              </TableCell>
-            </TableRow>
-          ))}
-          {filteredUsers.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                {search ? 'Aramayla eşleşen kullanıcı yok' : 'Henüz kullanıcı yok'}
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={filteredUsers.length}
-        page={page}
-        onPageChange={(_e, newPage) => setPage(newPage)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
-        rowsPerPageOptions={[10, 25, 50, 100]}
-        labelRowsPerPage="Sayfa başına satır"
-        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
-      />
-
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Kullanıcı Ekle</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Kullanıcı Adı" size="small" value={form.username}
-                       onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))} />
-            <TextField select label="Kaynak" size="small" value={form.auth_source}
-                       onChange={(e) => setForm((f) => ({ ...f, auth_source: e.target.value }))}>
-              <MenuItem value="local">Lokal</MenuItem>
-              <MenuItem value="ldap">LDAP (ön kayıt)</MenuItem>
-            </TextField>
-            {form.auth_source === 'local' && (
-              <TextField label="Şifre" type="password" size="small" value={form.password}
-                         onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} />
-            )}
-            <TextField label="Ad Soyad" size="small" value={form.full_name}
-                       onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))} />
-            <TextField label="E-posta" size="small" value={form.email}
-                       onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-            <TextField select label="Rol" size="small" value={form.role}
-                       onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                       helperText={ROLE_OPTIONS.find((o) => o.value === form.role)?.hint}>
-              {ROLE_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-            </TextField>
-            {(form.role === 'editor' || form.role === 'viewer') && (
-              <Alert severity="info" sx={{ py: 0.5 }}>
-                <b>{form.role === 'editor' ? 'Ekip Editörü' : 'Ekip İzleyici'}</b> takım-kapsamlıdır:
-                ekledikten sonra <b>Ekip Üyelikleri</b>'nden bir <b>SY takımına</b> atayın — aksi halde
-                hangi ekibi göreceği belirsizdir (boş kapsam).
-              </Alert>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Vazgeç</Button>
-          <Button variant="contained" onClick={() => create.mutate()}
-                  disabled={!form.username || (form.auth_source === 'local' && !form.password)}>
-            Ekle
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={!!teamEdit} onClose={() => setTeamEdit(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Takımları Düzenle — {teamEdit?.username}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Alert severity="info" sx={{ py: 0.5 }}>
-              <b>SY ekip üyeliği kapsam belirler</b>: <b>Ekip Editörü/İzleyici</b> rolündeki
-              kullanıcı yalnız seçilen SY ekiplerinin domain/uygulamalarını görür. <b>ADMIN/
-              VIEWER/UG üyeliği yalnız roster (bilgi) amaçlıdır — tek başına rol/yetki VERMEZ.</b>{' '}
-              <b>Rol</b> her zaman Rol sütunundan atanır. Birden çok ekip seçilebilir.
-            </Alert>
-            <Autocomplete
-              multiple size="small" options={manageableTeams}
-              value={manageableTeams.filter((t) => teamSel.includes(t.id))}
-              getOptionLabel={(t) => `${t.name} · ${TEAM_TYPE_LABEL[t.type] ?? t.type}`}
-              isOptionEqualToValue={(a, b) => a.id === b.id}
-              onChange={(_, v) => setTeamSel(v.map((t) => t.id))}
-              renderInput={(p) => <TextField {...p} label="Takımlar" placeholder="Takım seç" />}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTeamEdit(null)}>Vazgeç</Button>
-          <Button variant="contained" onClick={() => saveTeams.mutate()} disabled={saveTeams.isPending}>
-            Kaydet
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Stack>
-  )
-}
-
-// ---------- Ekipler / Ekip Üyelikleri ----------
-const TEAM_TYPE_LABEL: Record<string, string> = {
-  ADMIN: 'Yönetici (tam yetki)', VIEWER: 'İzleyici (salt-okur)', SY: 'SY ekibi', UG: 'UG',
-}
-const TEAM_TYPE_COLOR: Record<string, 'error' | 'warning' | 'primary' | 'default'> = {
-  ADMIN: 'error', VIEWER: 'warning', SY: 'primary', UG: 'default',
-}
-
-// ---------- Ekipler (takım oluştur / düzenle / sil) ----------
-function TeamsTab() {
-  const { enqueueSnackbar } = useSnackbar()
-  const queryClient = useQueryClient()
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<Team | null>(null)
-  const [form, setForm] = useState({ name: '', type: 'SY', email: '' })
-  const [search, setSearch] = useUrlState<string>('teams_q', '')
-  const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(25)
-
-  const { data: teams } = useQuery<Team[]>({
-    queryKey: ['teams', 'all'],
-    queryFn: async () => (await api.get('/teams')).data,
-  })
-  const filteredTeams = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return teams ?? []
-    return (teams ?? []).filter((t) => [t.name, t.email].some((v) => (v ?? '').toLowerCase().includes(q)))
-  }, [teams, search])
-  useEffect(() => setPage(0), [search])
-  const pageTeams = filteredTeams.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['teams'] })
-
-  const openCreate = () => { setEditTarget(null); setForm({ name: '', type: 'SY', email: '' }); setDialogOpen(true) }
-  const openEdit = (t: Team) => {
-    setEditTarget(t); setForm({ name: t.name, type: t.type, email: t.email ?? '' }); setDialogOpen(true)
-  }
-
-  const save = useMutation({
-    mutationFn: async () => {
-      const email = form.email.trim() || null
-      if (editTarget) return api.put(`/teams/${editTarget.id}`, { name: form.name.trim(), email })
-      return api.post('/teams', { name: form.name.trim(), type: form.type, email })
-    },
-    onSuccess: () => {
-      enqueueSnackbar(editTarget ? 'Ekip güncellendi' : 'Ekip eklendi', { variant: 'success' })
-      invalidate(); setDialogOpen(false)
-    },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  const remove = useMutation({
-    mutationFn: async (id: number) => api.delete(`/teams/${id}`),
-    onSuccess: () => { enqueueSnackbar('Ekip silindi', { variant: 'info' }); invalidate() },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
-  })
-
-  const isSingleton = (t: Team) => t.type === 'ADMIN' || t.type === 'VIEWER'
-
-  return (
-    <Stack spacing={2}>
-      <Alert severity="info">
-        Ekipler yetkinin temelidir: <b>SY</b> ekipleri domain/uygulama sahibi olur (bildirim e-postası
-        buradan gelir); <b>UG</b> yalnız etikettir. <b>Yönetici</b> ve <b>İzleyici</b> sistem tekilidir —
-        silinemez, tipi değişmez. Üyeleri <b>Ekip Üyelikleri</b> sekmesinden yönetin.
-      </Alert>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { sm: 'center' } }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>Ekip Ekle</Button>
-        <Box sx={{ flexGrow: 1 }} />
-        <TextField size="small" label="Ekip / e-posta ara" value={search}
-                   onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 220 }} />
-      </Stack>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Ekip Adı</TableCell>
-            <TableCell>Tip</TableCell>
-            <TableCell>Bildirim E-postası</TableCell>
-            <TableCell align="right" />
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {pageTeams.map((t) => (
-            <TableRow key={t.id} hover>
-              <TableCell sx={{ fontWeight: 600 }}>{t.name}</TableCell>
-              <TableCell>
-                <Chip size="small" color={TEAM_TYPE_COLOR[t.type] ?? 'default'}
-                      label={TEAM_TYPE_LABEL[t.type] ?? t.type} />
-              </TableCell>
-              <TableCell sx={{ color: t.email ? 'inherit' : 'text.disabled' }}>{t.email ?? '—'}</TableCell>
-              <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>
-                <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25 }}>
-                  <Tooltip title="Düzenle">
-                    <IconButton size="small" onClick={() => openEdit(t)}><EditIcon fontSize="small" /></IconButton>
-                  </Tooltip>
-                  <Tooltip title={isSingleton(t) ? 'Sistem takımı — silinemez' : 'Sil'}>
-                    <span>
-                      <IconButton size="small" color="error" disabled={isSingleton(t) || remove.isPending}
-                                  onClick={() => remove.mutate(t.id)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Box>
-              </TableCell>
-            </TableRow>
-          ))}
-          {filteredTeams.length === 0 && (
-            <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4 }}>
-              {search ? 'Aramayla eşleşen ekip yok' : 'Henüz ekip yok'}
-            </TableCell></TableRow>
-          )}
-        </TableBody>
-      </Table>
-      <TablePagination
-        component="div"
-        count={filteredTeams.length}
-        page={page}
-        onPageChange={(_e, newPage) => setPage(newPage)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }}
-        rowsPerPageOptions={[10, 25, 50, 100]}
-        labelRowsPerPage="Sayfa başına satır"
-        labelDisplayedRows={({ from, to, count }) => `${from}–${to} / ${count}`}
-      />
-
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{editTarget ? `Ekip Düzenle — ${editTarget.name}` : 'Ekip Ekle'}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Ekip Adı" size="small" value={form.name} autoFocus
-                       onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            {editTarget ? (
-              <TextField label="Tip" size="small" disabled
-                         value={TEAM_TYPE_LABEL[form.type] ?? form.type}
-                         helperText="Ekip tipi oluşturulduktan sonra değiştirilemez" />
-            ) : (
-              <TextField select label="Tip" size="small" value={form.type}
-                         onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                         helperText="Yönetici/İzleyici sistem tekilidir; API'den yalnız SY/UG oluşturulur">
-                <MenuItem value="SY">SY ekibi (domain/uygulama sahibi)</MenuItem>
-                <MenuItem value="UG">UG (yalnız etiket)</MenuItem>
-              </TextField>
-            )}
-            <TextField label="Bildirim E-postası" size="small" type="email" value={form.email}
-                       onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                       placeholder="ör. moneytalks@banka.local, noc@banka.local"
-                       helperText="SY ekipleri için bildirim kaynağı. Birden çok adresi virgülle ayırın (opsiyonel)." />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Vazgeç</Button>
-          <Button variant="contained" onClick={() => save.mutate()}
-                  disabled={!form.name.trim() || save.isPending}>
-            {editTarget ? 'Kaydet' : 'Ekle'}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Stack>
   )
 }
@@ -1554,14 +1123,43 @@ function RevocationTab() {
 }
 
 // ---------- Canlı Doğrulama (TLS drift + zincir senkronizasyonu) ----------
+type LiveCheckRunStatus = {
+  running: boolean
+  triggered_by?: string
+  started_at?: string
+  finished_at?: string | null
+  result?: { status: string; total?: number; by_status?: Record<string, number>; errors?: number; error?: string } | null
+}
+
+const LIVE_STATUS_LABEL: Record<string, string> = {
+  match: 'uyumlu', mismatch: 'uyumsuz', unreachable: 'erişilemedi', no_mapping: 'eşleme yok',
+  not_checkable: 'kontrol edilemez',
+}
+
 function LiveCheckTab() {
   const { form, setForm, save } = useCategory('live_check')
+  const { enqueueSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
+  const { data: run } = useQuery<LiveCheckRunStatus>({
+    queryKey: ['live-check-run-status'],
+    queryFn: async () => (await api.get('/domains/live-check-run/status')).data,
+    refetchInterval: (q) => (q.state.data?.running ? 3000 : false),
+  })
+  const runNow = useMutation({
+    mutationFn: async () => (await api.post('/domains/live-check-run')).data,
+    onSuccess: () => {
+      enqueueSnackbar('Toplu canlı doğrulama başlatıldı — arka planda çalışıyor', { variant: 'success' })
+      queryClient.invalidateQueries({ queryKey: ['live-check-run-status'] })
+    },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+  const res = run?.result
   return (
     <Stack spacing={3}>
       <Alert severity="info">
         Domainlerin canlıda TLS üzerinden sunduğu sertifika zincirini (leaf+intermediate+root)
-        günlük kontrol eder. Sunulan zincir envanterdekinden farklıysa (root/intermediate dahil)
-        devir önerisi oluşturur — tamamen yerel, dış erişim gerekmez.
+        kontrol eder. Fark bulursa <b>yalnız o domain için</b> ekleme / değişiklik / kaldırma önerisi
+        oluşturur; eşlemeler onaysız değişmez — tamamen yerel, dış erişim gerekmez.
       </Alert>
 
       <Box>
@@ -1570,16 +1168,36 @@ function LiveCheckTab() {
                            onChange={(e) => setForm((s) => ({ ...s, enabled: e.target.checked }))} />}
           label="Gece canlı doğrulaması etkin (her gün)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          Açıkken tüm domainler her gece otomatik canlı doğrulanır. Kapalıyken tarama yalnız
-          domain detayındaki “Canlı Doğrula” ile elle çalışır.
+          Açıkken tüm domainler her gece otomatik canlı doğrulanır. Kapalıyken yalnız elle (“Canlı Doğrula”,
+          “Şimdi Çalıştır”) ya da dış API ile çalışır.
         </Typography>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Text form={form} setForm={setForm} field="schedule_hour" label="Gece Saati (0-23)" type="number"
-                width={{ xs: 6, sm: 3 }} helper="Gece taramasının başlayacağı saat (sunucu saati)" />
+                width={{ xs: 6, sm: 3 }} helper="Sunucu saati — değişiklik uygulama yeniden başlayınca geçerli olur" />
+          <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
+                width={{ xs: 12, sm: 9 }}
+                helper='Dış araç: POST /api/domains/live-check-run + "X-API-Key: <anahtar>" başlığı. Boşsa dış tetikleme kapalı (yalnız admin).' />
         </Grid>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={() => save.mutate()} disabled={save.isPending}>
-          Kaydet
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1.5, mt: 2, flexWrap: 'wrap' }}>
+          <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>
+            Kaydet
+          </Button>
+          <Button variant="outlined" startIcon={<TravelExploreIcon />}
+                  onClick={() => runNow.mutate()} disabled={runNow.isPending || !!run?.running}>
+            {run?.running ? 'Çalışıyor…' : 'Şimdi Çalıştır'}
+          </Button>
+        </Box>
+        {run?.started_at && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+            Son toplu çalıştırma: {formatAuditTime(run.started_at, true)} · tetikleyen{' '}
+            {run.triggered_by === 'schedule' ? 'gece zamanlayıcısı'
+              : run.triggered_by === 'external-api' ? 'dış API' : run.triggered_by}
+            {run.running ? ' · çalışıyor' : res
+              ? ` · ${res.status === 'error' ? 'hata' : 'tamamlandı'}${res.total != null ? ` · ${res.total} domain` : ''}${
+                  res.by_status ? ` (${Object.entries(res.by_status).map(([k, v]) => `${v} ${LIVE_STATUS_LABEL[k] ?? k}`).join(', ')})` : ''}`
+              : ''}
+          </Typography>
+        )}
       </Box>
     </Stack>
   )
@@ -1924,8 +1542,8 @@ type NavGroup = { title: string; items: NavItem[] }
 
 const NAV_GROUPS: NavGroup[] = [
   { title: 'Kimlik & Erişim', items: [
-    { key: 'users', label: 'Kullanıcılar', desc: 'Hesaplar, roller ve takım kapsamları', wide: true, el: <UsersTab /> },
-    { key: 'teams', label: 'Ekipler', desc: 'SY/UG ekiplerini oluştur ve yönet', wide: true, el: <TeamsTab /> },
+    { key: 'users', label: 'Kullanıcılar', desc: 'Hesaplar, roller ve takım kapsamları', wide: true, el: <UsersPanel /> },
+    { key: 'teams', label: 'Ekipler', desc: 'SY/UG ekiplerini oluştur ve yönet', wide: true, el: <TeamsPanel /> },
     { key: 'memberships', label: 'Ekip Üyelikleri', desc: 'Üyelik = kullanıcının veri kapsamı', wide: true, el: <MembershipsTab /> },
     { key: 'access', label: 'Erişim', desc: 'Uyum/Devir Önerileri/Keşif/Dağıtım sayfa görünürlüğü', el: <AccessTab /> },
     { key: 'ldap', label: 'LDAP / Active Directory', desc: 'Kurumsal dizinle kimlik doğrulama', el: <LdapTab /> },

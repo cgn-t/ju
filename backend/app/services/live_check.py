@@ -11,7 +11,8 @@ import logging
 import re
 import socket
 import ssl
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from app.core.timeutil import utcnow
 
 from cryptography import x509
@@ -184,9 +185,13 @@ def check_domain(db: Session, domain: Domain) -> Domain:
     # beklemeden). import_chain ile AYNI ortak mantık (chain_sync); ikinci TLS bağlantısı
     # açılmaz, yukarıda zaten çekilen served_raw yeniden kullanılır.
     sync = sync_domain_chain_certs(db, domain, served_raw, username="system", request=None,
-                                   via="live-check")
+                                   via="live-check", live=True)
     if sync.superseded:
         detail["chain_sync_superseded"] = sync.superseded
+    if sync.added:
+        detail["proposed_add"] = sync.added
+    if sync.removed:
+        detail["proposed_remove"] = sync.removed
 
     domain.live_check_detail = json.dumps(detail, ensure_ascii=False)
     domain.live_check_at = checked_at
@@ -198,11 +203,10 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
     ne pasife alır ne eşleme siler. Yalnızca 'yeni sertifika sunucuda gerçekten
     görüldü' KANITINI işler: sunulan HER sertifika (fingerprint) envanterde bir kayda
     denk geliyorsa ve o kayıt bu domaine ait bekleyen bir devir önerisinin HALEFİ ise
-    live_seen=True işaretlenir; henüz öneri yoksa ama bu domainde served certin KENDİ
-    tipinden (leaf/intermediate/root) başka aktif server eşlemeli öncül varsa öneri
-    üretilir. Gerçek devir yalnız SY onayıyla olur."""
+    live_seen=True işaretlenir. Yeni öneriler (ekleme/değişiklik/kaldırma) YALNIZ bu domain
+    için zincir uzlaştırmasında (chain_sync, live=True) üretilir. Gerçek değişiklik yalnız
+    SY onayıyla olur."""
     from app.db.models import Certificate, TransferProposal
-    from app.services import renewal
 
     seen: list[str] = []
     now = utcnow()
@@ -226,34 +230,26 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
             old = db.get(Certificate, p.old_cert_id)
             seen.append(old.name if old else f"#{p.old_cert_id}")
 
-        # 2) Hiç öneri yoksa: bu domainde served_cert dışında, KENDİ tipinden aktif
-        #    server eşlemeli öncül var mı? Varsa öneri üret (live_seen kanıtıyla)
-        if not props:
-            served_type = normalize_cert_type(served_cert.cert_type)
-            for m in list(domain.certificate_mappings):
-                old = m.certificate
-                if (old.id != served_cert.id and old.is_active
-                        and normalize_cert_type(old.cert_type) == served_type
-                        and m.mapping_type == "server"):
-                    renewal.propose(db, served_cert, old, username="system", request=None,
-                                    via="live-check", live_seen=True)
-                    seen.append(old.name)
     return seen
 
 
-@audited_job("Canlı doğrulama")
-def check_all_domains() -> dict:
-    """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder. 'live_check.enabled'
-    kapalıysa atlanır (Keşif/CT/İptal ile aynı patern) — manuel tetik (/domains/{id}/live-check)
-    bundan bağımsız her zaman çalışır."""
+# Toplu tarama TEK seferde bir kez çalışır (gece cron + dış tetik çakışmasın). Son çalıştırmanın
+# durumu süreç belleğinde tutulur (dış otomasyon /live-check-run/status ile izler).
+_bulk_lock = threading.Lock()
+_bulk_state: dict = {"running": False}
+
+
+def _now_iso() -> str:
+    """UTC, saat dilimi işaretli ISO — tarayıcı yerel saat sanıp 3 saat kaydırmasın."""
+    return utcnow().replace(tzinfo=timezone.utc).isoformat()
+
+
+def _scan_all_domains() -> dict:
+    """Tüm domainleri sırayla canlı kontrol eder (ayar kontrolü YOK — çağıran karar verir)."""
     from app.db.session import SessionLocal
-    from app.services.settings_service import get_category
 
     db = SessionLocal()
     try:
-        if not get_category(db, "live_check", mask_secrets=False).get("enabled"):
-            logger.info("Canlı doğrulama kapalı — zamanlanmış tarama atlandı")
-            return {"status": "skipped"}
         domains = db.query(Domain).all()
         counts: dict[str, int] = {}
         mismatched: list[str] = []
@@ -273,3 +269,67 @@ def check_all_domains() -> dict:
                 "errors": errors, "mismatched": mismatched[:50]}
     finally:
         db.close()
+
+
+def _run_holding_lock(triggered_by: str) -> dict:
+    """Kilit ÇAĞIRANDA alınmış olmalı; tarama bitince (hata olsa da) bırakılır."""
+    _bulk_state.update(running=True, triggered_by=triggered_by, started_at=_now_iso(),
+                       finished_at=None, result=None)
+    result = None
+    try:
+        result = {**_scan_all_domains(), "triggered_by": triggered_by}
+        return result
+    except Exception as exc:
+        result = {"status": "error", "error": str(exc)[:300], "triggered_by": triggered_by}
+        raise
+    finally:
+        _bulk_state.update(running=False, finished_at=_now_iso(), result=result)
+        _bulk_lock.release()
+
+
+@audited_job("Canlı doğrulama")
+def check_all_domains() -> dict:
+    """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder. 'live_check.enabled'
+    kapalıysa atlanır (Keşif/CT/İptal ile aynı patern) — manuel tetik (/domains/{id}/live-check)
+    ve dış tetik (/domains/live-check-run) bundan bağımsız her zaman çalışır."""
+    from app.db.session import SessionLocal
+    from app.services.settings_service import get_category
+
+    db = SessionLocal()
+    try:
+        enabled = get_category(db, "live_check", mask_secrets=False).get("enabled")
+    finally:
+        db.close()
+    if not enabled:
+        logger.info("Canlı doğrulama kapalı — zamanlanmış tarama atlandı")
+        return {"status": "skipped"}
+    if not _bulk_lock.acquire(blocking=False):
+        logger.info("Toplu canlı doğrulama zaten çalışıyor — zamanlanmış tarama atlandı")
+        return {"status": "skipped"}
+    return _run_holding_lock("schedule")
+
+
+@audited_job("Canlı doğrulama (tetiklenen)")
+def _triggered_run(triggered_by: str) -> dict:
+    return _run_holding_lock(triggered_by)
+
+
+def start_bulk_run(triggered_by: str) -> bool:
+    """Toplu taramayı ARKA PLANDA başlatır (HTTP isteği beklemez — çok domainde ön kapı
+    zaman aşımına düşmesin). Kilit burada alınır, iş parçacığı bitince bırakır; zaten
+    çalışıyorsa False döner (eşzamanlı iki istek ikinci bir tarama başlatamaz)."""
+    if not _bulk_lock.acquire(blocking=False):
+        return False
+    _bulk_state.update(running=True, triggered_by=triggered_by, started_at=_now_iso(),
+                       finished_at=None, result=None)
+    try:
+        threading.Thread(target=_triggered_run, args=(triggered_by,), daemon=True,
+                         name="live-check-bulk").start()
+    except Exception:
+        _bulk_lock.release()
+        raise
+    return True
+
+
+def bulk_run_status() -> dict:
+    return dict(_bulk_state)

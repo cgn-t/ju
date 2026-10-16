@@ -51,6 +51,7 @@ class UserOut(ORMModel):
     auth_source: str
     is_active: bool
     last_login: IstanbulDateTime | None
+    created_at: IstanbulDateTime | None = None
     sy_team_ids: list[int] = []      # üye olduğu SY ekiplerinin id'leri
     sy_team_names: list[str] = []
     team_ids: list[int] = []         # üye olduğu TÜM takımların (SY/ADMIN/VIEWER/UG) id'leri
@@ -92,6 +93,10 @@ class TeamOut(ORMModel):
     name: str
     type: str
     email: str | None
+    # Yalnız GET /teams doldurur (liste ekranı: üye/sahiplik sayıları)
+    member_count: int = 0
+    domain_count: int = 0
+    app_count: int = 0
 
 
 class TeamCreate(BaseModel):
@@ -353,7 +358,7 @@ class TransferProposalOut(ORMModel):
     app_dependency_id: int | None = None
     app_id: int | None = None
     app_name: str | None = None            # trusted_add: hedef uygulama
-    kind: str = "transfer"                 # transfer | trusted_add
+    kind: str = "transfer"                 # transfer | trusted_add | server_add | server_remove
     sy_team_id: int | None = None
     sy_team_name: str | None = None
     status: str
@@ -361,6 +366,7 @@ class TransferProposalOut(ORMModel):
     via: str | None = None
     live_seen: bool = False
     created_by: str | None = None
+    created_by_name: str | None = None   # önerenin Ad Soyad'ı (users.full_name; LDAP ile dolar)
     created_at: IstanbulDateTime
     decided_by: str | None = None
     decided_at: IstanbulDateTime | None = None
@@ -666,6 +672,7 @@ class AuditOut(ORMModel):
     ip_address: str | None
     created_at: IstanbulDateTime
     # Okunurluk (sunucuda türetilir — bkz. services/audit_labels)
+    user_full_name: str | None = None   # işlemi yapanın Ad Soyad'ı (users.full_name; LDAP ile dolar)
     category: str | None = None
     summary: str | None = None
     record_label: str | None = None

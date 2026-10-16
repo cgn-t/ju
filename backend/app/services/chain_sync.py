@@ -4,8 +4,13 @@ HER cert_type için ayrı ayrı senkronize eder.
 import_chain (manuel/otomatik import) ve live_check (günlük canlı tarama) AYNI mantığı
 kullanır — biri zinciri kendi çeker, diğeri zaten çektiği zinciri yeniden kullanır (ikinci
 bir TLS bağlantısı açmadan). Her cert_type (root/intermediate/leaf) BAĞIMSIZ ele alınır:
-domainde o tipten zaten aktif başka bir 'server' sertifikası varsa devir önerisi üretilir
-(propose_attach_transfer); yoksa doğrudan bağlanır (ilk kurulum, devir değil).
+YALNIZ bu domain ele alınır — öneri eski sertifikanın diğer domainlerine yayılmaz.
+
+  • import_chain (live=False, insan tetikli): bağlı olmayan seviye doğrudan bağlanır (ilk
+    kurulum); zincir dışındaki aynı seviyedeki bağlı sertifika devir ÖNERİSİ olur.
+  • live_check (live=True): hiçbir eşleme kendiliğinden değişmez; her seviye için EKLEME /
+    DEĞİŞİKLİK (devir) / KALDIRMA önerisi üretilir. Root sunulmadığında envanterdeki üst
+    sertifikadan türetilir; türetilen root için kaldırma önerisi üretilmez.
 
 Aynı zincirde AYNI tipten birden fazla sertifika olabilir (ör. gerçek 2 katmanlı ara-CA
 hiyerarşisi, ya da eski istemcilerle uyum için sunulan çapraz-imzalı bir "root" kopyası —
@@ -21,7 +26,7 @@ from cryptography import x509
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from app.core.certtype import cert_type_filter, normalize_cert_type
+from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate, CertificateDomainMap, Domain
 from app.services import cert_parser, renewal
 from app.services.audit import log_action
@@ -33,6 +38,8 @@ class ChainSyncResult:
     existing: list[str] = field(default_factory=list)      # zaten kayıtlı olanlar
     mapped: dict[str, str] = field(default_factory=dict)   # cert_type -> doğrudan bağlanan sertifika adı (son işlenen)
     superseded: list[str] = field(default_factory=list)    # devir ÖNERİSİ üretilen öncül adları
+    added: list[str] = field(default_factory=list)         # EKLEME önerisi üretilenler (canlı)
+    removed: list[str] = field(default_factory=list)       # KALDIRMA önerisi üretilenler (canlı)
     rows: list[Certificate] = field(default_factory=list)  # zincirde işlenen TÜM satırlar (aynı tipten birden fazla olabilir)
 
     @property
@@ -42,7 +49,7 @@ class ChainSyncResult:
 
 def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509.Certificate], *,
                             username: str, request: Request | None, via: str,
-                            environment: str | None = None) -> ChainSyncResult:
+                            environment: str | None = None, live: bool = False) -> ChainSyncResult:
     """`environment` (prod|test, opsiyonel): yalnız bu çağrıda YENİ oluşturulan sertifikalara
     uygulanır — envanterde zaten var olan (find_existing ile bulunan) kayıtların ortamı
     ASLA değiştirilmez. Otomatik yollar (live-check) bunu geçmez; yalnız bir insanın
@@ -68,33 +75,111 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
             result.created.append(row.name)
         result.rows.append(row)
 
-    # Bu zincirin TÜM üyeleri birbirinin çakışma adayı DEĞİLDİR — yalnız bu listenin
-    # dışında kalan (önceden, başka bir zincirden bağlanmış) aynı tipteki sertifikalar
-    # gerçek bir rotasyon/çakışma sayılır.
-    chain_ids = {r.id for r in result.rows}
-
+    served_by_type: dict[str, list[Certificate]] = {}
     for row in result.rows:
-        cert_type = normalize_cert_type(row.cert_type)
-        already = db.query(CertificateDomainMap).filter_by(
-            certificate_id=row.id, domain_id=domain.id, mapping_type="server").first()
-        existing_servers = (
-            db.query(CertificateDomainMap)
-            .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
-            .filter(CertificateDomainMap.domain_id == domain.id,
-                    CertificateDomainMap.mapping_type == "server",
-                    CertificateDomainMap.certificate_id.notin_(chain_ids),
-                    cert_type_filter(Certificate.cert_type, cert_type),
-                    Certificate.is_active == True).all())
-        for m in existing_servers:
-            p = renewal.propose_attach_transfer(db, row, m.certificate, domain, "server",
-                                                username=username, request=request)
+        served_by_type.setdefault(normalize_cert_type(row.cert_type), []).append(row)
+    seen_by_type = {t: list(v) for t, v in served_by_type.items()}
+    if live and "root" not in seen_by_type:
+        # Sunucular el sıkışmada root'u pratikte GÖNDERMEZ — root, sunulan zincirin envanterdeki
+        # üst sertifikasından (parent_id) türetilir. Türetilen root kaldırma kanıtı SAYILMAZ.
+        root = _derived_root(db, result.rows)
+        if root is not None:
+            seen_by_type["root"] = [root]
+
+    # Domaindeki aktif 'server' eşlemeleri, Python'da normalize edilmiş tipe göre (SQL LOWER yok)
+    bound_by_type: dict[str, list[CertificateDomainMap]] = {}
+    for m in (db.query(CertificateDomainMap)
+              .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
+              .filter(CertificateDomainMap.domain_id == domain.id,
+                      CertificateDomainMap.mapping_type == "server",
+                      Certificate.is_active == True).all()):
+        bound_by_type.setdefault(normalize_cert_type(m.certificate.cert_type), []).append(m)
+
+    for cert_type in ("root", "intermediate", "leaf"):
+        seen = seen_by_type.get(cert_type, [])
+        if not seen:
+            continue  # bu seviye canlıda yok (ör. root sunulmadı, türetilemedi) — dokunulmaz
+        bound = bound_by_type.get(cert_type, [])
+        seen_ids = {r.id for r in seen}
+        bound_ids = {m.certificate_id for m in bound}
+        stale = [m for m in bound if m.certificate_id not in seen_ids]
+        unbound = [r for r in seen if r.id not in bound_ids]
+        if live:
+            _reconcile_live(db, domain, cert_type, seen, stale, unbound,
+                            matched=bool(seen_ids & bound_ids),
+                            served=cert_type in served_by_type,
+                            username=username, request=request, via=via, result=result)
+        else:
+            _reconcile_import(db, domain, cert_type, seen, stale, unbound,
+                              username=username, request=request, via=via, result=result)
+    return result
+
+
+def _derived_root(db: Session, rows: list[Certificate]) -> Certificate | None:
+    for row in rows:
+        cur, hops = row, 0
+        while cur is not None and hops < 6:
+            if normalize_cert_type(cur.cert_type) == "root":
+                return cur
+            cur = db.get(Certificate, cur.parent_id) if cur.parent_id else None
+            hops += 1
+    return None
+
+
+def _target_for(old: Certificate, seen: list[Certificate]) -> Certificate:
+    """Eskinin halefi: aynı subject'li sunulan sertifika, yoksa ilk sunulan."""
+    return next((r for r in seen if old.subject and r.subject == old.subject), seen[0])
+
+
+def _reconcile_live(db: Session, domain: Domain, cert_type: str, seen, stale, unbound, *,
+                    matched: bool, served: bool, username: str, request: Request | None,
+                    via: str, result: ChainSyncResult) -> None:
+    """CANLI DOĞRULAMA: hiçbir eşleme kendiliğinden değişmez — her fark bu domain için öneri olur.
+      • eşleşme var + fazladan bağlı olan → KALDIRMA (yalnız bu seviye canlıda gerçekten sunulduysa)
+      • eşleşme yok + bağlı olan var      → DEĞİŞİKLİK (devir: eski → canlıdaki)
+      • bağlı değil                       → EKLEME"""
+    targeted: set[int] = set()
+    if matched:
+        if served:
+            for m in stale:
+                if renewal.propose_server_mapping(db, "server_remove", m.certificate, domain,
+                                                  username=username, request=request, via=via,
+                                                  live_seen=True):
+                    result.removed.append(m.certificate.name)
+    else:
+        for m in stale:
+            target = _target_for(m.certificate, seen)
+            targeted.add(target.id)
+            p = renewal.propose_attach_transfer(db, target, m.certificate, domain, "server",
+                                                username=username, request=request, via=via,
+                                                live_seen=True)
             if p is not None:
                 result.superseded.append(m.certificate.name)
-        if already is None and not existing_servers:
-            db.add(CertificateDomainMap(certificate_id=row.id, domain_id=domain.id,
-                                        mapping_type="server"))
-            log_action(db, username, "create", "certificate_domain_map", None,
-                       {"domain": domain.domain, "cert": row.name, "type": "server",
-                        "via": via}, request)
-            result.mapped[cert_type] = row.name
-    return result
+    for row in unbound:
+        if row.id in targeted:
+            continue
+        if renewal.propose_server_mapping(db, "server_add", row, domain, username=username,
+                                          request=request, via=via, live_seen=True):
+            result.added.append(row.name)
+
+
+def _reconcile_import(db: Session, domain: Domain, cert_type: str, seen, stale, unbound, *,
+                      username: str, request: Request | None, via: str,
+                      result: ChainSyncResult) -> None:
+    """ZİNCİR İÇE AKTARMA (insan tetikli): bağlı olmayan seviye doğrudan eklenir (ilk kurulum);
+    zincir dışında kalan aynı seviyedeki bağlı sertifika devir ÖNERİSİ olur."""
+    for row in seen:
+        for m in stale:
+            p = renewal.propose_attach_transfer(db, row, m.certificate, domain, "server",
+                                                username=username, request=request, via=via)
+            if p is not None:
+                result.superseded.append(m.certificate.name)
+    if stale:
+        return
+    for row in unbound:
+        db.add(CertificateDomainMap(certificate_id=row.id, domain_id=domain.id,
+                                    mapping_type="server"))
+        log_action(db, username, "create", "certificate_domain_map", None,
+                   {"domain": domain.domain, "cert": row.name, "type": "server",
+                    "via": via}, request)
+        result.mapped[cert_type] = row.name

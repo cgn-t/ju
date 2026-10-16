@@ -33,6 +33,17 @@ def _can_decide(user: User) -> bool:
     return ROLE_LEVELS.get(user.role, -1) >= ROLE_LEVELS["editor"]
 
 
+def _full_name(db: Session, username: str | None) -> str | None:
+    """Önerenin Ad Soyad'ı (LDAP girişinde dolar). İstek oturumu başına önbellekli —
+    liste ucunda aynı kullanıcı için tekrar sorgu atılmaz."""
+    if not username or username == "system":
+        return None
+    cache = db.info.setdefault("_proposal_full_names", {})
+    if username not in cache:
+        cache[username] = db.query(User.full_name).filter(User.username == username).scalar()
+    return cache[username]
+
+
 def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool,
             is_editor: bool = False) -> TransferProposalOut:
     old = db.get(Certificate, p.old_cert_id)
@@ -50,7 +61,8 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
         app_id=p.app_id, app_name=app_row.app_name if app_row else None, kind=p.kind or "transfer",
         sy_team_id=p.sy_team_id, sy_team_name=p.sy_team.name if p.sy_team else None,
         status=p.status, signal=p.signal, via=p.via, live_seen=p.live_seen,
-        created_by=p.created_by, created_at=p.created_at, decided_by=p.decided_by,
+        created_by=p.created_by, created_by_name=_full_name(db, p.created_by),
+        created_at=p.created_at, decided_by=p.decided_by,
         decided_at=p.decided_at, note=p.note, can_decide=can and p.status == "pending")
 
 

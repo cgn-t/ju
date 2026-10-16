@@ -16,12 +16,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { mappingTypeLabel, MONO_FONT } from '../theme'
 import { useUrlId } from '../hooks/useUrlState'
-
-const VIA_LABEL: Record<string, string> = {
-  import: 'İçe aktarma', manual: 'Elle', 'vault-sync': 'Vault senkron',
-  'import-chain': 'Canlı zincir', 'live-check': 'Canlı doğrulama',
-  attach: 'Elle eşleme', backfill: 'Geçiş',
-}
+import { proposerLine, viaLabel } from '../utils/proposalLabels'
 
 export default function Proposals() {
   useDocumentTitle('Devir Önerileri')
@@ -108,18 +103,30 @@ export default function Proposals() {
             {rows.map((p) => (
               <TableRow key={p.id} hover>
                 <TableCell>
-                  <Tooltip title="Eski ve yeni sertifikayı karşılaştır">
+                  <Tooltip title={p.kind === 'server_add' || p.kind === 'server_remove'
+                    ? 'Öneriyi incele' : 'Eski ve yeni sertifikayı karşılaştır'}>
                     <Box onClick={() => setReviewId(p.id)}
                          sx={{
                            display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap',
                            cursor: 'pointer', borderRadius: 1, mx: -0.5, px: 0.5, py: 0.25,
                            '&:hover': { bgcolor: 'action.hover' },
                          }}>
-                      <Chip size="small" label="ESKİ" sx={{ fontWeight: 700 }} />
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.old_cert_name}</Typography>
-                      <Typography color="info.main">→</Typography>
-                      <Chip size="small" color="info" label="YENİ" sx={{ fontWeight: 700 }} />
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.new_cert_name}</Typography>
+                      {p.kind === 'server_add' || p.kind === 'server_remove' ? (
+                        <>
+                          <Chip size="small" sx={{ fontWeight: 700 }}
+                                color={p.kind === 'server_add' ? 'success' : 'warning'}
+                                label={p.kind === 'server_add' ? 'EKLE' : 'KALDIR'} />
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.new_cert_name}</Typography>
+                        </>
+                      ) : (
+                        <>
+                          <Chip size="small" label="ESKİ" sx={{ fontWeight: 700 }} />
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.old_cert_name}</Typography>
+                          <Typography color="info.main">→</Typography>
+                          <Chip size="small" color="info" label="YENİ" sx={{ fontWeight: 700 }} />
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.new_cert_name}</Typography>
+                        </>
+                      )}
                       {p.signal && (
                         <Chip size="small" variant="outlined"
                               label={p.signal === 'ski' ? 'aynı anahtar' : 'aynı CN+CA'} />
@@ -148,8 +155,12 @@ export default function Proposals() {
                       </Tooltip>}
                 </TableCell>
                 <TableCell>
-                  <Typography variant="caption" sx={{ fontFamily: MONO_FONT }}>
-                    {VIA_LABEL[p.via ?? ''] ?? p.via}
+                  <Typography variant="caption" sx={{ fontFamily: MONO_FONT, display: 'block' }}>
+                    {viaLabel(p.via, p.created_by)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary"
+                              sx={{ display: 'block', whiteSpace: 'nowrap' }}>
+                    {proposerLine(p.created_by, p.created_at, p.created_by_name)}
                   </Typography>
                 </TableCell>
                 <TableCell>

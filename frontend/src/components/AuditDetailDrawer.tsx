@@ -216,7 +216,12 @@ export default function AuditDetailDrawer({ entry, meta, onClose, onShowHistory,
                 <Box sx={{ fontVariantNumeric: 'tabular-nums' }}>{formatAuditTime(entry.created_at, true)}</Box>
                 <Typography variant="caption" color="text.secondary">{relativeTime(entry.created_at)}</Typography>
               </Meta>
-              <Meta label="Kullanıcı">{entry.username}</Meta>
+              <Meta label="Kullanıcı">
+                {entry.user_full_name ?? entry.username}
+                {entry.user_full_name && (
+                  <Typography variant="caption" color="text.secondary" component="div">{entry.username}</Typography>
+                )}
+              </Meta>
               <Meta label="Kategori">{(entry.category && meta?.categories[entry.category]) ?? '—'}</Meta>
               <Meta label="IP"><Box sx={{ fontFamily: MONO_FONT, fontSize: 12 }}>{entry.ip_address || '—'}</Box></Meta>
             </Box>

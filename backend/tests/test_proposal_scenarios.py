@@ -1,14 +1,14 @@
 """Uçtan uca DEVİR ÖNERİSİ (TransferProposal) YAŞAM DÖNGÜSÜ senaryoları.
 
 Her senaryo GERÇEK HTTP uçları üzerinden yürür: sertifika import → domain/uygulama/bağımlılık
-kur → halef (supersede) import → /api/proposals listele → approve/reject/cancel → sonucu hem API
+kur → halef import + ELLE "Devir Öner" (içe aktarma öneri üretmez) → /api/proposals listele → approve/reject/cancel → sonucu hem API
 hem DB'den doğrula. Birim testleri (test_renewal / test_proposals_auth / test_trust_store) tekil
 yolları kapsar; bu dosya onay hattının GRANÜL KOMBİNASYONLARINI ve tam karar döngülerini kapsar:
 
   1. Domain server eşlemesi devri — temel yaşam döngüsü (öneri → onay → taşı → eskiyi pasifle).
   2. Çoklu granül tek hat — domain server + mTLS bağımlılık birlikte; eski YALNIZ hepsi bitince pasif.
   3. Devir + trusted birlikte — server devrolur ama eski TRUSTED olduğu için AKTİF kalır.
-  4. Red KALICI — otomatik (import) yol reddi yeniden açmaz; yalnız MANUEL supersede yeniden açar.
+  4. Red KALICI — otomatik yol (canlı doğrulama) reddi yeniden açmaz; yalnız MANUEL supersede açar.
   5. İptal (cancel) — öneri kapanır, HİÇBİR mutasyon olmaz (eşleme durur, eski aktif kalır).
   6. Çok domainli KISMİ devir — birini onayla, diğerini reddet → eski yalnız reddedilen domainde kalır.
 """
@@ -24,6 +24,14 @@ def _import(client, h, pem_text, *, supersede=False):
     return client.post("/api/certificates/import", headers=h,
                        files={"file": ("c.pem", pem_text.encode(), "application/x-pem-file")},
                        data={"supersede": "true"} if supersede else {})
+
+
+def _successor(client, h, pem_text, old_id):
+    """Halefi içe aktarır ve devri ELLE başlatır (içe aktarma artık öneri üretmez)."""
+    new_id = _leaf_id(_import(client, h, pem_text))
+    r = client.post(f"/api/certificates/{new_id}/supersede/{old_id}", headers=h)
+    assert r.status_code == 200, r.text
+    return new_id
 
 
 def _leaf_id(resp):
@@ -127,7 +135,7 @@ def test_scn_domain_transfer_lifecycle(client, auth_headers):
     dom = _domain(client, h, "scn-life-dom.test")
     _attach(client, h, dom, v1_id)
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     props = [p for p in _pending(client, h) if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id]
     assert len(props) == 1 and props[0]["kind"] == "transfer" and props[0]["mapping_type"] == "server"
 
@@ -152,7 +160,7 @@ def test_scn_multi_granule_transfer(client, auth_headers):
     dep = _dep(client, h, app_id, dom)                 # bağımlılık v1'i izler (domainin aktif server'ı)
     assert dep["client_cert_id"] == v1_id
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     props = {p["mapping_type"] or ("dep" if p["app_dependency_id"] else "?"): p
              for p in _pending(client, h) if p["new_cert_id"] == v2_id}
     assert "server" in props and "dep" in props, f"iki granül önerisi bekleniyor: {props.keys()}"
@@ -177,7 +185,7 @@ def test_scn_transfer_plus_trusted_keeps_old_active(client, auth_headers):
     app_id = _app(client, h, "SCN-TrustMix-App", sy)
     _trust(client, h, app_id, v1_id)                    # v1 aynı zamanda uygulamanın trust store'unda
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     props = {p["kind"]: p for p in _pending(client, h) if p["new_cert_id"] == v2_id}
     assert set(props) == {"transfer", "trusted_add"}, f"transfer + trusted_add bekleniyor: {props.keys()}"
 
@@ -190,7 +198,7 @@ def test_scn_transfer_plus_trusted_keeps_old_active(client, auth_headers):
     assert _active(v1_id) is True, "trusted sertifika ASLA pasife alınmaz (eski+yeni güvenilir kalır)"
 
 
-# 4 — Red KALICI: otomatik (import) yol reddi yeniden açmaz; yalnız MANUEL supersede açar
+# 4 — Red KALICI: otomatik yol reddi yeniden açmaz; yalnız MANUEL supersede açar
 def test_scn_reject_is_permanent_manual_reopens(client, auth_headers):
     h = auth_headers
     ca, v1, v2 = _v1v2("scn-reject.test")
@@ -198,13 +206,21 @@ def test_scn_reject_is_permanent_manual_reopens(client, auth_headers):
     dom = _domain(client, h, "scn-reject-dom.test")
     _attach(client, h, dom, v1_id)
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     p = next(p for p in _pending(client, h) if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id)
     _reject(client, h, p["id"])
     assert _server_certs(client, h, dom) == [v1_id] and _active(v1_id) is True, "red → eski aktif+eşli kalır"
 
-    # otomatik yol (tekrar import supersede) reddi HORTLATMAMALI
-    _import(client, h, certgen.pem(v2), supersede=True)
+    # otomatik yol (canlı doğrulamanın domain kapsamlı önerisi) reddi HORTLATMAMALI
+    from app.services import renewal
+    db = SessionLocal()
+    try:
+        made = renewal.propose(db, db.get(Certificate, v2_id), db.get(Certificate, v1_id),
+                               username="system", request=None, via="live-check", domain_id=dom)
+        db.commit()
+    finally:
+        db.close()
+    assert made == []
     assert not [x for x in _pending(client, h) if x["new_cert_id"] == v2_id and x["old_cert_id"] == v1_id], \
         "red kalıcı — otomatik yol yeni öneri açmamalı"
 
@@ -224,7 +240,7 @@ def test_scn_cancel_no_mutation(client, auth_headers):
     dom = _domain(client, h, "scn-cancel-dom.test")
     _attach(client, h, dom, v1_id)
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     p = next(p for p in _pending(client, h) if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id)
     r = client.post(f"/api/proposals/{p['id']}/cancel", headers=h)
     assert r.status_code == 200 and r.json()["status"] == "cancelled", r.text
@@ -244,7 +260,7 @@ def test_scn_multi_domain_partial_transfer(client, auth_headers):
     _attach(client, h, dom_a, v1_id)
     _attach(client, h, dom_b, v1_id)
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     props = {p["domain_name"]: p for p in _pending(client, h) if p["new_cert_id"] == v2_id}
     assert set(props) == {"scn-partial-a.test", "scn-partial-b.test"}, f"iki domain önerisi: {props.keys()}"
 
@@ -271,8 +287,8 @@ def test_scn_competing_successors_no_double_mapping(client, auth_headers):
     v1 = _leaf_id(_import(client, h, certgen.pem(v1c) + certgen.pem(ca)))
     dom = _domain(client, h, "scn-race-dom.test")
     _attach(client, h, dom, v1)
-    v2 = _leaf_id(_import(client, h, certgen.pem(v2c), supersede=True))
-    v3 = _leaf_id(_import(client, h, certgen.pem(v3c), supersede=True))
+    v2 = _successor(client, h, certgen.pem(v2c), v1)
+    v3 = _successor(client, h, certgen.pem(v3c), v1)
     pend = _pending(client, h)
     p2 = next(p for p in pend if p["new_cert_id"] == v2 and p["old_cert_id"] == v1)
     p3 = next(p for p in pend if p["new_cert_id"] == v3 and p["old_cert_id"] == v1)
@@ -299,7 +315,7 @@ def test_scn_server_approve_dep_reject_old_stays_active(client, auth_headers):
     dep = _dep(client, h, app_id, dom)                  # bağımlılık v1'i izler
     assert dep["client_cert_id"] == v1_id
 
-    v2_id = _leaf_id(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _successor(client, h, certgen.pem(v2), v1_id)
     props = {p["mapping_type"] or ("dep" if p["app_dependency_id"] else "?"): p
              for p in _pending(client, h) if p["new_cert_id"] == v2_id}
     assert "server" in props and "dep" in props, f"iki granül önerisi bekleniyor: {props.keys()}"

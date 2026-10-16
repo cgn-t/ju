@@ -19,6 +19,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { Certificate, TransferProposal } from '../api/types'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel, MONO_FONT, nodeColors } from '../theme'
+import { proposerLine, viaLabel } from '../utils/proposalLabels'
 
 interface Props {
   proposal: TransferProposal | null
@@ -265,6 +266,12 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   const fpChanged = !!oldCert && !!newCert && normHex(oldCert.fingerprint_sha256) !== normHex(newCert.fingerprint_sha256)
     && !!normHex(oldCert.fingerprint_sha256) && !!normHex(newCert.fingerprint_sha256)
   const mismatchCount = fields.filter((f) => f.kind === 'expect-same' && !f.same).length
+  // Canlı doğrulamanın EKLEME / KALDIRMA önerisi: tek sertifika, karşılaştırma yok
+  const mapKind = proposal?.kind === 'server_add' || proposal?.kind === 'server_remove'
+  const isAdd = proposal?.kind === 'server_add'
+  const title = proposal?.kind === 'trusted_add' ? 'Trust Store İncelemesi'
+    : isAdd ? 'Eşleme Ekleme İncelemesi'
+    : proposal?.kind === 'server_remove' ? 'Eşleme Kaldırma İncelemesi' : 'Devir İncelemesi'
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}
@@ -276,7 +283,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
               <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                 <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                  {proposal.kind === 'trusted_add' ? 'Trust Store İncelemesi' : 'Devir İncelemesi'}
+                  {title}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
@@ -306,6 +313,37 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                 <Skeleton variant="rounded" height={120} />
                 <Skeleton variant="rounded" height={90} />
                 <Skeleton variant="rounded" height={280} />
+              </Stack>
+            ) : mapKind ? (
+              <Stack spacing={2.5}>
+                <CertCard cert={newCert} tone={isAdd ? 'new' : 'old'}
+                          kicker={isAdd ? 'CANLIDA GÖRÜLDÜ · EKLENECEK' : 'BAĞLI · CANLIDA YOK · KALDIRILACAK'} />
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Neden bu öneri?
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    {isAdd
+                      ? <>Canlı doğrulama <strong>{proposal.domain_name}</strong> adresinde bu sertifikayı sunulan zincirde
+                          gördü, ancak sertifika bu domaine <strong>server</strong> olarak bağlı değil.</>
+                      : <>Canlı doğrulama <strong>{proposal.domain_name}</strong> adresine bağlanıp zinciri aldı; bu sertifika
+                          domaine <strong>server</strong> olarak bağlı ama artık sunulmuyor.</>}
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 1.5 }}>
+                    <Evidence ok={proposal.live_seen}
+                              icon={<TravelExploreIcon fontSize="small" />}
+                              title={proposal.live_seen ? 'Canlı doğrulamadan geldi' : 'Canlı kanıt yok'}
+                              detail={`Kaynak: ${viaLabel(proposal.via, proposal.created_by)} · Öneren: ${proposerLine(proposal.created_by, proposal.created_at, proposal.created_by_name)}`} />
+                  </Box>
+                </Box>
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Kapsam · {scopeItems.length} domain
+                  </Typography>
+                  <Stack spacing={0.75} sx={{ mt: 0.5 }}>
+                    {scopeItems.map((p) => <ScopeRow key={p.id} p={p} current={p.id === proposal.id} />)}
+                  </Stack>
+                </Box>
               </Stack>
             ) : (
               <Stack spacing={2.5}>
@@ -371,8 +409,8 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                               title={proposal.live_seen ? 'Canlıda görüldü' : 'Henüz canlıda görülmedi'}
                               detail={proposal.live_seen ? 'Yeni sertifika sunucuda tespit edildi' : 'Devir öncesi canlı doğrulama önerilir'} />
                     <Evidence ok icon={<RuleIcon fontSize="small" />}
-                              title={proposal.signal === 'ski' ? 'Sinyal: aynı anahtar' : proposal.signal === 'subject' ? 'Sinyal: aynı CN + CA' : 'Elle eşleme'}
-                              detail={`Kaynak: ${proposal.via ?? '—'}`} />
+                              title={proposal.signal === 'ski' ? 'Sinyal: aynı anahtar' : proposal.signal === 'subject' ? 'Sinyal: aynı CN + CA' : viaLabel(proposal.via, proposal.created_by)}
+                              detail={`${proposal.signal ? `Kaynak: ${viaLabel(proposal.via, proposal.created_by)} · ` : ''}Öneren: ${proposerLine(proposal.created_by, proposal.created_at, proposal.created_by_name)}`} />
                   </Box>
                 </Box>
 
@@ -426,7 +464,11 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                             sx={{ flex: '1 1 220px', minWidth: 0 }}>
                   {proposal.kind === 'trusted_add'
                     ? 'Onaylandığında yeni sertifika uygulamanın trust store\'una eklenir; eski trusted sertifika KALIR (devir/pasife alma yok). Reddederseniz hiçbir değişiklik olmaz.'
-                    : 'Onaylandığında eşleme yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir değişiklik olmaz.'}
+                    : isAdd
+                      ? 'Onaylandığında sertifika bu domaine server olarak bağlanır. Reddederseniz hiçbir değişiklik olmaz.'
+                      : proposal.kind === 'server_remove'
+                        ? 'Onaylandığında bu domaindeki server eşlemesi kaldırılır; sertifika pasife alınmaz. Reddederseniz hiçbir değişiklik olmaz.'
+                        : 'Onaylandığında eşleme yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir değişiklik olmaz.'}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0, ml: 'auto' }}>
                   <Button variant="outlined" color="error" startIcon={<CancelIcon />} disabled={deciding}

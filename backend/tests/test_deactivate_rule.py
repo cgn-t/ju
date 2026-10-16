@@ -101,7 +101,8 @@ def test_deactivatable_after_server_binding_transferred(client, auth_headers):
     # devir öncesi: server-bağlı → 409
     assert _deactivate(client, h, v1_id).status_code == 409
 
-    v2_id = _leaf(_import(client, h, certgen.pem(v2), supersede=True))
+    v2_id = _leaf(_import(client, h, certgen.pem(v2)))
+    assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}", headers=h).status_code == 200
     p = next(p for p in client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
              if p["new_cert_id"] == v2_id and p["old_cert_id"] == v1_id)
     assert client.post(f"/api/proposals/{p['id']}/approve", headers=h).status_code == 200
