@@ -49,7 +49,7 @@ def _import_leaf(client, h, cn, *, days=30, nb_days_ago=25):
 def _set_smtp(client, h, **over):
     cfg = {"enabled": True, "host": "smtp.test", "from_address": "jumbo@test",
            "expiry_warning_days": 30, "resend_interval_hours": 3, "auto_expiry_enabled": True,
-           "queue_enabled": False, "fallback_address": ""}
+           "queue_enabled": False, "fallback_address": "", "resend_dedup_enabled": True}
     cfg.update(over)
     assert client.put("/api/settings/smtp", headers=h, json=cfg).status_code == 200
 

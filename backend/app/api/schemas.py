@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
 
 from app.core.certtype import normalize_cert_type
+from app.core.emails import normalize_email_list
 
 _ISTANBUL = ZoneInfo("Europe/Istanbul")
 
@@ -99,16 +100,26 @@ class TeamOut(ORMModel):
     app_count: int = 0
 
 
+def _team_email(v: str | None) -> str | None:
+    """Bildirim adresleri: ',' ve ';' ayırıcı kabul edilir, her adres doğrulanır ve 'a@x, b@y'
+    biçiminde saklanır (bkz. core.emails — gönderim tarafıyla aynı ayrıştırma)."""
+    return normalize_email_list(v)
+
+
 class TeamCreate(BaseModel):
     name: str = Field(max_length=255)
     # ADMIN/VIEWER singleton'ları startup'ta seed edilir; API'den yalnız SY/UG üretilir (bkz. users.create_team).
     type: str = Field(pattern="^(SY|UG|ADMIN|VIEWER)$")
     email: str | None = Field(default=None, max_length=255)
 
+    _email = field_validator("email")(lambda cls, v: _team_email(v))
+
 
 class TeamUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     email: str | None = Field(default=None, max_length=255)
+
+    _email = field_validator("email")(lambda cls, v: _team_email(v))
 
 
 # ---- Certificates ----
@@ -343,6 +354,8 @@ class ChainImportOut(BaseModel):
     existing: list[str] = []      # zaten kayıtlı olanlar
     mapped_server: str | None = None  # domain'e server olarak bağlanan leaf
     superseded: list[str] = []    # devir ÖNERİSİ üretilen öncül adları (onay bekliyor)
+    added: list[str] = []         # EKLEME önerisi üretilen sertifika adları (onay bekliyor)
+    removed: list[str] = []       # KALDIRMA önerisi üretilen sertifika adları (onay bekliyor)
 
 
 # ---- Devir önerileri (onay) ----

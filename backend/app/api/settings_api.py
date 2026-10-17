@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -36,6 +38,12 @@ def write_settings(request: Request, category: str, values: dict = Body(...),
     log_action(db, user.username, "update", "app_settings", category,
                {"category": category, "changes": diff_dicts(before, effective, secret_keys)}, request)
     db.commit()
+    # Saat/aralık ayarları yeniden başlatma beklemeden devreye girsin (bkz. notifier._CATEGORY_JOBS)
+    from app.services import notifier
+    try:
+        notifier.reschedule_from_settings(category)
+    except Exception:
+        logging.getLogger(__name__).exception("Zamanlama güncellenemedi: %s", category)
     return get_category(db, category, mask_secrets=True)
 
 
@@ -65,6 +73,34 @@ def jenkins_test(request: Request, db: Session = Depends(get_db), user: User = D
     from app.services.jenkins_client import JenkinsClient
     ok, message = JenkinsClient(db).health()
     _log_test(request, user, "jenkins", ok, message)
+    return {"success": ok, "message": message}
+
+
+@router.post("/smtp/test")
+def smtp_test(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
+              user: User = Depends(require_role("admin"))):
+    """KAYDEDİLMİŞ SMTP ayarlarıyla YALNIZ verilen adrese (boşsa admin'in kendi e-postasına) kısa
+    bir test maili gönderir → {success, message}. Kuyruk ve yedek adres KULLANILMAZ: amaç ayarı
+    doğrulamak, bu yüzden sunucunun gerçek hatası (bağlantı/STARTTLS/SSL/şifre/alıcı reddi)
+    olduğu gibi döner. Gerçek paydaşlara hiçbir uyarı gitmez."""
+    from app.core.emails import split_emails
+    from app.services import notifier
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    to = split_emails((body or {}).get("to") or user.email)
+    if not to:
+        raise HTTPException(status_code=400, detail="Test maili için bir alıcı adresi girin")
+    if not cfg.get("host"):
+        raise HTTPException(status_code=400, detail="SMTP sunucusu tanımlı değil — önce ayarları kaydedin")
+    subject, text, html_body = notifier.render_smtp_test_mail(cfg, user.username)
+    try:
+        refused = notifier._send_mail(cfg, to, subject, text, html_body)
+        if refused:
+            ok, message = False, f"Sunucu şu alıcıları reddetti: {notifier._refused_note(refused)}"
+        else:
+            ok, message = True, f"Test maili gönderildi: {', '.join(to)}"
+    except Exception as exc:
+        ok, message = False, f"Gönderilemedi: {type(exc).__name__}: {exc}"
+    _log_test(request, user, "smtp", ok, message)
     return {"success": ok, "message": message}
 
 

@@ -12,6 +12,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
 from app.core.certtype import cert_type_filter
+from app.core.emails import split_emails
 from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
@@ -24,9 +25,14 @@ scheduler = BackgroundScheduler()
 
 
 def _send_mail(cfg: dict, to_addresses: list[str], subject: str, body: str,
-               html_body: str | None = None) -> None:
+               html_body: str | None = None) -> dict:
     """html_body verilirse multipart/alternative gönderilir: istemci HTML'i (tablolu görünüm)
-    gösterir, düz metin eski biçimiyle YEDEK kalır (metin-tabanlı istemciler için)."""
+    gösterir, düz metin eski biçimiyle YEDEK kalır (metin-tabanlı istemciler için).
+
+    Bağlantı: use_ssl → doğrudan TLS (SMTPS, genelde 465); use_tls → STARTTLS (25/587); ikisi de
+    kapalıysa düz bağlantı. Döner: sunucunun REDDETTİĞİ alıcılar {adres: (kod, mesaj)} —
+    smtplib yalnız TÜM alıcılar reddedilince hata fırlatır; kısmi red sessiz kalmasın diye
+    çağıran bu sözlüğü işler (bkz. _send_with_fallback)."""
     if html_body:
         msg: MIMEText | MIMEMultipart = MIMEMultipart("alternative")
         msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -36,20 +42,26 @@ def _send_mail(cfg: dict, to_addresses: list[str], subject: str, body: str,
     msg["Subject"] = subject
     msg["From"] = cfg["from_address"]
     msg["To"] = ", ".join(to_addresses)
-    with smtplib.SMTP(cfg["host"], int(cfg.get("port") or 25), timeout=15) as smtp:
-        if cfg.get("use_tls"):
+    if cfg.get("use_ssl"):
+        conn = smtplib.SMTP_SSL(cfg["host"], int(cfg.get("port") or 465), timeout=15)
+    else:
+        conn = smtplib.SMTP(cfg["host"], int(cfg.get("port") or 25), timeout=15)
+    with conn as smtp:
+        if cfg.get("use_tls") and not cfg.get("use_ssl"):
             smtp.starttls()
         if cfg.get("username"):
             smtp.login(cfg["username"], cfg.get("password") or "")
-        smtp.sendmail(cfg["from_address"], to_addresses, msg.as_string())
+        refused = smtp.sendmail(cfg["from_address"], to_addresses, msg.as_string())
+    return dict(refused or {})
 
 
 def _team_emails(team) -> list[str]:
     """SY ekibinin bildirim adres(ler)i — TEK KAYNAK. Team.email virgülle birden çok
-    adres taşıyabilir. Domain kendi e-postasını tutmaz; sahibi ekipten türetir."""
+    adres taşıyabilir (',' ve ';' ikisi de ayırıcı — bkz. core.emails). Domain kendi
+    e-postasını tutmaz; sahibi ekipten türetir."""
     if team is None or not team.email:
         return []
-    return [a.strip() for a in team.email.split(",") if a.strip()]
+    return split_emails(team.email)
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +325,29 @@ def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], t
     return _mail_html_wrap("Merhabalar,", body)
 
 
+def render_smtp_test_mail(cfg: dict, actor: str) -> tuple[str, str, str]:
+    """Ayarlar → E-posta 'Test maili gönder': diğer mail türleriyle AYNI iskelet
+    (_mail_html_wrap / _mail_text_wrap — selamlama, banner, tablo, footer). (konu, metin, html)."""
+    if cfg.get("use_ssl"):
+        security = "SSL / SMTPS (doğrudan TLS)"
+    elif cfg.get("use_tls"):
+        security = "STARTTLS"
+    else:
+        security = "Yok (şifresiz)"
+    rows = [("SMTP Sunucusu", cfg.get("host")), ("Port", cfg.get("port")),
+            ("Bağlantı Güvenliği", security), ("Kullanıcı", cfg.get("username") or None),
+            ("Gönderen Adres", cfg.get("from_address")), ("Testi Başlatan", actor),
+            ("Zaman", utcnow().replace(microsecond=0))]
+    subject = "[JUMBO] SMTP test maili"
+    text = _mail_text_wrap("Merhabalar,", "Bu bir JUMBO SMTP test mailidir; ayarlar doğru çalışıyor.\n\n"
+                           + "".join(f"{k}: {_fmt(v)}\n" for k, v in rows))
+    html_body = _mail_html_wrap(
+        "Merhabalar,",
+        _banner("Bu bir JUMBO SMTP test mailidir — ayarlar doğru çalışıyor.")
+        + _section("SMTP Ayarları") + _kv_table(rows))
+    return subject, text, html_body
+
+
 def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -> dict:
     """Pasife alınan sertifikaya bağlı domain varsa, o domainlerin SAHİBİ SY ekibine
     bilgilendirme gönderir. Alıcılar TEK KAYNAKTAN gelir: domainin SY ekibinin e-postası
@@ -482,27 +517,66 @@ def _doc_links_text(doc_links: str) -> str:
     return "\nSertifika Yönetimi Dokümanları:\n" + "".join(f"  - {ln}\n" for ln in lines)
 
 
+def _refused_note(refused: dict) -> str:
+    return "; ".join(f"{a} ({code} {msg.decode(errors='replace') if isinstance(msg, bytes) else msg})"
+                     for a, (code, msg) in refused.items())
+
+
 def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: str,
-                        html_body: str | None) -> tuple[bool, str]:
+                        html_body: str | None) -> tuple[bool, str, dict]:
     """Birincil alıcılara gönderir; SMTP hatası olursa `fallback_address`'e İKİNCİ deneme yapar.
-    (ok, açıklama) döner. Kuyruk boşaltma da bu çekirdeği kullanır."""
+    (ok, açıklama, reddedilenler) döner. Kuyruk boşaltma da bu çekirdeği kullanır.
+
+    KISMİ RED: sunucu alıcılardan yalnız bir kısmını reddederse mail diğerlerine gitmiştir
+    (ok=True) ama reddedilenler {adres: (kod, mesaj)} olarak döner ve yedek adrese
+    "şu alıcılara ulaşılamadı" notuyla bir kopya gönderilir — sessizce kaybolmasın."""
+    fb = split_emails(cfg.get("fallback_address"))
     try:
-        _send_mail(cfg, to_addresses, subject, body, html_body)
-        return True, "gönderildi"
+        refused = _send_mail(cfg, to_addresses, subject, body, html_body) or {}
     except Exception as exc:
         logger.warning("Birincil mail gönderilemedi (%s): %s", ", ".join(to_addresses), exc)
-        fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",") if a.strip()]
         primary_lc = {a.lower() for a in to_addresses}
         if fb and {a.lower() for a in fb} != primary_lc:
             try:
                 _send_mail(cfg, fb, f"[YEDEK] {subject}",
                            f"Bu bildirim asıl alıcıya ({', '.join(to_addresses)}) gönderilemedi; "
                            f"yedek adrese iletildi.\n\n{body}", html_body)
-                return True, f"birincil başarısız → yedek adrese gönderildi ({', '.join(fb)})"
+                return True, f"birincil başarısız → yedek adrese gönderildi ({', '.join(fb)})", {}
             except Exception as exc2:
                 logger.exception("Yedek mail de gönderilemedi")
-                return False, f"birincil ve yedek başarısız: {exc2}"
-        return False, f"gönderilemedi: {exc}"
+                return False, f"birincil ve yedek başarısız: {exc2}", {}
+        return False, f"gönderilemedi: {exc}", {}
+    if not refused:
+        return True, "gönderildi", {}
+    detail = _refused_note(refused)
+    logger.warning("Mail bazı alıcılara ulaşmadı (sunucu reddetti): %s", detail)
+    delivered = [a for a in to_addresses if a not in refused]
+    note = f"kısmen gönderildi — sunucu reddetti: {detail}"
+    if fb and not {a.lower() for a in fb} <= {a.lower() for a in delivered}:
+        try:
+            _send_mail(cfg, fb, f"[YEDEK] {subject}",
+                       f"Bu bildirim şu alıcılara ulaştırılamadı (sunucu reddetti): {detail}.\n"
+                       f"Diğer alıcılara ({', '.join(delivered)}) gönderildi; yedek adrese "
+                       f"iletildi.\n\n{body}", html_body)
+            note += f" → yedek adrese iletildi ({', '.join(fb)})"
+        except Exception as exc2:
+            logger.exception("Kısmi red sonrası yedek mail gönderilemedi")
+            note += f" → yedek adres de başarısız: {exc2}"
+    return True, note, refused
+
+
+def _record_refused(db: Session, refused: dict, note: str, *, subject: str, body: str,
+                    html_body: str | None, certificate_id=None, domain_id=None,
+                    stakeholder=None, days_left=None) -> None:
+    """Kısmi redde reddedilen alıcılar için Mail Gönderim Geçmişi'ne 'failed' satır yazar —
+    geçmiş ekranında görünür, detayda sunucunun red mesajı okunur ve adres düzeltilince
+    'Yeniden dene' ile tekrar gönderilebilir. Commit çağırana aittir."""
+    if not refused:
+        return
+    db.add(MailQueue(to_addresses=", ".join(refused), subject=subject, body_text=body,
+                     body_html=html_body, certificate_id=certificate_id, domain_id=domain_id,
+                     stakeholder=stakeholder, days_left=days_left, status="failed",
+                     last_error=note[:1000], attempts=1))
 
 
 def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body: str,
@@ -521,7 +595,10 @@ def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body
         db.add(mq)
         db.flush()  # id'yi ata (henüz commit değil — çağıran kendi Notification'ıyla birlikte commit eder)
         return True, "kuyruğa alındı", mq.id
-    ok, note = _send_with_fallback(cfg, to_addresses, subject, body, html_body)
+    ok, note, refused = _send_with_fallback(cfg, to_addresses, subject, body, html_body)
+    _record_refused(db, refused, note, subject=subject, body=body, html_body=html_body,
+                    certificate_id=certificate_id, domain_id=domain_id,
+                    stakeholder=stakeholder, days_left=days_left)
     return ok, note, None
 
 
@@ -1057,8 +1134,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
     for team_id, props in by_team.items():
         try:
             team = db.get(Team, team_id)
-            emails = ([a.strip() for a in (team.email or "").replace(";", ",").split(",") if a.strip()]
-                      if team else [])
+            emails = _team_emails(team)
             if not emails:
                 skipped += len(props)
                 continue
@@ -1069,6 +1145,9 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                                        certificate_id=None, stakeholder=(team.name if team else None),
                                        days_left=None)
             if ok:
+                # kuyruk satırı (queue_enabled) / kısmi-red kaydı burada kalıcılaşır — zamanlanmış
+                # job'ın kendi commit'i yok; commit edilmezse kuyruğa alınan hatırlatma KAYBOLUR.
+                db.commit()
                 sent += 1
             else:
                 skipped += len(props)
@@ -1094,8 +1173,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
     # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
     if ownerless:
         try:
-            fb = [a.strip() for a in (cfg.get("fallback_address") or "").replace(";", ",").split(",")
-                  if a.strip()]
+            fb = split_emails(cfg.get("fallback_address"))
             if fb:
                 subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)"
                 body_text = _proposal_reminder_text(ownerless, cfg)
@@ -1103,6 +1181,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, body_html,
                                            certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:
+                    db.commit()
                     sent += 1
                 else:
                     skipped += len(ownerless)
@@ -1121,7 +1200,6 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             skipped += len(ownerless)
             _record_dispatch_error(db, "Sahipsiz devir hatırlatması işlenemedi", exc,
                                    label="ownerless")
-            skipped += len(ownerless)
 
     return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
             "message": f"{len(pending)} bekleyen öneri; {sent} hatırlatma gönderildi, {skipped} atlandı."}
@@ -1148,6 +1226,29 @@ def check_pending_proposals() -> dict:
         # atlanıyor; bu yalnız döngüye girmeden ÖNCEKİ (ör. sorgu) beklenmeyen hatalar
         # için son güvenlik ağı — run_mail_queue_drain ile aynı ilke.
         logger.exception("Devir hatırlatması job'ı başarısız")
+        return {"status": "error", "error": str(exc)[:300]}
+    finally:
+        db.close()
+
+
+@audited_job("Süresi geçmiş hatırlatması")
+def check_expired_certificates() -> dict:
+    """Günlük zamanlanmış SÜRESİ GEÇMİŞ hatırlatması — süre uyarısıyla AYNI çekirdek, alıcılar ve
+    şablon (send_expired_notifications); tekrar-önleme AÇIK (force=False). `smtp.auto_expired_enabled`
+    KAPALIYSA atlanır. Dış API tetiği (/notifications/expired-run) bu bayraktan ETKİLENMEZ."""
+    db: Session = SessionLocal()
+    try:
+        cfg = get_category(db, "smtp", mask_secrets=False)
+        if not cfg.get("auto_expired_enabled", True):
+            logger.info("Süresi geçmiş hatırlatması: otomatik gönderim kapalı — atlandı")
+            return {"status": "skipped"}
+        result = send_expired_notifications(db, force=False)
+        if result["sent"]:
+            logger.info("Süresi geçmiş hatırlatması: %s", result["message"])
+        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
+                "skipped": result.get("skipped")}
+    except Exception as exc:
+        logger.exception("Süresi geçmiş hatırlatması job'ı başarısız")
         return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()
@@ -1234,11 +1335,18 @@ def drain_mail_queue(db: Session) -> dict:
                .limit(batch).all())
     sent = failed = 0
     for item in pending:
-        to = [a.strip() for a in (item.to_addresses or "").split(",") if a.strip()]
-        ok, note = _send_with_fallback(cfg, to, item.subject or "", item.body_text or "", item.body_html)
+        to = split_emails(item.to_addresses)
+        ok, note, refused = _send_with_fallback(cfg, to, item.subject or "", item.body_text or "",
+                                                item.body_html)
         item.attempts = (item.attempts or 0) + 1
         if ok:
             item.status, item.sent_at = "sent", utcnow()
+            if refused:
+                item.last_error = note[:1000]
+                _record_refused(db, refused, note, subject=item.subject or "",
+                                body=item.body_text or "", html_body=item.body_html,
+                                certificate_id=item.certificate_id, domain_id=item.domain_id,
+                                stakeholder=item.stakeholder, days_left=item.days_left)
             sent += 1
         else:
             item.last_error = note[:1000]
@@ -1275,6 +1383,48 @@ def _queue_interval() -> int:
         db.close()
 
 
+# Ayarlardan okunan zamanlamalar: (job id, ayar kategorisi) → yeni tetikleyici. Ayar KAYDEDİLİNCE
+# reschedule_from_settings çağrılır; aksi halde yeni saat/aralık ancak uygulama yeniden
+# başlatılınca devreye girerdi (ekranda kaydedilmiş görünür ama eski saatte çalışırdı).
+def _schedule_triggers() -> dict[str, dict]:
+    return {
+        "proposal-reminder": {"trigger": "cron", "hour": _proposal_reminder_hour(), "minute": 0},
+        "mail-queue-drain": {"trigger": "interval", "minutes": _queue_interval()},
+        "live-check": {"trigger": "cron", "hour": _schedule_hour("live_check", 7), "minute": 0},
+        "discovery-scan": {"trigger": "cron", "hour": _discovery_hour(), "minute": 0},
+        "ct-scan": {"trigger": "cron", "hour": _schedule_hour("ct", 4), "minute": 0},
+        "revocation-check": {"trigger": "cron", "hour": _schedule_hour("revocation", 5), "minute": 0},
+    }
+
+
+_CATEGORY_JOBS = {
+    "smtp": ("proposal-reminder", "mail-queue-drain"),
+    "live_check": ("live-check",),
+    "discovery": ("discovery-scan",),
+    "ct": ("ct-scan",),
+    "revocation": ("revocation-check",),
+}
+
+
+def reschedule_from_settings(category: str) -> list[str]:
+    """Ayar kaydedildikten sonra o kategorinin zamanlanmış işlerini yeni değerle yeniden planlar.
+    Zamanlayıcı çalışmıyorsa (test, CLI) ya da iş yoksa sessizce atlar. Döner: güncellenen iş id'leri."""
+    job_ids = _CATEGORY_JOBS.get(category)
+    if not job_ids or not scheduler.running:
+        return []
+    triggers = _schedule_triggers()
+    done = []
+    for job_id in job_ids:
+        if scheduler.get_job(job_id) is None:
+            continue
+        spec = dict(triggers[job_id])
+        scheduler.reschedule_job(job_id, **spec)
+        done.append(job_id)
+    if done:
+        logger.info("Zamanlama güncellendi (%s): %s", category, ", ".join(done))
+    return done
+
+
 def start_scheduler() -> None:
     from app.services.ct_monitor import run_ct_scan_job
     from app.services.deployment_engine import poll_running_runs
@@ -1285,6 +1435,10 @@ def start_scheduler() -> None:
     if not scheduler.running:
         scheduler.add_job(check_expiring_certificates, "cron", hour=8, minute=0,
                           id="expiry-check", replace_existing=True)
+        # Süresi geçmiş-aktif hatırlatması — süre uyarısının hemen ardından (aynı sabah taraması);
+        # iş içinde 'smtp.auto_expired_enabled' kontrol edilir
+        scheduler.add_job(check_expired_certificates, "cron", hour=8, minute=5,
+                          id="expired-check", replace_existing=True)
         # Devir-onayı hatırlatması — iş içinde 'smtp.auto_proposal_reminder_enabled' kontrol edilir
         scheduler.add_job(check_pending_proposals, "cron", hour=_proposal_reminder_hour(), minute=0,
                           id="proposal-reminder", replace_existing=True)

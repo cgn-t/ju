@@ -6,13 +6,13 @@ Kapsanan konular:
   1. Paydaş açlığı — BİLİNEN BUG: _dispatch_cert_mails dedup kontrolü sertifika bazında yapılıyor,
      paydaş bazında değil. Bu test DOĞRU-BEKLENEN davranışı yazıyor; Faz 2 refactor'üne kadar
      KIRMIZI kalması beklenir (bilinçli — kod tabanında xfail/skip konvansiyonu yok).
-  2. Scheduler job envanteri — hangi job'ların zamanlandığını kilitler (expired-check'in
-     BİLİNÇLİ OLARAK cron'da olmadığı dahil).
+  2. Scheduler job envanteri — hangi job'ların zamanlandığını kilitler (v3.7.0'dan itibaren
+     expired-check de günlük cron'da; smtp.auto_expired_enabled ile kapatılabilir).
   3. Mail kuyruğu (mail_queue) drain hata senaryosu — art arda başarısızlıkta attempts artışı
      ve 5. denemede kalıcı 'failed' olma.
-  4. SMTP için ayrı bir "test maili gönder" ucunun OLMADIĞININ doğrulanması.
-  5. STARTTLS-only davranışı — use_tls açık/kapalıyken starttls() çağrılıp çağrılmadığı ve
-     implicit-SSL (smtplib.SMTP_SSL) desteğinin hiç kullanılmadığı.
+  4. SMTP testi /notify-test kanal ucundan değil, ayrı /api/settings/smtp/test ucundan yapılır.
+  5. STARTTLS / implicit-SSL — use_tls açık/kapalıyken starttls() çağrısı; SMTP_SSL yalnız
+     use_ssl=True iken kullanılır (port tek başına seçimi değiştirmez).
 """
 
 from datetime import datetime, timedelta
@@ -44,7 +44,7 @@ def _import_leaf(client, h, cn, *, days=30, nb_days_ago=25):
 def _set_smtp(client, h, **over):
     cfg = {"enabled": True, "host": "smtp.test", "from_address": "jumbo@test",
            "expiry_warning_days": 30, "resend_interval_hours": 3, "auto_expiry_enabled": True,
-           "queue_enabled": False, "fallback_address": ""}
+           "queue_enabled": False, "fallback_address": "", "resend_dedup_enabled": True}
     cfg.update(over)
     assert client.put("/api/settings/smtp", headers=h, json=cfg).status_code == 200
 
@@ -135,16 +135,14 @@ def test_scheduler_job_inventory(client):
     """conftest'in session-scope client fixture'ı (`with TestClient(app) as c`) FastAPI
     lifespan'ını (main.py: start_scheduler) tetikliyor → notifier.scheduler GERÇEKTEN running
     ve job'lu. Bu test mevcut job envanterini kilitler — yeni bir job eklenir/silinirse bilinçli
-    bir değişiklik olmalı. `expired-check` gibi bir job'ın OLMADIĞI ayrıca doğrulanır: süresi-geçmiş
-    bildirimi bilinçli olarak yalnız API'den (/api/notifications/expired-run) tetiklenir."""
+    bir değişiklik olmalı. `expired-check` v3.7.0'da eklendi: süresi geçmiş ama aktif sertifikalar
+    için günlük hatırlatma (smtp.auto_expired_enabled kapalıysa iş çalışır ama mail göndermez)."""
     assert notifier.scheduler.running
     job_ids = {j.id for j in notifier.scheduler.get_jobs()}
     expected = {"expiry-check", "proposal-reminder", "live-check",
                 "discovery-scan", "ct-scan", "revocation-check", "mail-queue-drain",
-                "deployment-poll"}
+                "deployment-poll", "expired-check"}
     assert job_ids == expected, f"job envanteri değişti: {job_ids}"
-    assert "expired-check" not in job_ids, (
-        "süresi-geçmiş bildirimi BİLİNÇLİ OLARAK cron'da YOK — yalnız API ile tetiklenir")
 
     expiry_job = next(j for j in notifier.scheduler.get_jobs() if j.id == "expiry-check")
     field_map = {f.name: str(f) for f in expiry_job.trigger.fields}
@@ -197,17 +195,14 @@ def test_queue_drain_failure_increments_attempts_then_fails_at_five(client, auth
 
 
 # ---------------------------------------------------------------------------
-# 4. SMTP test-mail endpoint'inin yokluğu
+# 4. SMTP testi kanal ucundan yapılmaz
 # ---------------------------------------------------------------------------
 
 def test_smtp_has_no_notify_test_endpoint(client, auth_headers):
-    """SMTP kanalı app/services/notify/CHANNELS listesinde YOK (yalnız slack/teams/webhook/
-    servicenow/jira/zoom/jabber var) → /api/settings/smtp/notify-test 404 döner. Bu, SMTP
-    testi için AYRI bir uç (gerçek test-mail gönderimi) OLMADIĞINI belgeleyen negatif testtir;
-    ileride eklenirse bu test bilinçli güncellenmeli."""
+    """SMTP kanalı app/services/notify/CHANNELS listesinde YOK → /api/settings/smtp/notify-test
+    404 döner. SMTP testi ayrı /api/settings/smtp/test ucundan yapılır (test_mail_fixes.py)."""
     r = client.post("/api/settings/smtp/notify-test", headers=auth_headers)
-    assert r.status_code == 404, (
-        "SMTP notify-test ucu eklenmiş görünüyor — bu testin kaldırılması/güncellenmesi gerekir")
+    assert r.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -257,13 +252,12 @@ def test_send_mail_no_starttls_when_use_tls_false(monkeypatch):
     assert _FakeSMTP.instances[-1].starttls_called is False
 
 
-def test_send_mail_no_implicit_ssl_support_documented(monkeypatch):
-    """DOKÜMANTASYON TESTİ: _send_mail her zaman smtplib.SMTP (plaintext/STARTTLS) kullanır;
-    implicit-SSL (port 465, smtplib.SMTP_SSL) yolu hiç yok — use_tls=False + port=465 verilse
-    bile SMTP_SSL asla çağrılmaz (bilinen sınırlama, gerçek 465 sunucusuna karşı bu PATLAR)."""
+def test_send_mail_port_465_without_use_ssl_stays_plain(monkeypatch):
+    """SMTP_SSL yalnız use_ssl=True iken kullanılır; port=465 tek başına bağlantı tipini
+    değiştirmez (kullanıcı "Bağlantı Güvenliği" seçimini açıkça yapar)."""
     monkeypatch.setattr(notifier.smtplib, "SMTP", _FakeSMTP)
     ssl_calls = []
     monkeypatch.setattr(notifier.smtplib, "SMTP_SSL",
                         lambda *a, **k: (ssl_calls.append((a, k)), _FakeSMTP(*a, **k))[-1])
     notifier._send_mail({"host": "h", "port": 465, "from_address": "f@test"}, ["x@test"], "s", "b")
-    assert not ssl_calls, "SMTP_SSL hiç çağrılmamalı — implicit-SSL desteği yok (bilinen sınırlama)"
+    assert not ssl_calls, "use_ssl kapalıyken SMTP_SSL çağrılmamalı"

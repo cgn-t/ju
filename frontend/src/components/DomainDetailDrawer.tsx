@@ -132,8 +132,11 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
       if (r.created.length) parts.push(`${r.created.length} sertifika eklendi`)
       if (r.mapped_server) parts.push(`"${r.mapped_server}" server eşlendi`)
       if (r.superseded.length) parts.push(`${r.superseded.length} devir önerisi oluşturuldu (SY onayı bekliyor)`)
+      if (r.added?.length) parts.push(`${r.added.length} ekleme önerisi oluşturuldu (SY onayı bekliyor)`)
+      if (r.removed?.length) parts.push(`${r.removed.length} kaldırma önerisi oluşturuldu (SY onayı bekliyor)`)
+      const proposed = r.superseded.length + (r.added?.length ?? 0) + (r.removed?.length ?? 0)
       enqueueSnackbar(parts.join(', ') || 'Değişiklik yok',
-                      { variant: 'success', autoHideDuration: r.superseded.length ? TRANSFER_TOAST_MS : undefined })
+                      { variant: 'success', autoHideDuration: proposed ? TRANSFER_TOAST_MS : undefined })
       invalidate()
       liveCheck.mutate()
     },

@@ -53,7 +53,10 @@ DEFAULTS: dict[str, dict] = {
         "enabled": False,
         "host": "",
         "port": 25,
-        "use_tls": False,
+        "use_tls": False,   # STARTTLS (genelde 25/587): düz bağlanıp şifreye geçer
+        # Doğrudan TLS / SMTPS (genelde 465): bağlantı baştan şifreli kurulur. Açıksa use_tls
+        # yok sayılır (ikisi birlikte olmaz — UI tek seçim olarak sunar).
+        "use_ssl": False,
         "username": "",
         "password": "",
         "from_address": "jumbo@localhost",
@@ -61,6 +64,11 @@ DEFAULTS: dict[str, dict] = {
         # Günlük 08:00 otomatik tarama AÇIK mı? Kapalıyken zamanlanmış job mail ATMAZ; ancak
         # dış API tetikleri (/notifications/expiry-run) yine de çalışır (istendiğinde gönderir).
         "auto_expiry_enabled": True,
+        # Günlük SÜRESİ GEÇMİŞ hatırlatması AÇIK mı? Süresi dolmuş ama JUMBO'da hâlâ AKTİF olan
+        # sertifikaların paydaşlarına (süre uyarısıyla aynı alıcılar/şablon) her sabah 08:00'de
+        # "yenisini devirle bağlayın ya da pasife alın" maili gider. Tekrar-önleme aynen geçerli.
+        # Dış API (/notifications/expired-run) bu bayraktan bağımsız her zaman çalışır.
+        "auto_expired_enabled": True,
         # Tekrar-önleme (dedup) AÇIK mı? Açıkken aynı sertifikaya son `resend_interval_hours`
         # saat içinde zaten mail gittiyse zamanlanmış tarama TEKRAR göndermez. Kapatılırsa her
         # tarama gönderir (günlük cron doğal olarak günde bir çalışır). Dış API/force zaten muaf.

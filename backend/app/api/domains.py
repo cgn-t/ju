@@ -328,7 +328,8 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
                 sync.superseded.append(old.name)
     db.commit()
     return ChainImportOut(created=sync.created, existing=sync.existing,
-                          mapped_server=sync.mapped.get("leaf"), superseded=sync.superseded)
+                          mapped_server=sync.mapped.get("leaf"), superseded=sync.superseded,
+                          added=sync.added, removed=sync.removed)
 
 
 @router.get("/{domain_id}", response_model=DomainOut)

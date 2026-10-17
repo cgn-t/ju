@@ -7,7 +7,8 @@ bir TLS bağlantısı açmadan). Her cert_type (root/intermediate/leaf) BAĞIMSI
 YALNIZ bu domain ele alınır — öneri eski sertifikanın diğer domainlerine yayılmaz.
 
   • import_chain (live=False, insan tetikli): bağlı olmayan seviye doğrudan bağlanır (ilk
-    kurulum); zincir dışındaki aynı seviyedeki bağlı sertifika devir ÖNERİSİ olur.
+    kurulum); seviyede zincir dışı bağlı sertifika varsa canlı doğrulamayla aynı kuralla
+    DEĞİŞİKLİK (tek halef) / EKLEME / KALDIRMA önerisi üretilir.
   • live_check (live=True): hiçbir eşleme kendiliğinden değişmez; her seviye için EKLEME /
     DEĞİŞİKLİK (devir) / KALDIRMA önerisi üretilir. Root sunulmadığında envanterdeki üst
     sertifikadan türetilir; türetilen root için kaldırma önerisi üretilmez.
@@ -111,6 +112,7 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
                             username=username, request=request, via=via, result=result)
         else:
             _reconcile_import(db, domain, cert_type, seen, stale, unbound,
+                              matched=bool(seen_ids & bound_ids),
                               username=username, request=request, via=via, result=result)
     return result
 
@@ -164,22 +166,41 @@ def _reconcile_live(db: Session, domain: Domain, cert_type: str, seen, stale, un
 
 
 def _reconcile_import(db: Session, domain: Domain, cert_type: str, seen, stale, unbound, *,
-                      username: str, request: Request | None, via: str,
+                      matched: bool, username: str, request: Request | None, via: str,
                       result: ChainSyncResult) -> None:
-    """ZİNCİR İÇE AKTARMA (insan tetikli): bağlı olmayan seviye doğrudan eklenir (ilk kurulum);
-    zincir dışında kalan aynı seviyedeki bağlı sertifika devir ÖNERİSİ olur."""
-    for row in seen:
+    """ZİNCİR İÇE AKTARMA (insan tetikli): bağlı olmayan seviye doğrudan eklenir (ilk kurulum).
+    Seviyede zincir dışında kalan bağlı sertifika varsa (rotasyon) canlı doğrulamayla AYNI kural:
+      • eşleşme var (bağlılardan biri hâlâ sunuluyor) + fazladan bağlı → KALDIRMA önerisi
+      • eşleşme yok + bağlı olan var → her eskiye TEK halef (_target_for) için DEVİR önerisi
+      • halef seçilmeyen yeni sertifika → EKLEME önerisi
+    Eskiden her eski×yeni çifti için devir önerisi açılıyordu: aynı seviyede iki yeni sertifika
+    (2 katmanlı ara CA) varsa iki rakip öneri doğuyor, onaydan sonra biri hiç bağlanmıyordu."""
+    if not stale:
+        for row in unbound:
+            db.add(CertificateDomainMap(certificate_id=row.id, domain_id=domain.id,
+                                        mapping_type="server"))
+            log_action(db, username, "create", "certificate_domain_map", None,
+                       {"domain": domain.domain, "cert": row.name, "type": "server",
+                        "via": via}, request)
+            result.mapped[cert_type] = row.name
+        return
+    targeted: set[int] = set()
+    if matched:
         for m in stale:
-            p = renewal.propose_attach_transfer(db, row, m.certificate, domain, "server",
+            if renewal.propose_server_mapping(db, "server_remove", m.certificate, domain,
+                                              username=username, request=request, via=via):
+                result.removed.append(m.certificate.name)
+    else:
+        for m in stale:
+            target = _target_for(m.certificate, seen)
+            targeted.add(target.id)
+            p = renewal.propose_attach_transfer(db, target, m.certificate, domain, "server",
                                                 username=username, request=request, via=via)
             if p is not None:
                 result.superseded.append(m.certificate.name)
-    if stale:
-        return
     for row in unbound:
-        db.add(CertificateDomainMap(certificate_id=row.id, domain_id=domain.id,
-                                    mapping_type="server"))
-        log_action(db, username, "create", "certificate_domain_map", None,
-                   {"domain": domain.domain, "cert": row.name, "type": "server",
-                    "via": via}, request)
-        result.mapped[cert_type] = row.name
+        if row.id in targeted:
+            continue
+        if renewal.propose_server_mapping(db, "server_add", row, domain, username=username,
+                                          request=request, via=via):
+            result.added.append(row.name)

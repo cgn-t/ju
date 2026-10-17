@@ -198,6 +198,18 @@ function SmtpTab() {
     onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.enabled && d.sent > 0 ? 'success' : 'info' }),
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
+  // Test maili: önce formdaki ayarlar kaydedilir, ardından YALNIZ girilen adrese gönderilir
+  // (gerçek paydaşlara uyarı gitmez; kuyruk/yedek adres kullanılmaz, sunucu hatası olduğu gibi döner).
+  const [testTo, setTestTo] = useState('')
+  const testMail = useMutation({
+    mutationFn: async () => {
+      await save.mutateAsync()
+      return (await api.post('/settings/smtp/test', { to: testTo })).data
+    },
+    onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.success ? 'success' : 'error' }),
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+  const security = form.use_ssl ? 'ssl' : form.use_tls ? 'starttls' : 'none'
 
   return (
     <Stack spacing={2}>
@@ -221,14 +233,29 @@ function SmtpTab() {
           çağrıldığında yine gönderim yapılır.
         </Typography>
       </Box>
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={form.auto_expired_enabled !== false}
+                           onChange={(e) => setForm((f) => ({ ...f, auto_expired_enabled: e.target.checked }))} />}
+          label="Günlük Süresi Geçmiş Hatırlatması (her sabah 08:05)" />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+          Süresi dolmuş ama JUMBO'da hâlâ <b>aktif</b> görünen sertifikaların paydaşlarına "yenisini devirle
+          bağlayın ya da pasife alın" maili gider (süre uyarısıyla aynı alıcılar ve şablon; tekrar-önleme geçerli).
+          Kapalıyken yalnız "Süresi Geçenleri Şimdi Gönder" / dış API ile gönderilir.
+        </Typography>
+      </Box>
       <Grid container spacing={2}>
         <Text form={form} setForm={setForm} field="host" label="SMTP Sunucusu" />
         <Text form={form} setForm={setForm} field="port" label="Port" type="number" width={{ xs: 6, sm: 3 }} />
         <Grid size={{ xs: 6, sm: 3 }}>
-          <FormControlLabel
-            control={<Switch checked={!!form.use_tls}
-                             onChange={(e) => setForm((f) => ({ ...f, use_tls: e.target.checked }))} />}
-            label="STARTTLS" />
+          <TextField select fullWidth size="small" label="Bağlantı Güvenliği" value={security}
+                     helperText={security === 'ssl' ? 'Genelde port 465' : security === 'starttls' ? 'Genelde port 587 / 25' : 'Şifresiz bağlantı'}
+                     onChange={(e) => setForm((f) => ({ ...f, use_tls: e.target.value === 'starttls',
+                                                         use_ssl: e.target.value === 'ssl' }))}>
+            <MenuItem value="none">Yok</MenuItem>
+            <MenuItem value="starttls">STARTTLS</MenuItem>
+            <MenuItem value="ssl">SSL / SMTPS</MenuItem>
+          </TextField>
         </Grid>
         <Text form={form} setForm={setForm} field="username" label="Kullanıcı (opsiyonel)" />
         <Text form={form} setForm={setForm} field="password" label="Şifre" type="password" />
@@ -297,6 +324,15 @@ function SmtpTab() {
               helper="Günlük hatırlatmanın gönderileceği saat (varsayılan 09:00). Dış API 'Şimdi Hatırlat' saatten bağımsızdır."
               width={{ xs: 6, sm: 4 }} />
       </Grid>
+
+      <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <TextField size="small" label="Test Maili Alıcısı" value={testTo} sx={{ minWidth: 260 }}
+                   onChange={(e) => setTestTo(e.target.value)}
+                   helperText="Boşsa kendi e-posta adresinize gönderilir. Ayarlar önce kaydedilir." />
+        <Button variant="outlined" onClick={() => testMail.mutate()} disabled={testMail.isPending}>
+          Test Maili Gönder
+        </Button>
+      </Stack>
 
       <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
