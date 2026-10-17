@@ -28,6 +28,7 @@ interface Props {
 const LIVE_STATUS: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'default' }> = {
   match: { label: 'Uyumlu — sunulan sertifika envanterle eşleşiyor', color: 'success' },
   mismatch: { label: 'UYUMSUZ — sunulan sertifika eşlenen sertifikadan farklı', color: 'error' },
+  chain_incomplete: { label: 'Ara sertifika sunucuda eksik', color: 'warning' },
   unreachable: { label: 'Erişilemedi', color: 'warning' },
   no_mapping: { label: 'Server sertifikası eşlenmemiş', color: 'warning' },
   not_checkable: { label: 'Kontrol edilemez (wildcard)', color: 'default' },
@@ -291,6 +292,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     {d.error && <Field label="Hata" value={d.error} />}
                     {d.reason && <Field label="Not" value={d.reason} />}
                     {d.name_warning && d.name_warning !== d.reason && <Field label="Uyarı" value={d.name_warning} />}
+                    {d.chain_warning && d.chain_warning !== d.reason && <Field label="Zincir uyarısı" value={d.chain_warning} />}
                   </Box>
                 )
               } catch { return null }

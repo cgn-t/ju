@@ -368,3 +368,80 @@ def test_import_chain_environment_applies_only_to_newly_created_certs(client, au
     for c in dom2["certificates"]:
         detail = client.get(f"/api/certificates/{c['certificate_id']}", headers=h).json()
         assert detail["environment"] == "prod", "yeni oluşturulan sertifikalar environment almalı"
+
+
+def _proposals_for(client, h, domain_id):
+    return [p for p in client.get("/api/proposals", headers=h, params={"status": "pending"}).json()
+            if p["domain_id"] == domain_id]
+
+
+def test_live_check_missing_intermediate_warns_without_proposal(client, auth_headers):
+    """Yarım zincir: envanterde ara sertifika bağlı, sunucu yalnız leaf'i gönderiyor →
+    durum sarı 'chain_incomplete', zincir uyarısı var, öneri açılmaz."""
+    h = auth_headers
+    root, root_key = certgen.make_ca("LC HalfChain Root")
+    inter, inter_key = certgen.make_intermediate(root, root_key, "LC HalfChain Inter")
+    leaf, leaf_key = certgen.make_leaf(inter, inter_key, "lc-halfchain.test", san=["lc-halfchain.test"])
+    r = client.post("/api/certificates/import", headers=h,
+                    files={"file": ("c.pem", (certgen.pem(leaf) + certgen.pem(inter)
+                                              + certgen.pem(root)).encode(),
+                                    "application/x-pem-file")})
+    assert r.status_code == 200, r.text
+    leaf_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+
+    with _tls_server(certgen.pem(leaf), certgen.key_pem(leaf_key)) as port:  # ara sertifika YOK
+        domain_id = _make_domain(client, h, f"127.0.0.1:{port}(lc-halfchain)")
+        assert client.post(f"/api/domains/{domain_id}/certificates", headers=h,
+                           json={"certificate_id": leaf_id,
+                                 "mapping_type": "server"}).status_code == 200
+        body = client.post(f"/api/domains/{domain_id}/live-check", headers=h).json()
+        assert body["live_check_status"] == "chain_incomplete"
+        detail = json.loads(body["live_check_detail"])
+        assert "LC HalfChain Inter" in detail["chain_warning"]
+        assert detail["levels"]["leaf"]["status"] == "match"
+        assert _proposals_for(client, h, domain_id) == []
+
+    # Sunucu ara sertifikayı da gönderince uyarı kalkar
+    with _tls_server(certgen.pem(leaf) + certgen.pem(inter), certgen.key_pem(leaf_key)) as port:
+        client.put(f"/api/domains/{domain_id}", headers=h,
+                   json={"domain": f"127.0.0.1:{port}(lc-halfchain)"})
+        body = client.post(f"/api/domains/{domain_id}/live-check", headers=h).json()
+        assert body["live_check_status"] == "match"
+        assert "chain_warning" not in json.loads(body["live_check_detail"])
+
+
+def test_live_check_missing_intermediate_keeps_mismatch(client, auth_headers):
+    """Yarım zincir + farklı leaf: kırmızı UYUMSUZ öncelikli kalır, zincir uyarısı ayrıca yazılır."""
+    h = auth_headers
+    root, root_key = certgen.make_ca("LC HalfMis Root")
+    inter, inter_key = certgen.make_intermediate(root, root_key, "LC HalfMis Inter")
+    bound, _ = certgen.make_leaf(inter, inter_key, "lc-halfmis.test", san=["lc-halfmis.test"])
+    served, served_key = certgen.make_leaf(inter, inter_key, "lc-halfmis.test", san=["lc-halfmis.test"])
+    r = client.post("/api/certificates/import", headers=h,
+                    files={"file": ("c.pem", (certgen.pem(bound) + certgen.pem(inter)
+                                              + certgen.pem(root)).encode(),
+                                    "application/x-pem-file")})
+    leaf_id = next(c["id"] for c in r.json() if c["cert_type"] == "leaf")
+    with _tls_server(certgen.pem(served), certgen.key_pem(served_key)) as port:
+        domain_id = _make_domain(client, h, f"127.0.0.1:{port}(lc-halfmis)")
+        client.post(f"/api/domains/{domain_id}/certificates", headers=h,
+                    json={"certificate_id": leaf_id, "mapping_type": "server"})
+        body = client.post(f"/api/domains/{domain_id}/live-check", headers=h).json()
+        assert body["live_check_status"] == "mismatch"
+        assert "chain_warning" in json.loads(body["live_check_detail"])
+
+
+def test_live_check_unknown_issuer_no_chain_warning(client, auth_headers):
+    """Yayıncı envanterde yoksa kök mü ara mı bilinemez — uyarı verilmez (yanlış alarm yok)."""
+    h = auth_headers
+    root, root_key = certgen.make_ca("LC Unknown Root")
+    inter, inter_key = certgen.make_intermediate(root, root_key, "LC Unknown Inter")
+    leaf, leaf_key = certgen.make_leaf(inter, inter_key, "lc-unknown.test", san=["lc-unknown.test"])
+    leaf_id = _import_pem(client, h, "leaf.pem", certgen.pem(leaf))
+    with _tls_server(certgen.pem(leaf), certgen.key_pem(leaf_key)) as port:
+        domain_id = _make_domain(client, h, f"127.0.0.1:{port}(lc-unknown)")
+        client.post(f"/api/domains/{domain_id}/certificates", headers=h,
+                    json={"certificate_id": leaf_id, "mapping_type": "server"})
+        body = client.post(f"/api/domains/{domain_id}/live-check", headers=h).json()
+        assert body["live_check_status"] == "match"
+        assert "chain_warning" not in json.loads(body["live_check_detail"])

@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate, Domain
 from app.services.audit import audited_job
-from app.services.cert_parser import parse_x509
+from app.services.cert_parser import find_ca_by_issuer, find_ca_by_ski, parse_x509
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +197,27 @@ def host_name_warning(host: str, cert: x509.Certificate) -> str | None:
             "Sunucu bu adres için başka bir sitenin sertifikasını veriyor olabilir; adresi kontrol edin.")
 
 
+def missing_intermediate(db: Session, served_list: list) -> str | None:
+    """Yarım zincir: sunulan bir sertifikanın yayıncısı zincirde yok ve envanterde bu yayıncı
+    bir ARA sertifika ise adını döner. Yayıncı kök ise sunulmaması normaldir (istemci kökü
+    kendi tutar). Yayıncı envanterde hiç yoksa kök mü ara mı bilinemez; uyarı verilmez."""
+    served_skis = {p.subject_key_identifier for p in served_list if p.subject_key_identifier}
+    served_subjects = {p.subject for p in served_list}
+    for p in served_list:
+        if p.cert_type == "root" or p.issuer == p.subject:
+            continue
+        if (p.authority_key_identifier and p.authority_key_identifier in served_skis) \
+                or p.issuer in served_subjects:
+            continue
+        if p.authority_key_identifier:
+            parent = find_ca_by_ski(db, p.authority_key_identifier)
+        else:
+            parent = find_ca_by_issuer(db, p.issuer, p.pem_certificate)
+        if parent is not None and normalize_cert_type(parent.cert_type) == "intermediate":
+            return parent.name
+    return None
+
+
 def check_domain(db: Session, domain: Domain) -> Domain:
     """Domain'i canlı kontrol eder, sonucu domain kaydına yazar. Çağıran commit eder.
 
@@ -286,6 +307,18 @@ def check_domain(db: Session, domain: Domain) -> Domain:
                 detail["reason"] = "Sunulan zincirin bir veya daha fazla seviyesi eşlenmiş sertifikadan farklı"
             else:
                 domain.live_check_status = "match"
+
+    # Yarım zincir: sunucu ara sertifikayı göndermiyor. Tarayıcılar eksik ara sertifikayı
+    # çoğu zaman kendileri indirir ama Java, mobil ve API istemcileri bağlantı kuramaz.
+    # Öneri üretilmez (düzeltme sunucuda yapılır); başka bir uyumsuzluk yoksa durum sarı olur.
+    gap = missing_intermediate(db, served_list)
+    if gap:
+        detail["chain_warning"] = (f"Sunucu ara sertifikayı göndermiyor ({gap}). Tarayıcılar çoğu "
+                                   f"zaman açar ama Java, mobil ve API istemcileri bağlantı "
+                                   f"kuramayabilir; ara sertifika sunucuya kurulmalı.")
+        if domain.live_check_status == "match":
+            domain.live_check_status = "chain_incomplete"
+            detail["reason"] = detail["chain_warning"]
 
     # Sunucuda envanterde PASİF olan bir sertifika sunuluyorsa (yerine yenisi geçmiş ama
     # sunucuya kurulmamış) durum yeşil görünmemeli: pasif sertifika bağlanamaz, sunucu güncellenmeli.
