@@ -15,6 +15,7 @@ import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, ChainImportResult, Domain } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
+import { chainImportInactiveWarning, chainImportSummary } from '../utils/chainImport'
 import CertificatePicker from './CertificatePicker'
 import SkiText from './SkiText'
 
@@ -128,12 +129,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
       (await api.post<ChainImportResult>(`/domains/${domainId}/import-chain`,
         null, { params: { supersede: replaceOld, environment: importEnvironment || undefined } })).data,
     onSuccess: (r) => {
-      const parts = []
-      if (r.created.length) parts.push(`${r.created.length} sertifika eklendi`)
-      if (r.mapped_server) parts.push(`"${r.mapped_server}" server eşlendi`)
-      if (r.superseded.length) parts.push(`${r.superseded.length} devir önerisi oluşturuldu (SY onayı bekliyor)`)
-      enqueueSnackbar(parts.join(', ') || 'Değişiklik yok',
+      const summary = chainImportSummary(r)
+      enqueueSnackbar(summary.charAt(0).toUpperCase() + summary.slice(1),
                       { variant: 'success', autoHideDuration: r.superseded.length ? TRANSFER_TOAST_MS : undefined })
+      const inactiveWarning = chainImportInactiveWarning(r)
+      if (inactiveWarning) {
+        enqueueSnackbar(inactiveWarning, { variant: 'warning', autoHideDuration: TRANSFER_TOAST_MS })
+      }
       invalidate()
       liveCheck.mutate()
     },
@@ -172,6 +174,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <Typography variant="body2" noWrap title={c.name}>{c.name}</Typography>
                   <SkiText value={c.subject_key_identifier} />
                 </Box>
+                {c.is_active === false && <Chip size="small" color="warning" label="Pasif" />}
                 <Chip size="small" color={daysLeftColor(c.days_left)} label={daysLeftLabel(c.days_left)} />
                 {canEdit && (
                   <Tooltip title="Eşlemeyi kaldır">
@@ -190,8 +193,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     seçici kendi satırında TAM genişlik, tip + buton ikinci satırda. */}
                 <Stack spacing={1.5}>
                   <CertificatePicker
-                    options={mappingType === 'server'
-                      ? (certs ?? []).filter((c) => c.cert_type === 'leaf') : (certs ?? [])}
+                    options={(certs ?? []).filter((c) => c.is_active
+                      && (mappingType !== 'server' || c.cert_type === 'leaf'))}
                     label="Sertifika seç (ad, SKI, seri no ile ara)"
                     value={selectedCert} onChange={setSelectedCert}
                     disabledIds={alreadyMapped} disabledLabel="zaten bağlı"

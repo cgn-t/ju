@@ -94,6 +94,7 @@ def _to_out(domain: Domain, db: Session | None = None,
             days_left=days,
             serial_number=m.certificate.serial_number,
             subject_key_identifier=m.certificate.subject_key_identifier,
+            is_active=bool(m.certificate.is_active),
         ))
         if days is not None:
             if m.mapping_type == "server":
@@ -308,7 +309,7 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     sync = sync_domain_chain_certs(db, domain, chain, username=user.username, request=request,
                                    via="import-chain", environment=environment or None)
     leaf_row = sync.leaf_row
-    if supersede and leaf_row is not None:
+    if supersede and leaf_row is not None and leaf_row.is_active:
         # ONAY MODELİ: sertifika canlıdan çekilmiş olsa da (deploy kanıtlı) devir yine SY
         # onayı bekler; öneri live_seen=True kanıtıyla doğar. Yalnız leaf'e özeldir ve YALNIZ bu
         # domain kapsamındadır (domain_id) — öncülün diğer domainlerine yayılmaz;
@@ -328,7 +329,8 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
                 sync.superseded.append(old.name)
     db.commit()
     return ChainImportOut(created=sync.created, existing=sync.existing,
-                          mapped_server=sync.mapped.get("leaf"), superseded=sync.superseded)
+                          mapped_server=sync.mapped.get("leaf"), superseded=sync.superseded,
+                          inactive=sync.inactive)
 
 
 @router.get("/{domain_id}", response_model=DomainOut)
@@ -475,6 +477,11 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
         certificate_id=cert.id, domain_id=domain.id, mapping_type=body.mapping_type).first()
     if exists:
         raise HTTPException(status_code=409, detail="Bu eşleme zaten mevcut")
+    # İş kuralı: domaine bağlı sertifika pasif olamaz (bkz. _ensure_deactivatable)
+    if not cert.is_active:
+        raise HTTPException(status_code=400, detail=(
+            f"'{cert.name}' pasif durumda; pasif sertifika domaine bağlanamaz. Önce sertifikayı "
+            f"aktife alın ya da güncel sertifikayı seçin."))
 
     if body.mapping_type == "client":
         # TRUSTED: zincir zorunluluğu yok — leaf/intermediate/root teker teker bağlanabilir.
@@ -525,6 +532,11 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
         "Zincir eksik: intermediate/root envanterde yok — yalnızca bulunabilen seviyeler "
         "bağlandı. Devir takibi ve canlı doğrulama bu seviyeler için şimdilik sınırlı "
         "kalacak; zincir ileride içe aktarılırsa otomatik tamamlanır.")
+    passive_parents = [m.name for m in chain if not m.is_active]
+    if passive_parents:
+        chain = [m for m in chain if m.is_active]
+        note = (f"Zincirdeki pasif sertifika(lar) bağlanmadı: {', '.join(passive_parents)}.")
+        warning = f"{warning} {note}" if warning else note
 
     # Aynı zincirde AYNI tipten birden fazla sertifika olabilir (ör. gerçek 2 katmanlı
     # ara-CA hiyerarşisi, ya da eski istemcilerle uyum için sunulan çapraz-imzalı bir
