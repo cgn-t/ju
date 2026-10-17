@@ -42,6 +42,7 @@ from app.db.session import get_db
 from app.services import cert_parser, renewal
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
+from app.services.dependencies import fill_unwatched_dependencies
 from app.services import live_check as live_check_service
 from app.services.live_check import check_domain, fetch_served_chain, host_name_warning, parse_target
 
@@ -597,6 +598,9 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
                        f"var ({', '.join(t for t, _ in proposals)}). Doğrudan değiştirilemez — "
                        f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."
                        + (f" {warning}" if warning else ""))})
+    # domaine bu server leaf'i bağlanmadan önce eklenmiş (izlediği sertifikası boş) mTLS
+    # bağımlılıkları artık bu sertifikayı izlesin — uygulama sahibi süre uyarısı alsın
+    fill_unwatched_dependencies(db, domain.id)
     db.commit()
     out = jsonable_encoder(_to_out(_query(db).filter(Domain.id == domain_id).first()))
     if warning:

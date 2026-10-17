@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.certtype import cert_type_filter
 from app.core.emails import split_emails
-from app.db.models import (AppDependency, ApplicationTrustedCert, Certificate,
+from app.db.models import (AppDependency, Application, ApplicationTrustedCert, Certificate,
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
 from app.db.session import SessionLocal
@@ -408,18 +408,26 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
             "mail_sent": mail_sent, "message": message}
 
 
-def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) -> list[dict]:
+def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30, *,
+                         include_trusted: bool = True) -> list[dict]:
     """Süre uyarısının PAYDAŞLARINI çözer — her paydaş AYRI mail alır:
       1. Sertifikanın SAHİBİ: cert.creator "Oluşturan Ekip" (SY) ya da geriye dönük kullanıcı.
       2. Bağlı olduğu her DOMAIN'in sahibi SY ekibi (Team.email, virgülle çoklu).
-      3. CLIENT olarak bağlı olduğu her UYGULAMANIN (AppDependency.client_cert) sahibi SY ekibi.
-    Aynı SY ekibi birden çok kaynaktan geliyorsa TEK mail alır, nedenleri birleşir.
+      3. "Bağlı Domain"i bu sertifikayı SERVER olarak taşıyan her UYGULAMANIN sahibi SY ekibi.
+      4. CLIENT olarak bağlı olduğu her UYGULAMANIN (AppDependency.client_cert) sahibi SY ekibi.
+      5. Trust store'una eklendiği her UYGULAMANIN sahibi SY ekibi — yalnız include_trusted
+         ise (süresi GEÇMİŞ akışında False: trusted sahibi yalnız süre dolana kadar uyarılır).
+    Aynı SY ekibi birden çok kaynaktan geliyorsa TEK mail alır, nedenleri birleşir. Uygulamanın
+    durumu (pasif/aktif) bakılmaz — pasif uygulamanın sahibi de uyarılır.
 
     Her paydaşa `effective_days` eşlenir: paydaş, sertifika bitişine bu kadar gün kala mail
-    almaya başlar. DOMAIN paydaşında domainin `notify_days`'i (boşsa `global_days`); oluşturan-
-    ekip / kullanıcı / uygulama paydaşında `global_days`. Aynı ekip birden çok domaine sahipse
-    effective_days = MAX (en erken pencere isteyen kazanır). Geçit `_dispatch_cert_mails`'te.
-    Döner: [{label, emails, reasons, effective_days}] — emails boş paydaşlar elenir."""
+    almaya başlar. DOMAIN paydaşında domainin `notify_days`'i (boşsa `global_days`); bağlı-domain
+    ve mTLS uygulama paydaşında ilgili domainin `notify_days`'i; trusted uygulama paydaşında
+    sertifikanın bağlı domainlerindeki en büyük `notify_days` (domain sahibiyle aynı gün);
+    oluşturan-ekip / kullanıcı paydaşında `global_days`. Aynı ekip birden çok kaynaktan
+    geliyorsa effective_days = MAX (en erken pencere isteyen kazanır). Geçit
+    `_dispatch_cert_mails`'te. Döner: [{label, emails, reasons, effective_days}] — emails boş
+    paydaşlar elenir."""
     stakeholders: dict[str, dict] = {}
 
     def add(key: str, label: str, emails: list[str], reason: str, effective_days: int) -> None:
@@ -451,15 +459,33 @@ def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) 
                     "Bu sertifikayı siz oluşturdunuz (sahip)", global_days)
 
     # 2) bağlı domainlerin SY ekipleri — domainin kendi notify_days penceresiyle
+    def _days(dom) -> int:
+        return (dom.notify_days if dom is not None else None) or global_days
+
+    server_domains = []
     for m in cert.domain_mappings:
         dom = m.domain
-        if dom is None or dom.sy_team is None:
+        if dom is None:
             continue
-        dom_days = dom.notify_days or global_days
+        if m.mapping_type == "server":
+            server_domains.append(dom)
+        if dom.sy_team is None:
+            continue
         add(f"team:{dom.sy_team.id}", dom.sy_team.name, _team_emails(dom.sy_team),
-            f"Domain sahibi: {dom.domain} ({_mapping_label(m.mapping_type)})", dom_days)
+            f"Domain sahibi: {dom.domain} ({_mapping_label(m.mapping_type)})", _days(dom))
 
-    # 3) client (trusted) olarak bağlı olduğu uygulamaların SY ekipleri
+    # 3) "Bağlı Domain"i bu sertifikayı server olarak taşıyan uygulamaların SY ekipleri
+    if server_domains:
+        apps = (db.query(Application)
+                .filter(Application.domain_id.in_([d.id for d in server_domains])).all())
+        for app_row in apps:
+            if app_row.sy_team is None:
+                continue
+            add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
+                f"Uygulama sahibi (bağlı domain {app_row.domain.domain}): {app_row.app_name}",
+                _days(app_row.domain))
+
+    # 4) client (trusted) olarak bağlı olduğu uygulamaların SY ekipleri — hedef domainin günüyle
     deps = (db.query(AppDependency)
             .filter(AppDependency.client_cert_id == cert.id).all())
     for dep in deps:
@@ -467,17 +493,21 @@ def _expiry_stakeholders(db: Session, cert: Certificate, global_days: int = 30) 
         if app_row is None or app_row.sy_team is None:
             continue
         add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
-            f"Uygulama sahibi (trusted bağlantı): {app_row.app_name}", global_days)
+            f"Uygulama sahibi (trusted bağlantı): {app_row.app_name}", _days(dep.target_domain))
 
-    # 4) trust store'una eklendiği (trusted) uygulamaların SY ekipleri
-    trusted = (db.query(ApplicationTrustedCert)
-               .filter(ApplicationTrustedCert.cert_id == cert.id).all())
-    for tr in trusted:
-        app_row = tr.app
-        if app_row is None or app_row.sy_team is None:
-            continue
-        add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
-            f"Uygulama trust store'unda (trusted): {app_row.app_name}", global_days)
+    # 5) trust store'una eklendiği (trusted) uygulamaların SY ekipleri — sertifikanın bağlı
+    #    domainlerinden en erken uyarı isteyenin günüyle (domain sahibiyle aynı gün)
+    if include_trusted:
+        trusted_days = max([_days(m.domain) for m in cert.domain_mappings if m.domain is not None],
+                           default=global_days)
+        trusted = (db.query(ApplicationTrustedCert)
+                   .filter(ApplicationTrustedCert.cert_id == cert.id).all())
+        for tr in trusted:
+            app_row = tr.app
+            if app_row is None or app_row.sy_team is None:
+                continue
+            add(f"team:{app_row.sy_team.id}", app_row.sy_team.name, _team_emails(app_row.sy_team),
+                f"Uygulama trust store'unda (trusted): {app_row.app_name}", trusted_days)
 
     return list(stakeholders.values())
 
@@ -634,8 +664,20 @@ def _record_dispatch_error(db: Session, context: str, exc: Exception, *, certifi
         logger.exception("Hata kaydı (mail_queue) da yazılamadı: %s (%s)", context, label)
 
 
+def _no_recipient_party(cfg: dict, global_days: int) -> dict | None:
+    """Hiç alıcısı (e-postası tanımlı paydaşı) olmayan sertifika için yedek adres paydaşı —
+    sessizce atlanmasın. Yedek adres tanımsızsa None."""
+    fb = split_emails(cfg.get("fallback_address"))
+    if not fb:
+        return None
+    return {"label": "yedek adres", "emails": fb, "effective_days": global_days,
+            "reasons": ["Bu sertifika için e-posta adresi tanımlı bir alıcı bulunamadı (sahip ekip, "
+                        "domain ve uygulama sahipleri) — yedek adrese gönderildi"]}
+
+
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
-                         make_subject, make_body, make_html=None, global_days: int = 30) -> dict:
+                         make_subject, make_body, make_html=None, global_days: int = 30,
+                         include_trusted: bool = True) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
     kendi nedenleriyle AYRI mail atar. force=False + resend_dedup_enabled AÇIK → o paydaşa
     (alıcıya) son `resend_interval_hours` saatte (varsayılan 3) bildirim gönderilmişse O PAYDAŞ
@@ -651,9 +693,17 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
     dedup_enabled = cfg.get("resend_dedup_enabled", True)  # kapalıysa her tarama gönderir
     for cert in certs:
         try:
-            parties = _expiry_stakeholders(db, cert, global_days)
+            parties = _expiry_stakeholders(db, cert, global_days, include_trusted=include_trusted)
+            if not parties:
+                # Yalnız trusted paydaşı olup süresi geçmiş akışında bilinçli dışarıda bırakılan
+                # sertifika "alıcısız" sayılmaz; gerçekten kimsesi yoksa yedek adrese gider.
+                if include_trusted or not _expiry_stakeholders(db, cert, global_days):
+                    fb_party = _no_recipient_party(cfg, global_days)
+                    parties = [fb_party] if fb_party else []
             if not parties:
                 skipped += 1
+                details.append({"certificate": cert.name, "days_left": None, "mails": [],
+                                "error": "tanımlı alıcı yok (yedek adres de tanımsız) — atlandı"})
                 continue
 
             days_left = (cert.valid_to - utcnow()).days  # geçmişse NEGATİF (gün önce doldu)
@@ -809,9 +859,22 @@ def _reason_block(p: dict) -> str:
             + "".join(f"  - {r}\n" for r in p["reasons"]))
 
 
+def _sync_dependencies(db: Session) -> None:
+    """Tarama öncesi: izlediği sertifikası boş kalmış mTLS bağımlılıklarını doldur (domaine
+    sertifika hangi yoldan bağlanmış olursa olsun uygulama sahibi uyarılsın)."""
+    from app.services.dependencies import fill_unwatched_dependencies
+    try:
+        if fill_unwatched_dependencies(db):
+            db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("mTLS bağımlılıkları güncellenemedi (tarama sürüyor)")
+
+
 def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
     """SÜRESİ YAKLAŞAN sertifikalar: bitişe `expiry_warning_days`'ten az gün kalanlar.
     Günlük 08:00 cron ve POST /api/notifications/expiry-run bu fonksiyonu kullanır."""
+    _sync_dependencies(db)
     cfg = get_category(db, "smtp", mask_secrets=False)
     warn_days = int(cfg.get("expiry_warning_days") or 30)
     # Bir domain kendi notify_days'iyle global default'tan ERKEN uyarı isteyebilir → aday
@@ -927,6 +990,7 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
     """SÜRESİ GEÇMİŞ ama JUMBO'da HÂLÂ AKTİF (güncellenmemiş) sertifikalar: paydaşlara
     'JUMBO'da güncelleyin' hatırlatması gönderir. POST /api/notifications/expired-run
     bu fonksiyonu kullanır. Pasife alınmış kayıtlar taranmaz (zaten güncellenmiş sayılır)."""
+    _sync_dependencies(db)
     cfg = get_category(db, "smtp", mask_secrets=False)
     expired = (
         db.query(Certificate)
@@ -967,9 +1031,10 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
                                       doc_links=cfg.get("doc_links") or "")
 
     global_days = int(cfg.get("expiry_warning_days") or 30)
+    # Trusted (trust store) paydaşı yalnız süre dolana kadar uyarılır — burada dahil edilmez.
     cert_result = _dispatch_cert_mails(db, cfg, expired, force=force,
                                        make_subject=subject, make_body=body, make_html=html,
-                                       global_days=global_days)
+                                       global_days=global_days, include_trusted=False)
 
     # Server tipi AKTİF LEAF sertifikası OLMAYAN, yalnız manuel Bitiş Tarihi girilmiş ve
     # süresi geçmiş domainler — bkz. _dispatch_domain_mails ve yukarıdaki aynı gerekçe.

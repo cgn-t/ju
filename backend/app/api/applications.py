@@ -5,7 +5,6 @@ from app.api.schemas import (
     AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationUpdate,
     AppTrustedCertCreate, AppTrustedCertOut,
 )
-from app.core.certtype import cert_type_filter
 from app.core.security import (
     can_manage_team_resource, domain_scope_team_ids, require_role, user_team_ids,
 )
@@ -13,6 +12,7 @@ from app.db.models import (AppDependency, Application, ApplicationTag, Applicati
                             Certificate, CertificateDomainMap, Domain, Tag, TransferProposal, User)
 from app.db.session import get_db
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
+from app.services.dependencies import domain_server_cert_id
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
@@ -218,24 +218,6 @@ def list_dependencies(app_id: int, db: Session = Depends(get_db),
     return _dep_query(db).filter(AppDependency.app_id == app_id).all()
 
 
-def _domain_server_cert_id(db: Session, domain_id: int) -> int | None:
-    """Hedef domain'in AKTİF 'server' LEAF sertifikasının id'si (en geç biteni). mTLS için
-    izlenen kimlik her zaman leaf'tir (TLS el sıkışmasında sunulan sertifika) — "server"
-    eşlemesi artık zinciri (intermediate/root dahil) da taşıyabildiğinden burada cert_type
-    LEAF'e sabitlenir, aksi halde çok daha uzun ömürlü bir root/intermediate yanlışlıkla
-    seçilebilirdi. O leaf yenilendiğinde renewal.propose bu bağımlılık için uygulama
-    sahibi SY ekibine devir önerisi üretir."""
-    row = (db.query(CertificateDomainMap)
-           .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
-           .filter(CertificateDomainMap.domain_id == domain_id,
-                   CertificateDomainMap.mapping_type == "server",
-                   cert_type_filter(Certificate.cert_type, "leaf"),
-                   Certificate.is_active == True)
-           .order_by(Certificate.valid_to.desc())
-           .first())
-    return row.certificate_id if row else None
-
-
 @router.post("/{app_id}/dependencies", response_model=AppDependencyOut)
 def create_dependency(request: Request, app_id: int, body: AppDependencyCreate,
                       db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
@@ -263,7 +245,7 @@ def create_dependency(request: Request, app_id: int, body: AppDependencyCreate,
     # Client sertifikası ELLE SEÇİLMEZ (body.client_cert_id yok sayılır): hedef domainin AKTİF
     # server sertifikası otomatik izlenir. O sertifika yenilenince uygulama sahibi SY ekibine
     # 'client değişikliği' devir önerisi gider (mevcut renewal.propose mekanizması).
-    client_cert_id = _domain_server_cert_id(db, body.target_domain_id)
+    client_cert_id = domain_server_cert_id(db, body.target_domain_id)
     dep = AppDependency(app_id=app_id, target_domain_id=body.target_domain_id,
                         client_cert_id=client_cert_id, note=body.note)
     db.add(dep)

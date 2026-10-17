@@ -187,7 +187,7 @@ def test_partial_refusal_goes_to_fallback_and_history(client, auth_headers, fake
         db.close()
 
     assert _delivered_to("fix-ok@test"), "reddedilmeyen alıcıya mail gitmeli"
-    fb = _delivered_to("fix-fallback@test")
+    fb = [x for x in _delivered_to("fix-fallback@test") if "fix-partial-cert.test" in x]
     assert fb, "reddedilen alıcı yedek adrese bildirilmeli"
     assert "[YEDEK]" in fb[-1] and "fix-bad@test" in fb[-1]
 
