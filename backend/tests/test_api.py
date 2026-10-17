@@ -428,15 +428,28 @@ def test_import_chain_wildcard_rejected(client, auth_headers):
     assert r.status_code == 400
 
 
-def test_probe_and_import_chain_live_tls(client, auth_headers, fixtures_dir):
-    """Gerçek TLS sunucusundan zincir çekme: fixture zinciri lokal portta sunulur;
-    probe zinciri 'zaten kayıtlı' işaretler, import leaf'i domain'e server olarak eşler."""
+def test_probe_and_import_chain_live_tls(client, auth_headers, tmp_path):
+    """Gerçek TLS sunucusundan zincir çekme: test anında üretilen zincir lokal portta
+    sunulur; probe zinciri 'zaten kayıtlı' işaretler, import leaf'i domain'e server
+    olarak eşler. Özel anahtar repoda tutulmaz (.gitignore *.key), burada üretilir."""
     import socket
     import ssl
     import threading
 
+    from tests import certgen
+
+    root, root_key = certgen.make_ca("Live TLS Test Root")
+    inter, inter_key = certgen.make_intermediate(root, root_key, "Live TLS Test Intermediate")
+    leaf, leaf_key = certgen.make_leaf(inter, inter_key, "localhost", san=["localhost"])
+    fullchain = "".join(certgen.pem(c) for c in (leaf, inter, root))
+    r = client.post("/api/certificates/import", headers=auth_headers,
+                    files={"file": ("fullchain.pem", fullchain.encode(), "application/x-pem-file")})
+    assert r.status_code == 200, r.text
+    (tmp_path / "fullchain.pem").write_text(fullchain)
+    (tmp_path / "leaf.key").write_text(certgen.key_pem(leaf_key))
+
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(fixtures_dir / "fullchain.pem", fixtures_dir / "leaf.key")
+    ctx.load_cert_chain(tmp_path / "fullchain.pem", tmp_path / "leaf.key")
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -462,7 +475,7 @@ def test_probe_and_import_chain_live_tls(client, auth_headers, fixtures_dir):
         body = r.json()
         assert body["reachable"] is True
         assert len(body["certificates"]) == 3  # leaf + intermediate + root
-        # Fixture zinciri önceki testte import edildi — hepsi kayıtlı görünmeli
+        # Zincir yukarıda import edildi — hepsi kayıtlı görünmeli
         assert all(c["already_exists"] for c in body["certificates"])
         assert body["certificates"][0]["subject_key_identifier"]
 
