@@ -9,6 +9,7 @@ import {
 } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { useUrlParams, useUrlWriter } from '../hooks/useUrlState'
+import { includesFolded } from '../utils/textMatch'
 
 /**
  * Grafana benzeri kolon-başı filtre — tablo başlığındaki HUNİ ikonundan açılan popover.
@@ -77,7 +78,7 @@ export function useColumnFilters<T>(
   const matches = (row: T) => defs.every((d) => {
     const v = values[d.key] ?? (d.kind === 'status' ? 'all' : '')
     if (d.kind === 'status') return v === 'all' || d.get(row) === v
-    return !v || String(d.get(row) ?? '').toLowerCase().includes(v.toLowerCase())
+    return !v || includesFolded(String(d.get(row) ?? ''), v)
   })
   return {
     values, active, anyActive, matches, defs, menu,

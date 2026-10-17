@@ -10,6 +10,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.textmatch import ci_like
 from app.api.schemas import (
     DeploymentFlowCreate, DeploymentFlowOut, DeploymentFlowSummaryOut, DeploymentFlowUpdate,
     DeploymentRunOut, DeploymentRunSummaryOut,
@@ -207,11 +208,11 @@ def list_runs(app_id: int | None = Query(None), flow_id: int | None = Query(None
         # eşleşirse run listelenir — hangi geçmiş run'ın belirli bir parametreyle çalıştığını bulmak için.
         like = f"%{q}%"
         matching_run_ids = (db.query(DeploymentRunStep.run_id)
-                            .filter(DeploymentRunStep.jenkins_job.ilike(like)
-                                    | DeploymentRunStep.params_snapshot.ilike(like))
+                            .filter(ci_like(DeploymentRunStep.jenkins_job, like)
+                                    | ci_like(DeploymentRunStep.params_snapshot, like))
                             .distinct())
-        query = query.filter(DeploymentRun.flow_name_snapshot.ilike(like)
-                             | DeploymentRun.triggered_by.ilike(like)
+        query = query.filter(ci_like(DeploymentRun.flow_name_snapshot, like)
+                             | ci_like(DeploymentRun.triggered_by, like)
                              | DeploymentRun.id.in_(matching_run_ids))
     return query.order_by(DeploymentRun.created_at.desc()).limit(limit).all()
 
