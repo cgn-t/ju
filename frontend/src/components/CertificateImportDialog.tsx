@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { ImportPreview, Team } from '../api/types'
+import type { Certificate, ImportPreview, Team } from '../api/types'
 import { MONO_FONT, nodeColors } from '../theme'
 import ConfirmSaveDialog, { type ConfirmItem } from './ConfirmSaveDialog'
 
@@ -126,8 +126,11 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         purchased_by: manualPurchasedBy || null, is_internal: manualInternal,
         creator: creator || null, environment: manualEnvironment || null,
       })).data,
-    onSuccess: () => {
-      enqueueSnackbar('Sertifika eklendi', { variant: 'success' })
+    onSuccess: (data: Certificate) => {
+      const extra = data?.chain_added ?? []
+      enqueueSnackbar(extra.length
+        ? `Sertifika eklendi; zincirdeki ${extra.length} sertifika da kaydedildi (${extra.join(', ')})`
+        : 'Sertifika eklendi', { variant: 'success' })
       invalidate(); close()
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
@@ -191,11 +194,11 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                 {file ? file.name : 'Sertifika dosyasını sürükleyin veya tıklayıp seçin'}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                .pem, .crt, .cer, .der, .pfx, .p12 — fullchain PEM desteklenir, zincir otomatik bağlanır
+                .pem, .crt, .cer, .der, .p7b, .pfx, .p12 — fullchain PEM desteklenir, zincir otomatik bağlanır
               </Typography>
               <input
                 ref={fileInput} type="file" hidden
-                accept=".pem,.crt,.cer,.der,.pfx,.p12,.txt"
+                accept=".pem,.crt,.cer,.der,.p7b,.p7c,.pfx,.p12,.txt"
                 // value sıfırlanır: önizleme hatasından sonra AYNI dosya yeniden
                 // seçilebilsin (yoksa change tetiklenmez, İçe Aktar kilitli kalır)
                 onChange={(e) => { pickFile(e.target.files?.[0] ?? null); e.target.value = '' }}

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from app.core.timeutil import utcnow
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 from sqlalchemy.orm import Session
 
 from app.core.certtype import normalize_cert_type
@@ -33,12 +34,24 @@ def parse_target(domain_value: str) -> tuple[str | None, int]:
 
     Örnekler: "trade.aaakkk.com" → (trade.aaakkk.com, 443)
               "xxx.aaakkk.com:8228(Bloomberg)" → (xxx.aaakkk.com, 8228)
+              "https://trade.aaakkk.com/giris" → (trade.aaakkk.com, 443)
+              "[2001:db8::1]:8443" → (2001:db8::1, 8443)
               "*.aaakkk.com" → (None, 443)  — wildcard'a bağlanılamaz
     """
     value = re.sub(r"\(.*?\)", "", (domain_value or "")).strip()
+    # Tarayıcıdan kopyalanan adres: şema, kullanıcı bilgisi ve yol/sorgu kısmı atılır
+    value = re.sub(r"^[A-Za-z][A-Za-z0-9+.-]*://", "", value)
+    value = re.split(r"[/?#]", value, maxsplit=1)[0]
+    value = value.rpartition("@")[2].strip()
     if not value or value.startswith("*"):
         return None, 443
-    host, _, port_str = value.partition(":")
+    if value.startswith("["):  # IPv6: [adres]:port
+        host, _, rest = value[1:].partition("]")
+        port_str = rest[1:] if rest.startswith(":") else ""
+    elif value.count(":") > 1:  # köşeli parantezsiz IPv6, port yok
+        host, port_str = value, ""
+    else:
+        host, _, port_str = value.partition(":")
     host = host.strip()
     try:
         port = int(port_str) if port_str.strip() else 443
@@ -47,32 +60,80 @@ def parse_target(domain_value: str) -> tuple[str | None, int]:
     return (host or None), port
 
 
-def fetch_served_certificate(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -> x509.Certificate:
-    """Sertifika doğrulaması yapmadan (self-signed/iç CA olabilir) sunulan sertifikayı çeker."""
+def _probe_context(captured: list[bytes]) -> ssl.SSLContext:
+    """Yalnız sertifikayı OKUMAK için TLS bağlamı: doğrulama yok, eski protokoller (TLS 1.0/1.1)
+    ve zayıf şifreler açık — süresi geçmiş sertifikalar en çok bu eski sistemlerde bulunur.
+    Güven kararı burada verilmez; bağlantı üzerinden veri gönderilmez.
+
+    `captured`: el sıkışmada gelen Certificate mesajları (TLS ≤1.2'de açık metin). Sunucu
+    istemci sertifikası zorunlu tuttuğu için el sıkışma yarıda kesilse bile sunucunun
+    sertifikası bu mesajdan okunur."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    with socket.create_connection((host, port), timeout=timeout) as sock:
-        with context.wrap_socket(sock, server_hostname=host) as tls:
-            der = tls.getpeercert(binary_form=True)
-    if not der:
-        raise ssl.SSLError("Sunucu sertifika göndermedi")
-    return x509.load_der_x509_certificate(der)
+    try:
+        context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        context.set_ciphers("ALL:@SECLEVEL=0")
+    except (ValueError, ssl.SSLError):
+        pass
+    context.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0)
+
+    def _on_message(conn, direction, version, content_type, msg_type, data):
+        if (direction == "read" and content_type == ssl._TLSContentType.HANDSHAKE
+                and msg_type == ssl._TLSMessageType.CERTIFICATE
+                and version != ssl.TLSVersion.TLSv1_3):
+            captured.append(bytes(data))
+
+    context._msg_callback = _on_message
+    return context
 
 
-def fetch_served_chain(host: str, port: int) -> list[x509.Certificate]:
+def _certs_from_handshake(messages: list[bytes]) -> list[x509.Certificate]:
+    """TLS ≤1.2 Certificate mesajı: tip(1) uzunluk(3) liste-uzunluğu(3) {uzunluk(3) DER}*"""
+    for msg in messages:
+        body = msg[4:] if len(msg) > 4 and msg[0] == 11 else msg
+        total = int.from_bytes(body[:3], "big")
+        pos, end, certs = 3, min(3 + total, len(body)), []
+        while pos + 3 <= end:
+            n = int.from_bytes(body[pos:pos + 3], "big")
+            pos += 3
+            certs.append(x509.load_der_x509_certificate(body[pos:pos + n]))
+            pos += n
+        if certs:
+            return certs
+    return []
+
+
+def _handshake(host: str, port: int, timeout: float) -> tuple[bytes | None, list | None]:
+    captured: list[bytes] = []
+    context = _probe_context(captured)
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as tls:
+                leaf_der = tls.getpeercert(binary_form=True)
+                raw_chain = tls.get_unverified_chain() if hasattr(tls, "get_unverified_chain") else None
+                return leaf_der, raw_chain
+    except (ssl.SSLError, ConnectionResetError, BrokenPipeError):
+        certs = _certs_from_handshake(captured)
+        if certs:
+            logger.info("%s:%s el sıkışmayı tamamlamadı (ör. istemci sertifikası zorunlu); "
+                        "sunucu sertifikası el sıkışma mesajından okundu", host, port)
+            return None, [c.public_bytes(serialization.Encoding.DER) for c in certs]
+        raise
+
+
+def fetch_served_certificate(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -> x509.Certificate:
+    """Sertifika doğrulaması yapmadan (self-signed/iç CA olabilir) sunulan sertifikayı çeker."""
+    return fetch_served_chain(host, port, timeout)[0]
+
+
+def fetch_served_chain(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -> list[x509.Certificate]:
     """Sunucunun el sıkışmada sunduğu TÜM zinciri (leaf → root sırasıyla) doğrulamasız çeker.
 
     get_unverified_chain Python 3.13+ gerektirir; yoksa yalnız leaf ile devam edilir.
     Dönen öğeler sürüme göre DER bytes veya ssl.Certificate olabilir — ikisi de desteklenir.
     """
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    with socket.create_connection((host, port), timeout=TIMEOUT_SECONDS) as sock:
-        with context.wrap_socket(sock, server_hostname=host) as tls:
-            leaf_der = tls.getpeercert(binary_form=True)
-            raw_chain = tls.get_unverified_chain() if hasattr(tls, "get_unverified_chain") else None
+    leaf_der, raw_chain = _handshake(host, port, timeout)
     certs: list[x509.Certificate] = []
     for item in raw_chain or []:
         der = item if isinstance(item, bytes) else item.public_bytes(ssl.ENCODING_DER)
@@ -172,6 +233,19 @@ def check_domain(db: Session, domain: Domain) -> Domain:
                 detail["reason"] = "Sunulan zincirin bir veya daha fazla seviyesi eşlenmiş sertifikadan farklı"
             else:
                 domain.live_check_status = "match"
+
+    # Sunucuda envanterde PASİF olan bir sertifika sunuluyorsa (yerine yenisi geçmiş ama
+    # sunucuya kurulmamış) durum yeşil görünmemeli: pasif sertifika bağlanamaz, sunucu güncellenmeli.
+    inactive_served = [
+        c.name for c in (db.query(Certificate)
+                         .filter(Certificate.fingerprint_sha256.in_(
+                             [s.fingerprint_sha256 for s in served_list]),
+                                 Certificate.is_active == False).all())]  # noqa: E712
+    if inactive_served:
+        domain.live_check_status = "mismatch"
+        detail["inactive_served"] = inactive_served
+        detail["reason"] = ("Sunucuda envanterde PASİF olan sertifika sunuluyor: "
+                            + ", ".join(inactive_served) + " — sunucudaki sertifika güncellenmeli")
 
     # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir devir önerisinin
     # HALEFİ ise (eşli olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay

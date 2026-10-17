@@ -47,6 +47,7 @@ export interface Certificate {
   vault_path?: string | null
   auto_renew: boolean
   superseded_by_id?: number | null
+  chain_added?: string[] | null
   notes?: string | null
   created_at: string
   updated_at: string
@@ -166,6 +167,7 @@ export interface MappedCert {
   days_left?: number | null
   serial_number?: string | null
   subject_key_identifier?: string | null
+  is_active?: boolean
 }
 
 export interface ChainProbeCert {
@@ -193,6 +195,9 @@ export interface ChainImportResult {
   existing: string[]
   mapped_server?: string | null
   superseded: string[]
+  added?: string[]
+  removed?: string[]
+  inactive?: string[]
 }
 
 export interface Domain {

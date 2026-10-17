@@ -7,6 +7,7 @@ import io
 import json
 from datetime import date, datetime, timedelta
 
+from app.core.timeutil import ISTANBUL
 from app.db.models import AuditLog
 from app.db.session import SessionLocal
 from app.services.audit import MASK, audited_job, category_of, diff_fields, diff_dicts
@@ -260,7 +261,9 @@ def test_meta_labels(client, auth_headers):
 
 
 def test_export_uses_same_filters_and_readable_columns(client, auth_headers):
-    today = date.today().isoformat()
+    # Filtre günü İstanbul takvimine göre yorumlar (bkz. timeutil.ist_day_start_utc); UTC
+    # date.today() İstanbul'da 00:00-03:00 arası "dün"e düşer ve kayıtlar boş gelirdi.
+    today = datetime.now(ISTANBUL).date().isoformat()
     r = client.get("/api/audit/export", headers=auth_headers,
                    params={"action": "login_failed", "date_from": today, "date_to": today})
     assert r.status_code == 200

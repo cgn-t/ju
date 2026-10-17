@@ -130,7 +130,8 @@ def _open_proposal(db: Session, *, old_id, new_id, domain_id, mapping_type, dep_
 def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, username: str,
             request: Request | None, via: str, signal: str | None = None,
             live_seen: bool = False, reopen_rejected: bool = False,
-            domain_id: int | None = None) -> list[TransferProposal]:
+            domain_id: int | None = None, include_domains: bool = True,
+            dep_ids: set[int] | None = None) -> list[TransferProposal]:
     """Eski cert'in her (domain, mapping_type) eşlemesi ve her mTLS bağımlılığı için
     PENDING devir önerisi üretir. HİÇBİR mutasyon yapmaz (eşleme taşımaz, pasife almaz,
     superseded_by yazmaz). İdempotent: aynı granül için açık öneri varsa yenisini
@@ -144,6 +145,9 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
     üretilir (mTLS/trust store kapsam dışı) — canlı doğrulama ve zincir içe aktarma yalnız
     kendi domaini için kanıt taşır, eskinin diğer domainlerine YAYILMAZ (SSLVA vakası).
     Elle devir domain_id geçmez: bilinçli karar, tüm bağlantılara yayılır.
+
+    TAKİPÇİLER: `include_domains=False` domain eşlemelerini atlar; `dep_ids` verilirse yalnız o
+    mTLS bağımlılıkları önerilir (bkz. _propose_followers — domain devri uygulanınca).
 
     TİP: farklı seviyeler (root/intermediate/leaf) arasında devir önerisi ÜRETİLMEZ."""
     if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
@@ -182,7 +186,7 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
         db.add(prop)
         created.append(prop)
 
-    for mapping in list(old_cert.domain_mappings):
+    for mapping in (list(old_cert.domain_mappings) if include_domains else []):
         if domain_id is not None and mapping.domain_id != domain_id:
             continue
         upsert(domain_id=mapping.domain_id, mapping_type=mapping.mapping_type, dep_id=None,
@@ -193,6 +197,8 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
                               via=via, live_seen=live_seen)
 
     for dep in db.query(AppDependency).filter(AppDependency.client_cert_id == old_cert.id).all():
+        if dep_ids is not None and dep.id not in dep_ids:
+            continue
         upsert(domain_id=None, mapping_type=None, dep_id=dep.id,
                team_id=_dep_sy_team_id(db, dep))
 
@@ -235,6 +241,8 @@ def propose_server_mapping(db: Session, kind: str, cert: Certificate, domain: Do
     Şema değişmeden (old/new NOT NULL) iki alana da AYNI sertifika yazılır; anlam `kind`'dadır.
     Açık öneri varsa yalnız live_seen güncellenir; REDDEDİLEN aynı tür granül yeniden açılmaz."""
     assert kind in ("server_add", "server_remove")
+    if kind == "server_add" and not cert.is_active:
+        return None  # pasif sertifika domaine bağlanamaz — ekleme önerisi de üretilmez
     db.flush()
     grain = dict(old_id=cert.id, new_id=cert.id, domain_id=domain.id, mapping_type="server",
                  dep_id=None)
@@ -273,7 +281,7 @@ def propose_attach_transfer(db: Session, new_cert: Certificate, old_cert: Certif
 
     Canlı doğrulama da bu yolu `via="live-check"` + live_seen ile kullanır (tek domain).
     TİP: çağıranlar çakışmayı aynı seviyede arar; farklı seviyeler yine de öneri üretmez."""
-    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
+    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert) or not new_cert.is_active:
         return None
     db.flush()
     existing = _open_proposal(db, old_id=old_cert.id, new_id=new_cert.id,
@@ -318,6 +326,13 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
         prop.note = "Geçersiz: sertifika tipleri farklı — devir uygulanmadı"
         return
 
+    # İş kuralı: domaine bağlı sertifika pasif olamaz — öneri beklerken yeni sertifika pasife
+    # alındıysa bağlama yapılmaz.
+    if prop.kind != "server_remove" and not new_cert.is_active:
+        prop.status = "cancelled"
+        prop.note = "Geçersiz: sertifika pasif — pasif sertifika domaine bağlanamaz"
+        return
+
     # EKLEME / KALDIRMA (canlı doğrulama): devir DEĞİL — tek domainde 'server' eşlemesi
     # eklenir ya da kaldırılır. superseded_by yazılmaz, sertifika pasife alınmaz.
     if prop.kind in ("server_add", "server_remove"):
@@ -356,6 +371,7 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
                     "new_name": new_cert.name}, request)
         return  # eski trusted KORUNUR — _maybe_deactivate_old çağrılmaz
 
+    moved = False  # domain yuvası fiilen yeni cert'e geçti mi (takipçi önerileri için)
     if prop.app_dependency_id is not None:
         dep = db.get(AppDependency, prop.app_dependency_id)
         if dep is not None and dep.client_cert_id == old_cert.id:
@@ -368,10 +384,12 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
             certificate_id=new_cert.id, domain_id=prop.domain_id,
             mapping_type=prop.mapping_type).first()
         if target is not None:
+            moved = True
             if old_map is not None:
                 db.delete(old_map)  # yeni zaten eşli — eskiyi kaldır (uq koruması)
         elif old_map is not None:
             old_map.certificate_id = new_cert.id
+            moved = True
         else:
             # Eski eşleme yok. İki alt-durum: (a) attach-çakışması sonrası eski ELLE kaldırıldı
             # ve yuva BOŞ → yeniyi doğrudan ekle; (b) RAKİP bir halef önerisi eskinin eşlemesini
@@ -379,12 +397,20 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
             # İKİNCİ bir aktif server cert yapıştırır (tek-aktif-server invariant'ı; DB yakalamaz,
             # çünkü uq (cert,domain,tip) üzerinde). Yalnız yuva gerçekten boşsa ekle; doluysa bu
             # devir amaçsızdır (rakip halef yuvayı çoktan doldurmuş) → no-op.
+            # Yuva TİP bazındadır: 'server' eşlemesi zinciri (intermediate/root) de taşıdığından
+            # tip süzgeci olmadan domaindeki intermediate/root yuvayı "dolu" gösterir ve eski leaf
+            # elle kaldırılmışsa yeni leaf HİÇ bağlanmaz (domain leaf'siz kalırdı).
             occupant = (db.query(CertificateDomainMap)
-                        .filter_by(domain_id=prop.domain_id, mapping_type=prop.mapping_type)
+                        .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
+                        .filter(CertificateDomainMap.domain_id == prop.domain_id,
+                                CertificateDomainMap.mapping_type == prop.mapping_type,
+                                cert_type_filter(Certificate.cert_type,
+                                                 normalize_cert_type(new_cert.cert_type)))
                         .first())
             if occupant is None:
                 db.add(CertificateDomainMap(certificate_id=new_cert.id, domain_id=prop.domain_id,
                                             mapping_type=prop.mapping_type))
+                moved = True
 
     # Halef işareti: İLK halefi kaydet, sonraki (farklı domain → farklı halef) onaylar EZMESİN.
     # Tek FK dallanmayı temsil edemez (bir cert farklı domainlerde farklı haleflere geçebilir);
@@ -408,7 +434,33 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
                 "new_name": new_cert.name, "domain_id": prop.domain_id,
                 "domain": dom.domain if (dom := db.get(Domain, prop.domain_id) if prop.domain_id else None) else None,
                 "mapping_type": prop.mapping_type, "dep_id": prop.app_dependency_id}, request)
+    if moved:
+        _propose_followers(db, new_cert, old_cert, prop, username=username, request=request)
     _maybe_deactivate_old(db, old_cert)
+
+
+def _propose_followers(db: Session, new_cert: Certificate, old_cert: Certificate,
+                       prop: TransferProposal, *, username: str, request: Request | None) -> None:
+    """Domain kapsamlı bir devir UYGULANDIĞINDA eski cert'e bağlı mTLS bağımlılıkları ve trust
+    store kayıtları geride kalmasın. Canlı doğrulama / zincir içe aktarma / attach çakışması
+    yalnız o domaini önerir; o domainin server sertifikası fiilen değiştiğinde:
+      • bu domaini hedefleyen ve hâlâ eski cert'i izleyen mTLS bağımlılıkları → devir önerisi
+        (uygulama sahibi SY onayı),
+      • eski cert'i trust store'unda tutan uygulamalar → trusted_add önerisi.
+    Öneri yine ONAY bekler (mutasyon yok); idempotent ve red kalıcı (propose ile aynı kurallar).
+    Bekleyen bu öneriler eski cert'in pasife alınmasını haklı olarak erteler."""
+    deps = []
+    if prop.mapping_type == "server":
+        deps = (db.query(AppDependency)
+                .filter(AppDependency.client_cert_id == old_cert.id,
+                        AppDependency.target_domain_id == prop.domain_id).all())
+    trusted = (db.query(ApplicationTrustedCert)
+               .filter(ApplicationTrustedCert.cert_id == old_cert.id).all())
+    if not deps and not trusted:
+        return
+    propose(db, new_cert, old_cert, username=username, request=request, via=prop.via or "attach",
+            signal=prop.signal, live_seen=bool(prop.live_seen), include_domains=False,
+            dep_ids={d.id for d in deps})
 
 
 def _maybe_deactivate_old(db: Session, old_cert: Certificate) -> None:

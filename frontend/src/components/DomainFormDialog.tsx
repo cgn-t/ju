@@ -8,9 +8,10 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { AppUser, ChainImportResult, ChainProbeResult, Domain, Team } from '../api/types'
+import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummary } from '../utils/chainImport'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { useAuth } from '../auth/AuthContext'
-import { daysLeftColor, daysLeftLabel, nodeColors } from '../theme'
+import { daysLeftColor, daysLeftLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
 import SkiText from './SkiText'
 
 interface Props {
@@ -144,12 +145,12 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         try {
           const r: ChainImportResult = (await api.post(`/domains/${saved.id}/import-chain`,
             null, { params: { environment: chainEnvironment || undefined } })).data
-          const parts = []
-          if (r.created.length) parts.push(`${r.created.length} sertifika eklendi`)
-          if (r.existing.length) parts.push(`${r.existing.length} zaten kayıtlıydı`)
-          if (r.mapped_server) parts.push(`"${r.mapped_server}" server olarak bağlandı`)
-          enqueueSnackbar(`Zincir aktarıldı: ${parts.join(', ') || 'değişiklik yok'}`,
-                          { variant: 'success' })
+          enqueueSnackbar(`Zincir aktarıldı: ${chainImportSummary(r)}`,
+                          { variant: 'success', autoHideDuration: chainImportProposalCount(r) ? TRANSFER_TOAST_MS : undefined })
+          const inactiveWarning = chainImportInactiveWarning(r)
+          if (inactiveWarning) {
+            enqueueSnackbar(inactiveWarning, { variant: 'warning', autoHideDuration: TRANSFER_TOAST_MS })
+          }
         } catch (e) {
           enqueueSnackbar(`Domain kaydedildi ama zincir aktarılamadı: ${apiErrorMessage(e)}`,
                           { variant: 'warning' })
