@@ -241,6 +241,8 @@ def propose_server_mapping(db: Session, kind: str, cert: Certificate, domain: Do
     Şema değişmeden (old/new NOT NULL) iki alana da AYNI sertifika yazılır; anlam `kind`'dadır.
     Açık öneri varsa yalnız live_seen güncellenir; REDDEDİLEN aynı tür granül yeniden açılmaz."""
     assert kind in ("server_add", "server_remove")
+    if kind == "server_add" and not cert.is_active:
+        return None  # pasif sertifika domaine bağlanamaz — ekleme önerisi de üretilmez
     db.flush()
     grain = dict(old_id=cert.id, new_id=cert.id, domain_id=domain.id, mapping_type="server",
                  dep_id=None)
@@ -279,7 +281,7 @@ def propose_attach_transfer(db: Session, new_cert: Certificate, old_cert: Certif
 
     Canlı doğrulama da bu yolu `via="live-check"` + live_seen ile kullanır (tek domain).
     TİP: çağıranlar çakışmayı aynı seviyede arar; farklı seviyeler yine de öneri üretmez."""
-    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
+    if new_cert.id == old_cert.id or not same_type(new_cert, old_cert) or not new_cert.is_active:
         return None
     db.flush()
     existing = _open_proposal(db, old_id=old_cert.id, new_id=new_cert.id,
@@ -322,6 +324,13 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
     if prop.kind == "transfer" and not same_type(old_cert, new_cert):
         prop.status = "cancelled"
         prop.note = "Geçersiz: sertifika tipleri farklı — devir uygulanmadı"
+        return
+
+    # İş kuralı: domaine bağlı sertifika pasif olamaz — öneri beklerken yeni sertifika pasife
+    # alındıysa bağlama yapılmaz.
+    if prop.kind != "server_remove" and not new_cert.is_active:
+        prop.status = "cancelled"
+        prop.note = "Geçersiz: sertifika pasif — pasif sertifika domaine bağlanamaz"
         return
 
     # EKLEME / KALDIRMA (canlı doğrulama): devir DEĞİL — tek domainde 'server' eşlemesi

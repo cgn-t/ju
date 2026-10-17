@@ -41,6 +41,7 @@ class ChainSyncResult:
     superseded: list[str] = field(default_factory=list)    # devir ÖNERİSİ üretilen öncül adları
     added: list[str] = field(default_factory=list)         # EKLEME önerisi üretilenler (canlı)
     removed: list[str] = field(default_factory=list)       # KALDIRMA önerisi üretilenler (canlı)
+    inactive: list[str] = field(default_factory=list)      # sunulan ama envanterde PASİF olanlar — bağlanmaz
     rows: list[Certificate] = field(default_factory=list)  # zincirde işlenen TÜM satırlar (aynı tipten birden fazla olabilir)
 
     @property
@@ -56,6 +57,9 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
     ASLA değiştirilmez. Otomatik yollar (live-check) bunu geçmez; yalnız bir insanın
     tetiklediği import-chain isteğinde doldurulur."""
     result = ChainSyncResult()
+    # "Oluşturan" alanı dosyadan içe aktarmadaki gibi ekip adıdır: domainin SY ekibi; ekip
+    # yoksa işlemi yapan kullanıcı (otomatik taramada "system").
+    creator = domain.sy_team.name if domain.sy_team is not None else username
     parsed_list = [cert_parser.parse_x509(c) for c in served_chain]
     # Önce CA'lar eklensin ki leaf parent bulabilsin
     parsed_list.sort(key=lambda p: {"root": 0, "intermediate": 1, "leaf": 2}[p.cert_type])
@@ -65,7 +69,7 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
         if row is not None:
             result.existing.append(row.name)
         else:
-            row = Certificate(**parsed.__dict__, creator=username, source="live",
+            row = Certificate(**parsed.__dict__, creator=creator, source="live",
                               environment=environment)
             row.parent_id = cert_parser.resolve_parent(db, parsed)
             db.add(row)
@@ -76,8 +80,11 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
             result.created.append(row.name)
         result.rows.append(row)
 
+    # İş kuralı: domaine bağlı sertifika pasif olamaz. Sunucuda hâlâ duran pasif bir sertifika
+    # ne doğrudan bağlanır ne de ekleme/devir önerisi olur; yalnız raporlanır.
+    result.inactive = [r.name for r in result.rows if not r.is_active]
     served_by_type: dict[str, list[Certificate]] = {}
-    for row in result.rows:
+    for row in (r for r in result.rows if r.is_active):
         served_by_type.setdefault(normalize_cert_type(row.cert_type), []).append(row)
     seen_by_type = {t: list(v) for t, v in served_by_type.items()}
     if live and "root" not in seen_by_type:

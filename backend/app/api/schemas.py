@@ -189,6 +189,7 @@ class CertificateOut(CertificateBase, ORMModel):
     vault_path: str | None = None
     auto_renew: bool
     superseded_by_id: int | None = None  # yenileme zinciri: yerine geçen kayıt
+    chain_added: list[str] | None = None  # Manuel Ekle: PEM'deki zincirden ayrıca eklenenler
     created_at: IstanbulDateTime
     updated_at: IstanbulDateTime
     days_left: int | None = None
@@ -301,6 +302,7 @@ class MappedCertOut(BaseModel):
     days_left: int | None
     serial_number: str | None = None
     subject_key_identifier: str | None = None
+    is_active: bool = True
 
 
 class DomainOut(DomainBase, ORMModel):
@@ -356,6 +358,7 @@ class ChainImportOut(BaseModel):
     superseded: list[str] = []    # devir ÖNERİSİ üretilen öncül adları (onay bekliyor)
     added: list[str] = []         # EKLEME önerisi üretilen sertifika adları (onay bekliyor)
     removed: list[str] = []       # KALDIRMA önerisi üretilen sertifika adları (onay bekliyor)
+    inactive: list[str] = []      # sunucuda duran ama envanterde PASİF olanlar (bağlanmadı)
 
 
 # ---- Devir önerileri (onay) ----

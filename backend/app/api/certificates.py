@@ -386,11 +386,17 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
                        user: User = Depends(require_role("editor"))):
     """Manuel ekleme. PEM verilmişse alanlar PEM'den doğrulanıp tamamlanır."""
     data = body.model_dump()
+    extra: list = []  # PEM'e zincir yapıştırıldıysa ana sertifika dışındakiler (ara/kök)
     if body.pem_certificate and body.pem_certificate.strip():
         try:
-            parsed = cert_parser.parse_pem_text(body.pem_certificate)[0]
+            parsed_all = cert_parser.parse_pem_text(body.pem_certificate)
         except (ValueError, Exception) as exc:
             raise HTTPException(status_code=400, detail=f"PEM parse edilemedi: {exc}")
+        # Ana kayıt: formdaki bilgiler zincirdeki TEK uç sertifikaya aittir; uç yoksa/birden
+        # çoksa ilk sertifika. Diğerleri dosyadan içe aktarmadaki gibi ayrıca kaydedilir.
+        leaves = [p for p in parsed_all if p.cert_type == "leaf"]
+        parsed = leaves[0] if len(leaves) == 1 else parsed_all[0]
+        extra = [p for p in parsed_all if p is not parsed]
         for field in ("serial_number", "issuer", "subject", "subject_key_identifier",
                       "authority_key_identifier", "cert_type", "valid_from", "valid_to",
                       "extended_key_usage", "pem_certificate", "san", "fingerprint_sha256",
@@ -426,8 +432,11 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
         data["valid_from"] = utcnow()
     if not data.get("valid_to"):
         data["valid_to"] = data["valid_from"]
+    chain_added = _add_chain_extras(db, extra, data, user, request)
     cert = Certificate(**data)
-    if cert.parent_id is None and cert.authority_key_identifier:
+    if cert.parent_id is None and cert.pem_certificate:
+        cert.parent_id = cert_parser.resolve_parent(db, parsed)
+    elif cert.parent_id is None and cert.authority_key_identifier:
         parent = cert_parser.find_ca_by_ski(db, cert.authority_key_identifier)
         cert.parent_id = parent.id if parent else None
     if not cert.creator:
@@ -437,7 +446,30 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
     cert_parser.relink_children(db, cert)
     log_action(db, user.username, "create", "certificates", cert.id, {"name": cert.name}, request)
     db.commit()
-    return _to_out(cert)
+    out = _to_out(cert)
+    out.chain_added = chain_added
+    return out
+
+
+def _add_chain_extras(db: Session, extra: list, data: dict, user: User,
+                      request: Request) -> list[str]:
+    """Manuel Ekle'de PEM'e yapıştırılan zincirin ana sertifika dışındaki üyeleri: kayıtlı
+    olmayanlar dosyadan içe aktarmadaki gibi eklenir (CA'lar önce, ana kayıt parent bulsun)."""
+    added: list[str] = []
+    extra = sorted(extra, key=lambda p: {"root": 0, "intermediate": 1, "leaf": 2}[p.cert_type])
+    for parsed in extra:
+        if _find_existing(db, parsed):
+            continue
+        row = Certificate(**parsed.__dict__, creator=data.get("creator") or user.username,
+                          environment=data.get("environment"), source="manual")
+        row.parent_id = cert_parser.resolve_parent(db, parsed)
+        db.add(row)
+        db.flush()
+        cert_parser.relink_children(db, row)
+        log_action(db, user.username, "import", "certificates", row.id,
+                   {"name": row.name, "serial": row.serial_number, "via": "manuel zincir"}, request)
+        added.append(row.name)
+    return added
 
 
 def _ensure_deactivatable(db: Session, cert: Certificate) -> None:
