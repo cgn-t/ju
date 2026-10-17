@@ -1319,12 +1319,21 @@ def check_expired_certificates() -> dict:
         db.close()
 
 
+def _hour_setting(value, default: int) -> int:
+    """Ayardaki saati (0-23) döner. 0 geçerli bir saattir (gece yarısı); `value or default`
+    0'ı yanlışlıkla varsayılana çevirirdi. Boş/geçersiz/aralık dışı → varsayılan."""
+    try:
+        hour = int(value)
+    except (TypeError, ValueError):
+        return default
+    return hour if 0 <= hour <= 23 else default
+
+
 def _proposal_reminder_hour() -> int:
     """Devir-onayı hatırlatmasının saatini smtp ayarından okur (0-23, varsayılan 9)."""
     db = SessionLocal()
     try:
-        h = int(get_category(db, "smtp", mask_secrets=False).get("proposal_reminder_hour") or 9)
-        return h if 0 <= h <= 23 else 9
+        return _hour_setting(get_category(db, "smtp", mask_secrets=False).get("proposal_reminder_hour"), 9)
     except Exception:
         return 9
     finally:
@@ -1364,8 +1373,7 @@ def _discovery_hour() -> int:
     from app.services.settings_service import get_category
     db = SessionLocal()
     try:
-        hour = int(get_category(db, "discovery", mask_secrets=False).get("schedule_hour") or 3)
-        return hour if 0 <= hour <= 23 else 3
+        return _hour_setting(get_category(db, "discovery", mask_secrets=False).get("schedule_hour"), 3)
     except Exception:
         return 3
     finally:
@@ -1378,8 +1386,7 @@ def _schedule_hour(category: str, default: int) -> int:
     from app.services.settings_service import get_category
     db = SessionLocal()
     try:
-        hour = int(get_category(db, category, mask_secrets=False).get("schedule_hour") or default)
-        return hour if 0 <= hour <= 23 else default
+        return _hour_setting(get_category(db, category, mask_secrets=False).get("schedule_hour"), default)
     except Exception:
         return default
     finally:

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.textmatch import ci_like
 from app.api.schemas import (
     AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationUpdate,
     AppTrustedCertCreate, AppTrustedCertOut,
@@ -59,9 +60,9 @@ def list_applications(search: str | None = None,
         # Genel arama ETİKET adıyla da eşleşir: bu terimi taşıyan bir etikete sahip uygulamalar
         # da sonuca girer (ayrı bir etiket kutusuna gerek kalmaz — kullanıcı isteği).
         tagged = (db.query(ApplicationTag.application_id)
-                  .join(Tag, Tag.id == ApplicationTag.tag_id).filter(Tag.name.ilike(like)))
-        q = q.filter(Application.app_name.ilike(like) | Application.server_name.ilike(like)
-                     | Application.dns.ilike(like) | Application.id.in_(tagged))
+                  .join(Tag, Tag.id == ApplicationTag.tag_id).filter(ci_like(Tag.name, like)))
+        q = q.filter(ci_like(Application.app_name, like) | ci_like(Application.server_name, like)
+                     | ci_like(Application.dns, like) | Application.id.in_(tagged))
     if tag_ids:
         # AND / kesişim: uygulama SEÇİLİ HER etikete sahip olmalı (her tag_id için ayrı EXISTS).
         for tid in tag_ids:

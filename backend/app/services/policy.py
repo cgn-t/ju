@@ -10,6 +10,7 @@ Kripto alanları (key_size/public_key_type/signature_hash) cert_parser tarafınd
 Certificate'e yazılır; null (kontrol edilmemiş) alan İHLAL SAYILMAZ.
 """
 
+from app.core.textmatch import fold
 from app.db.models import Certificate
 from app.services.settings_service import get_category
 
@@ -28,8 +29,9 @@ def get_config(db) -> dict:
 
 
 def _issuer_allowed(issuer: str | None, allowlist: list) -> bool:
-    iss = (issuer or "").lower()
-    return any(str(e).strip().lower() in iss for e in allowlist if str(e).strip())
+    # fold: Türkçe İ/I/ı farkı yanlış "güvenilmeyen issuer" alarmı vermesin (TÜRKTRUST İMZA = İmza)
+    iss = fold(issuer)
+    return any(fold(str(e).strip()) in iss for e in allowlist if str(e).strip())
 
 
 def evaluate_certificate(cert: Certificate, config: dict) -> list[dict]:

@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 
 import openpyxl
+from app.core.textmatch import ci_equals, ci_like
 from app.core.timeutil import utcnow
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -162,8 +163,8 @@ def list_domains(search: str | None = None,
     q = _query(db)
     if search:
         like = f"%{search}%"
-        q = q.filter(Domain.domain.ilike(like) | Domain.cert_owner.ilike(like)
-                     | Domain.external_company.ilike(like))
+        q = q.filter(ci_like(Domain.domain, like) | ci_like(Domain.cert_owner, like)
+                     | ci_like(Domain.external_company, like))
     scope = domain_scope_team_ids(db, user)
     if scope is not None:
         q = q.filter(Domain.sy_team_id.in_(scope or {-1}))
@@ -225,7 +226,8 @@ def import_excel(request: Request, file: UploadFile = File(...),
         if not name:
             errors.append(f"Satır {i}: domain boş")
             continue
-        if db.query(Domain).filter_by(domain=name).first():
+        # Büyük/küçük harf farkı da ikiz sayılır (aynı dosyada iki kez geçen satır dahil)
+        if db.query(Domain.id).filter(ci_equals(Domain.domain, name)).first():
             skipped += 1
             continue
         domain = Domain(
@@ -235,6 +237,7 @@ def import_excel(request: Request, file: UploadFile = File(...),
             **{f: (row.get(f) or None) for f in CSV_PLAIN_FIELDS},
         )
         db.add(domain)
+        db.flush()  # oturum autoflush=False: dosyadaki sonraki ikiz satır bu kaydı görsün
         created += 1
     log_action(db, user.username, "import", "domains", None,
                {"file": file.filename, "created": created, "skipped": skipped}, request)
@@ -312,7 +315,8 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     if name_warning and not allow_name_mismatch:
         raise HTTPException(status_code=409, detail=name_warning)
     if name_warning:
-        log_action(db, user.username, "name_mismatch_confirmed", "domains", domain.id,
+        # Eylem adı ≤20 karakter: prod AuditLog.Action NVARCHAR(20) (MSSQL uzun değeri reddeder)
+        log_action(db, user.username, "name_mismatch_ok", "domains", domain.id,
                    {"domain": domain.domain, "warning": name_warning}, request)
 
     # Zinciri envantere işler ve HER cert_type için ayrı ayrı server eşlemesini senkronize
@@ -357,6 +361,19 @@ def get_domain(domain_id: int, db: Session = Depends(get_db),
     return _to_out(domain, db)
 
 
+
+def _ensure_unique_domain(db: Session, name: str | None, exclude_id: int | None = None) -> None:
+    """Aynı domain ikinci kez kaydedilmez (büyük/küçük harf farkı dahil: `WWW.x` = `www.x`).
+    İkiz kayıt mailleri ve devir önerilerini iki domain arasında böler. Var olan ikizlere dokunmaz."""
+    name = (name or "").strip()
+    if not name:
+        return
+    q = db.query(Domain.id).filter(ci_equals(Domain.domain, name))
+    if exclude_id is not None:
+        q = q.filter(Domain.id != exclude_id)
+    if q.first() is not None:
+        raise HTTPException(status_code=409, detail=f"Bu domain zaten kayıtlı: {name}")
+
 @router.post("", response_model=DomainOut)
 def create_domain(request: Request, body: DomainCreate, db: Session = Depends(get_db),
                   user: User = Depends(require_role("editor"))):
@@ -367,7 +384,10 @@ def create_domain(request: Request, body: DomainCreate, db: Session = Depends(ge
             and body.sy_team_id not in user_team_ids(db, user)):
         raise HTTPException(status_code=403,
                             detail="Domaini yalnız üye olduğunuz bir SY ekibine atayabilirsiniz")
-    domain = Domain(**body.model_dump())
+    data = body.model_dump()
+    data["domain"] = data["domain"].strip()
+    _ensure_unique_domain(db, data["domain"])
+    domain = Domain(**data)
     db.add(domain)
     db.flush()
     log_action(db, user.username, "create", "domains", domain.id, {"domain": domain.domain}, request)
@@ -387,6 +407,10 @@ def update_domain(request: Request, domain_id: int, body: DomainUpdate,
     if scope is not None and domain.sy_team_id not in scope:
         raise HTTPException(status_code=404, detail="Domain bulunamadı")
     changes = body.model_dump(exclude_unset=True)
+    if changes.get("domain") is not None:
+        changes["domain"] = changes["domain"].strip()
+        if changes["domain"] != domain.domain:
+            _ensure_unique_domain(db, changes["domain"], exclude_id=domain.id)
     # ONAY MODELİ: SAHİPLİK (sy_team_id/ug_team_id) yalnız admin tarafından değiştirilir.
     # Aksi halde bir editör domaini kendi ekibine geçirip önerisini kendisi onaylayabilirdi.
     if user.role != "admin":

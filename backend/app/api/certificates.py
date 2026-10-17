@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.textmatch import ci_like
 from app.core.timeutil import utcnow
 from uuid import uuid4
 
@@ -58,9 +59,9 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
     )
     if search:
         like = f"%{search}%"
-        q = q.filter(Certificate.name.ilike(like) | Certificate.serial_number.ilike(like)
-                     | Certificate.issuer.ilike(like) | Certificate.subject.ilike(like)
-                     | Certificate.subject_key_identifier.ilike(like))
+        q = q.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                     | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
+                     | ci_like(Certificate.subject_key_identifier, like))
     if cert_type:
         # normalize: DB ham ("Intermediate") tutabilir; filtre kanonik eşleşme yapar (bkz. core/certtype)
         q = q.filter(cert_type_filter(Certificate.cert_type, cert_type))
