@@ -6,6 +6,7 @@ Domain'in gerçekte sunduğu sertifikayı (domain:port, SNI ile) çekip DB'de o 
 sunuluyor" durumlarını yakalar.
 """
 
+import ipaddress
 import json
 import logging
 import re
@@ -145,6 +146,57 @@ def fetch_served_chain(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -
     return certs
 
 
+def _cert_names(cert: x509.Certificate) -> tuple[list[str], list[str]]:
+    """Sertifikanın kapsadığı DNS adları ve IP adresleri (SAN; SAN yoksa CN)."""
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        dns = [n.lower().rstrip(".") for n in san.get_values_for_type(x509.DNSName)]
+        ips = [str(ip) for ip in san.get_values_for_type(x509.IPAddress)]
+        if dns or ips:
+            return dns, ips
+    except x509.ExtensionNotFound:
+        pass
+    cns = [str(a.value).lower().rstrip(".") for a in cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)]
+    return cns, []
+
+
+def _dns_match(pattern: str, host: str) -> bool:
+    if pattern == host:
+        return True
+    # Wildcard yalnız en soldaki TEK etiketi kapsar: *.ornek.com → www.ornek.com (ornek.com ve a.b.ornek.com değil)
+    if pattern.startswith("*.") and "." in host:
+        first, rest = host.split(".", 1)
+        return bool(first) and rest == pattern[2:]
+    return False
+
+
+def host_name_warning(host: str, cert: x509.Certificate) -> str | None:
+    """Sunulan sertifika bağlanılan adresi kapsamıyorsa açıklama döner, kapsıyorsa None.
+
+    Aynı sunucuda birden çok site varken sunucuda tanımlı olmayan bir ad yazılırsa sunucu
+    başka bir sitenin (varsayılan) sertifikasını verir; bu sertifika domaine sessizce
+    bağlanmamalı."""
+    target = host.strip().lower().rstrip(".")
+    try:
+        target = target.encode("idna").decode("ascii")
+    except UnicodeError:
+        pass
+    try:
+        # IP adresiyle bağlanıldığında sunucuya ad (SNI) gitmez; sunucu her zaman kendi tek
+        # sertifikasını verir ve iç sistemlerin çoğunda bu sertifika IP'yi listelemez —
+        # "başka sitenin sertifikası" riski yoktur, kontrol edilmez.
+        ipaddress.ip_address(target.strip("[]"))
+        return None
+    except ValueError:
+        pass
+    dns, ips = _cert_names(cert)
+    if any(_dns_match(p, target) for p in dns):
+        return None
+    names = ", ".join((dns + ips)[:5]) or "ad yok"
+    return (f"Sunucunun verdiği sertifika '{host}' adresini kapsamıyor (sertifikadaki adlar: {names}). "
+            "Sunucu bu adres için başka bir sitenin sertifikasını veriyor olabilir; adresi kontrol edin.")
+
+
 def check_domain(db: Session, domain: Domain) -> Domain:
     """Domain'i canlı kontrol eder, sonucu domain kaydına yazar. Çağıran commit eder.
 
@@ -186,6 +238,7 @@ def check_domain(db: Session, domain: Domain) -> Domain:
         return domain
     served_list = [parse_x509(c) for c in served_raw]
     leaf_served = served_list[0]  # el sıkışmada ilk sunulan her zaman uç (leaf) sertifikadır
+    name_warning = host_name_warning(host, served_raw[0])
 
     detail = {
         "host": host,
@@ -247,6 +300,17 @@ def check_domain(db: Session, domain: Domain) -> Domain:
         detail["reason"] = ("Sunucuda envanterde PASİF olan sertifika sunuluyor: "
                             + ", ".join(inactive_served) + " — sunucudaki sertifika güncellenmeli")
 
+    # Sunulan sertifika yazılan adresi kapsamıyorsa (ör. sunucu tanımadığı ad için varsayılan
+    # sitenin sertifikasını verdi) not düşülür; domaine zaten bilerek bağlanmamışsa durum
+    # yeşil olamaz ve zincir senkronizasyonu bu sertifikayı öneri olarak da getirmez.
+    leaf_bound = any(leaf_served.fingerprint_sha256 in pool for pool in bound_by_type.values())
+    if name_warning:
+        detail["name_warning"] = name_warning
+        if not leaf_bound:
+            domain.live_check_status = "mismatch"
+            if "inactive_served" not in detail:
+                detail["reason"] = name_warning
+
     # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir devir önerisinin
     # HALEFİ ise (eşli olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay
     # sinyali. Hiçbir devir uygulanmaz; onay hattı korunur.
@@ -258,14 +322,15 @@ def check_domain(db: Session, domain: Domain) -> Domain:
     # ayrı devir tespiti yapılır (root/intermediate rotasyonu dahil — proaktif, import
     # beklemeden). import_chain ile AYNI ortak mantık (chain_sync); ikinci TLS bağlantısı
     # açılmaz, yukarıda zaten çekilen served_raw yeniden kullanılır.
-    sync = sync_domain_chain_certs(db, domain, served_raw, username="system", request=None,
-                                   via="live-check", live=True)
-    if sync.superseded:
-        detail["chain_sync_superseded"] = sync.superseded
-    if sync.added:
-        detail["proposed_add"] = sync.added
-    if sync.removed:
-        detail["proposed_remove"] = sync.removed
+    if not name_warning or leaf_bound:
+        sync = sync_domain_chain_certs(db, domain, served_raw, username="system", request=None,
+                                       via="live-check", live=True)
+        if sync.superseded:
+            detail["chain_sync_superseded"] = sync.superseded
+        if sync.added:
+            detail["proposed_add"] = sync.added
+        if sync.removed:
+            detail["proposed_remove"] = sync.removed
 
     domain.live_check_detail = json.dumps(detail, ensure_ascii=False)
     domain.live_check_at = checked_at

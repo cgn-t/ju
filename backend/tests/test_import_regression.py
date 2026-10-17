@@ -13,6 +13,7 @@ Her test bir bulguyu sabitler; domain testleri gerçek TLS sunucusu (yerel port)
   10 AKI'siz sertifika yayıncısına bağlanır
   11 UTF-16 PEM, TRUSTED CERTIFICATE PEM ve başlıksız base64 okunur
   12 domainden çekilen sertifikada 'Oluşturan' domainin SY ekibidir
+  13 sunucu yazılan adres için başka sitenin sertifikasını verirse sessizce bağlanmaz
 """
 
 import base64
@@ -29,7 +30,8 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
 from app.services.cert_parser import parse_upload
-from app.services.live_check import parse_target
+from app.services import live_check
+from app.services.live_check import host_name_warning, parse_target
 from tests.certgen import key_pem, make_ca, make_intermediate, make_key, make_leaf, pem
 
 
@@ -468,3 +470,112 @@ def test_chain_import_creator_is_domain_sy_team(client, auth_headers, tmp_path):
         srv.close()
     assert _cert_by_name(client, auth_headers, "rg-olusturan.ornek.local")["creator"] == "Rg-SY"
     assert _cert_by_name(client, auth_headers, "Rg Olusturan Ara CA")["creator"] == "Rg-SY"
+
+
+# ---- 13) Adres ile sertifika adının uyumu (çok siteli sunucu, SNI) --------------------------
+
+def test_host_name_warning_rules():
+    root, rk, inter, ik = _hier("Rg Ad")
+    www, _ = make_leaf(inter, ik, "www.rg-ad.test", san=["www.rg-ad.test", "rg-ad.test"])
+    wild, _ = make_leaf(inter, ik, "*.rg-ad.test", san=["*.rg-ad.test"])
+    cn_only, _ = make_leaf(inter, ik, "cn.rg-ad.test")
+    for host in ("www.rg-ad.test", "WWW.RG-AD.TEST", "www.rg-ad.test.", "rg-ad.test"):
+        assert host_name_warning(host, www) is None, host
+    assert host_name_warning("eski.rg-ad.test", www)
+    assert host_name_warning("www.rg-ad.test", wild) is None
+    assert host_name_warning("rg-ad.test", wild), "wildcard alan adının kendisini kapsamaz"
+    assert host_name_warning("a.b.rg-ad.test", wild), "wildcard tek etiket kapsar"
+    assert host_name_warning("cn.rg-ad.test", cn_only) is None, "SAN yoksa CN'ye bakılır"
+    assert host_name_warning("10.1.2.3", www) is None, "IP ile bağlanınca ad kontrolü yapılmaz"
+    assert host_name_warning("::1", www) is None
+
+
+class SniServer:
+    """Aynı portta birden çok site: SNI adına göre sertifika, tanınmayan ada varsayılan sertifika."""
+
+    def __init__(self, tmp_path, sites: dict, default):
+        def ctx(tag, cert_pem, key):
+            (tmp_path / f"{tag}.pem").write_text(cert_pem)
+            (tmp_path / f"{tag}.key").write_text(key)
+            c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            c.load_cert_chain(tmp_path / f"{tag}.pem", tmp_path / f"{tag}.key")
+            return c
+        by_name = {name: ctx(f"s{i}", *v) for i, (name, v) in enumerate(sites.items())}
+        self.ctx = ctx("default", *default)
+        self.ctx.sni_callback = lambda sock, sni, _: setattr(sock, "context", by_name[sni.lower()]) \
+            if sni and sni.lower() in by_name else None
+        self.sock = socket.socket()
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(20)
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            try:
+                self.ctx.wrap_socket(conn, server_side=True).close()
+            except Exception:
+                conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+def test_default_cert_of_other_site_is_not_bound_silently(client, auth_headers, tmp_path, monkeypatch):
+    root, rk, inter, ik = _hier("Rg Sni")
+    www, wk = make_leaf(inter, ik, "www.rg-sni.test", san=["www.rg-sni.test"])
+    other, ok = make_leaf(inter, ik, "varsayilan.rg-baska.test", san=["varsayilan.rg-baska.test"])
+    srv = SniServer(tmp_path, {"www.rg-sni.test": (pem(www) + pem(inter), key_pem(wk))},
+                    (pem(other) + pem(inter), key_pem(ok)))
+    # Adlar DNS yerine yerel sunucuya gider; SNI ile gönderilen ad yine yazılan addır
+    real_connect = socket.create_connection
+    monkeypatch.setattr(live_check.socket, "create_connection",
+                        lambda addr, timeout=None: real_connect(("127.0.0.1", srv.port), timeout=timeout))
+    try:
+        ok_probe = client.post("/api/domains/probe-chain", headers=auth_headers,
+                               json={"domain": "https://WWW.rg-sni.test/giris"}).json()
+        assert ok_probe["certificates"][0]["name"] == "www.rg-sni.test"
+        assert ok_probe["name_warning"] is None
+
+        bad_probe = client.post("/api/domains/probe-chain", headers=auth_headers,
+                                json={"domain": "eski.rg-sni.test"}).json()
+        assert bad_probe["certificates"][0]["name"] == "varsayilan.rg-baska.test"
+        assert "kapsamıyor" in bad_probe["name_warning"]
+
+        dom = _domain(client, auth_headers, "eski.rg-sni.test")
+        r = client.post(f"/api/domains/{dom}/import-chain", headers=auth_headers)
+        assert r.status_code == 409 and "kapsamıyor" in r.json()["detail"]
+        assert _server_names(client, auth_headers, dom) == set()
+        names = {c["name"] for c in client.get("/api/certificates", headers=auth_headers).json()}
+        assert "varsayilan.rg-baska.test" not in names, "onaysız hiçbir şey envantere eklenmez"
+
+        # Canlı doğrulama yeşil göstermez, ekleme önerisi de üretmez
+        d = client.post(f"/api/domains/{dom}/live-check", headers=auth_headers).json()
+        assert d["live_check_status"] == "mismatch"
+        assert "kapsamıyor" in json.loads(d["live_check_detail"])["reason"]
+        assert not [p for p in client.get("/api/proposals", headers=auth_headers,
+                                          params={"status": "pending"}).json()
+                    if p["domain_id"] == dom]
+
+        # Kullanıcı bilerek onaylarsa bağlanır; uyarı canlı doğrulama notunda kalır
+        r = client.post(f"/api/domains/{dom}/import-chain", headers=auth_headers,
+                        params={"allow_name_mismatch": "true"})
+        assert r.status_code == 200, r.text
+        assert r.json()["mapped_server"] == "varsayilan.rg-baska.test"
+        d = client.post(f"/api/domains/{dom}/live-check", headers=auth_headers).json()
+        assert d["live_check_status"] == "match"
+        assert "kapsamıyor" in json.loads(d["live_check_detail"])["name_warning"]
+
+        good = _domain(client, auth_headers, "www.rg-sni.test")
+        r = client.post(f"/api/domains/{good}/import-chain", headers=auth_headers)
+        assert r.status_code == 200 and r.json()["mapped_server"] == "www.rg-sni.test"
+        d = client.post(f"/api/domains/{good}/live-check", headers=auth_headers).json()
+        assert d["live_check_status"] == "match"
+        assert "name_warning" not in json.loads(d["live_check_detail"])
+    finally:
+        srv.close()

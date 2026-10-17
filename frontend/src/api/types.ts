@@ -188,6 +188,7 @@ export interface ChainProbeResult {
   port?: number | null
   error?: string | null
   certificates: ChainProbeCert[]
+  name_warning?: string | null
 }
 
 export interface ChainImportResult {
