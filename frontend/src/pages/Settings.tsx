@@ -1168,7 +1168,7 @@ type LiveCheckRunStatus = {
 }
 
 const LIVE_STATUS_LABEL: Record<string, string> = {
-  match: 'uyumlu', mismatch: 'uyumsuz', unreachable: 'erişilemedi', no_mapping: 'eşleme yok',
+  match: 'uyumlu', mismatch: 'uyumsuz', chain_incomplete: 'ara sertifika eksik', unreachable: 'erişilemedi', no_mapping: 'eşleme yok',
   not_checkable: 'kontrol edilemez',
 }
 

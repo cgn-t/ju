@@ -159,7 +159,7 @@ class Domain(Base):
     servers_to_update: Mapped[str | None] = mapped_column(Unicode(500))  # Güncellenecek sunucular
     notify_days: Mapped[int | None] = mapped_column(Integer)  # Süre-uyarı penceresi (gün); NULL = global smtp.expiry_warning_days
     # Canlı doğrulama (drift detection)
-    live_check_status: Mapped[str | None] = mapped_column(Unicode(20))  # match|mismatch|unreachable|no_mapping|not_checkable
+    live_check_status: Mapped[str | None] = mapped_column(Unicode(20))  # match|mismatch|chain_incomplete|unreachable|no_mapping|not_checkable
     live_check_detail: Mapped[str | None] = mapped_column(UnicodeText)
     live_check_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

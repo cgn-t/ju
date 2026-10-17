@@ -226,7 +226,7 @@ export interface Domain {
   server_days_left?: number | null
   client_days_left?: number | null
   certificates: MappedCert[]
-  live_check_status?: 'match' | 'mismatch' | 'unreachable' | 'no_mapping' | 'not_checkable' | null
+  live_check_status?: 'match' | 'mismatch' | 'chain_incomplete' | 'unreachable' | 'no_mapping' | 'not_checkable' | null
   live_check_detail?: string | null
   live_check_at?: string | null
   pending_proposals?: number
