@@ -43,7 +43,7 @@ from app.services import cert_parser, renewal
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
 from app.services import live_check as live_check_service
-from app.services.live_check import check_domain, fetch_served_chain, parse_target
+from app.services.live_check import check_domain, fetch_served_chain, host_name_warning, parse_target
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
@@ -269,12 +269,14 @@ def probe_chain(body: ChainProbeRequest, db: Session = Depends(get_db),
             already_exists=existing is not None,
             existing_id=existing.id if existing else None,
         ))
-    return ChainProbeOut(reachable=True, host=host, port=port, certificates=certs)
+    return ChainProbeOut(reachable=True, host=host, port=port, certificates=certs,
+                         name_warning=host_name_warning(host, chain[0]))
 
 
 @router.post("/{domain_id}/import-chain", response_model=ChainImportOut)
 def import_chain(request: Request, domain_id: int, supersede: bool = False,
                  environment: str | None = Query(None),
+                 allow_name_mismatch: bool = False,
                  db: Session = Depends(get_db),
                  user: User = Depends(require_role("editor"))):
     """Domain'in canlıda sunduğu zinciri çekip envantere aktarır: var olanlar atlanır,
@@ -303,6 +305,14 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
         chain = fetch_served_chain(host, port)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"TLS bağlantısı kurulamadı: {str(exc)[:200]}")
+    # Sunucu, yazılan adres için başka bir sitenin sertifikasını verdiyse (aynı sunucuda çok site,
+    # adres sunucuda tanımlı değil) hiçbir şey eklenmez; kullanıcı bilerek onaylarsa devam edilir.
+    name_warning = host_name_warning(host, chain[0])
+    if name_warning and not allow_name_mismatch:
+        raise HTTPException(status_code=409, detail=name_warning)
+    if name_warning:
+        log_action(db, user.username, "name_mismatch_confirmed", "domains", domain.id,
+                   {"domain": domain.domain, "warning": name_warning}, request)
 
     # Zinciri envantere işler ve HER cert_type için ayrı ayrı server eşlemesini senkronize
     # eder (leaf/intermediate/root bağımsız — ortak mantık chain_sync, live-check de kullanır).

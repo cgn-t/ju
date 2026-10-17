@@ -111,6 +111,8 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
     onSuccess: (r, target) => {
       setProbe(r)
       setProbedFor(target)
+      // Sertifika yazılan adresi kapsamıyorsa aktarma kendiliğinden işaretli gelmez
+      setImportChain(!r.name_warning)
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
@@ -144,7 +146,8 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
       if (importChain && probe?.reachable && probe.certificates.length > 0) {
         try {
           const r: ChainImportResult = (await api.post(`/domains/${saved.id}/import-chain`,
-            null, { params: { environment: chainEnvironment || undefined } })).data
+            null, { params: { environment: chainEnvironment || undefined,
+                           allow_name_mismatch: probe.name_warning ? true : undefined } })).data
           enqueueSnackbar(`Zincir aktarıldı: ${chainImportSummary(r)}`,
                           { variant: 'success', autoHideDuration: chainImportProposalCount(r) ? TRANSFER_TOAST_MS : undefined })
           const inactiveWarning = chainImportInactiveWarning(r)
@@ -254,6 +257,12 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
                 )}
                 {probe?.reachable && (
                   <>
+                    {probe.name_warning && (
+                      <Alert severity="error" sx={{ py: 0, mb: 1 }}>
+                        {probe.name_warning} Bu sertifika domaine yalnız aşağıdaki kutu
+                        işaretlenirse bağlanır.
+                      </Alert>
+                    )}
                     {probe.certificates.map((c) => (
                       <Box key={c.fingerprint_sha256 ?? c.name}
                            sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5 }}>

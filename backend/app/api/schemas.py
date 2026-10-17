@@ -349,6 +349,7 @@ class ChainProbeOut(BaseModel):
     port: int | None = None
     error: str | None = None
     certificates: list[ChainProbeCert] = []  # leaf → root sırasıyla
+    name_warning: str | None = None  # sunulan sertifika yazılan adresi kapsamıyorsa açıklama
 
 
 class ChainImportOut(BaseModel):

@@ -8,8 +8,9 @@ import {
   Skeleton, Stack, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { useSnackbar } from 'notistack'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, ChainImportResult, Domain } from '../api/types'
@@ -55,6 +56,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const [selectedCert, setSelectedCert] = useState<Certificate | null>(null)
   const [mappingType, setMappingType] = useState<'server' | 'client'>('server')
   const [replaceOld, setReplaceOld] = useState(true)
+  const [nameMismatch, setNameMismatch] = useState<string | null>(null)
+  useEffect(() => setNameMismatch(null), [domainId])
   const [importEnvironment, setImportEnvironment] = useState('')
 
   const { data: domain, isLoading } = useQuery<Domain>({
@@ -125,10 +128,12 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   // ONAY MODELİ: domainde zaten aktif server varsa devir ANINDA olmaz — SY onayına
   // düşen bir öneri üretilir (canlıda görüldü kanıtıyla).
   const importChain = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (allowNameMismatch: boolean = false) =>
       (await api.post<ChainImportResult>(`/domains/${domainId}/import-chain`,
-        null, { params: { supersede: replaceOld, environment: importEnvironment || undefined } })).data,
+        null, { params: { supersede: replaceOld, environment: importEnvironment || undefined,
+                          allow_name_mismatch: allowNameMismatch || undefined } })).data,
     onSuccess: (r) => {
+      setNameMismatch(null)
       const summary = chainImportSummary(r)
       enqueueSnackbar(summary.charAt(0).toUpperCase() + summary.slice(1),
                       { variant: 'success', autoHideDuration: chainImportProposalCount(r) ? TRANSFER_TOAST_MS : undefined })
@@ -139,7 +144,11 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
       invalidate()
       liveCheck.mutate()
     },
-    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+    onError: (e) => {
+      // 409: sunulan sertifika domain adresini kapsamıyor — kullanıcı bilerek onaylarsa aktarılır
+      if (isAxiosError(e) && e.response?.status === 409) setNameMismatch(apiErrorMessage(e))
+      else enqueueSnackbar(apiErrorMessage(e), { variant: 'error' })
+    },
   })
 
   return (
@@ -281,6 +290,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     {d.expected && <Field label="Beklenen (eşlenmiş)" value={d.expected.join(', ')} />}
                     {d.error && <Field label="Hata" value={d.error} />}
                     {d.reason && <Field label="Not" value={d.reason} />}
+                    {d.name_warning && d.name_warning !== d.reason && <Field label="Uyarı" value={d.name_warning} />}
                   </Box>
                 )
               } catch { return null }
@@ -302,7 +312,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <Button size="small" variant="contained" color="warning"
                           startIcon={<CloudDownloadIcon />}
                           disabled={importChain.isPending || liveCheck.isPending || !importEnvironment}
-                          onClick={() => importChain.mutate()}>
+                          onClick={() => importChain.mutate(false)}>
                     {importChain.isPending ? 'Aktarılıyor…' : 'Canlıdaki Sertifikayı İçe Aktar'}
                   </Button>
                   <FormControlLabel
@@ -311,6 +321,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     label={<Typography variant="body2">Eski kayıt için devir önerisi üret</Typography>}
                   />
                 </Stack>
+                {nameMismatch && (
+                  <Alert severity="error" sx={{ mt: 1 }}
+                         action={<Button color="inherit" size="small" disabled={importChain.isPending}
+                                         onClick={() => importChain.mutate(true)}>Yine de aktar</Button>}>
+                    {nameMismatch}
+                  </Alert>
+                )}
               </Box>
             )}
             <Button onClick={onClose}>Kapat</Button>
