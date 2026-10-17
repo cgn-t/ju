@@ -434,10 +434,10 @@ def test_scn_unexpected_error_on_one_cert_does_not_block_others(client, auth_hea
 
     orig = notifier._expiry_stakeholders
 
-    def boom(db, cert, global_days=30):
+    def boom(db, cert, global_days=30, **kw):
         if cert.name == "scn-boom-cert.test":
             raise RuntimeError("beklenmeyen hata (test)")
-        return orig(db, cert, global_days)
+        return orig(db, cert, global_days, **kw)
     monkeypatch.setattr(notifier, "_expiry_stakeholders", boom)
 
     result = _run(force=True)  # patlamamalı — Exception fırlatmadan dönmeli
