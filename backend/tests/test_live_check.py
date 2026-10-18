@@ -411,7 +411,7 @@ def test_live_check_missing_intermediate_warns_without_proposal(client, auth_hea
 
 
 def test_live_check_missing_intermediate_keeps_mismatch(client, auth_headers):
-    """Yarım zincir + farklı leaf: kırmızı UYUMSUZ öncelikli kalır, zincir uyarısı ayrıca yazılır."""
+    """Yarım zincir + farklı leaf: kırmızı EŞLEŞMİYOR öncelikli kalır, zincir uyarısı ayrıca yazılır."""
     h = auth_headers
     root, root_key = certgen.make_ca("LC HalfMis Root")
     inter, inter_key = certgen.make_intermediate(root, root_key, "LC HalfMis Inter")

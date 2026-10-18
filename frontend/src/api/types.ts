@@ -62,7 +62,7 @@ export interface Certificate {
   key_curve?: string | null
   signature_hash?: string | null
   // İptal (revocation) durumu — OCSP/CRL
-  revocation_status?: string | null      // good | revoked | unknown | null(denetlenmemiş)
+  revocation_status?: string | null      // good | revoked | unknown | unreachable | not_checkable | null(denetlenmemiş)
   revocation_checked_at?: string | null
   revocation_detail?: string | null
 }

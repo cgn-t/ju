@@ -124,7 +124,7 @@ function LdapTab() {
           <FormControlLabel
             control={<Switch checked={!!form.start_tls} disabled={!!form.use_ssl}
                              onChange={(e) => setForm((f) => ({ ...f, start_tls: e.target.checked }))} />}
-            label="StartTLS (legacy, 389)" />
+            label="StartTLS (389)" />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
           <FormControlLabel
@@ -305,7 +305,7 @@ function SmtpTab() {
 
       <Alert severity="info" sx={{ mt: 1 }}>
         <b>Değişiklik Talebi Hatırlatması:</b> Onay kuyruğunda <b>bekleyen değişiklik talebi</b> olan SY ekiplerine
-        (ekip başına <b>tek mail</b>, tüm bekleyen önerilerini listeler) hatırlatma gönderir — kuyruğun temiz
+        (ekip başına <b>tek mail</b>, tüm bekleyen taleplerini listeler) hatırlatma gönderir — kuyruğun temiz
         tutulması için. Açıkken her gün belirtilen saatte; kapalıyken yalnız "Şimdi Hatırlat" / dış API ile.
       </Alert>
       <Box>
@@ -343,7 +343,7 @@ function SmtpTab() {
           Süresi Geçenleri Şimdi Gönder
         </Button>
         <Button variant="outlined" onClick={() => runProposals.mutate()} disabled={runProposals.isPending}>
-          Bekleyen Önerileri Şimdi Hatırlat
+          Bekleyen Talepleri Şimdi Hatırlat
         </Button>
       </Stack>
     </Stack>
@@ -845,7 +845,7 @@ function AccessTab() {
     <Stack spacing={3}>
       <Alert severity="info">
         Varsayılan: Uyum, Değişiklik Talepleri, Keşif ve Dağıtım sayfaları yalnız <b>Yönetici</b> ve
-        <b> Global İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız ilgili sayfa
+        <b> Genel İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız ilgili sayfa
         <b> tüm rollere</b> (İzleyici dahil) görünür olur. <b>Değişiklik Talepleri istisnası:</b> bu
         ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin bekleyen değişiklik taleplerini
         her zaman görüp onaylayabilir — onay yetkisi bu anahtarla DEĞİŞMEZ. Dağıtımı fiilen
@@ -1014,16 +1014,16 @@ function CtTab() {
         <FormControlLabel
           control={<Switch checked={!!form.enabled}
                            onChange={(e) => setForm((s) => ({ ...s, enabled: e.target.checked }))} />}
-          label="Gece CT taraması etkin (her gün)" />
+          label="Gece CT izleme etkin (her gün)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          Açıkken tüm envanter domainleri her gece crt.sh'ten sorgulanır. Kapalıyken tarama yalnız Keşif
-          sayfasındaki “CT Taraması” düğmesiyle elle çalışır.
+          Açıkken tüm envanter domainleri her gece crt.sh'ten sorgulanır. Kapalıyken sorgu yalnız Keşif
+          sayfasındaki “CT İzleme” düğmesiyle elle çalışır.
         </Typography>
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Text form={form} setForm={setForm} field="proxy_url" label="Forward Proxy (opsiyonel)"
                 helper="crt.sh'e ulaşmak için http://host:port — boşsa doğrudan bağlanır" />
           <Text form={form} setForm={setForm} field="schedule_hour" label="Gece Saati (0-23)" type="number"
-                width={{ xs: 6, sm: 3 }} helper="Gece CT taramasının başlayacağı saat (sunucu saati)" />
+                width={{ xs: 6, sm: 3 }} helper="Gece CT izlemenin başlayacağı saat (sunucu saati)" />
           <Text form={form} setForm={setForm} field="timeout_seconds" label="Zaman Aşımı (sn)" type="number"
                 width={{ xs: 6, sm: 3 }} helper="crt.sh isteği için azami bekleme süresi" />
           <Text form={form} setForm={setForm} field="concurrency" label="Concurrency" type="number"
@@ -1069,7 +1069,7 @@ function PolicyTab() {
                            onChange={(e) => setForm((s) => ({ ...s, enforce_ca_allowlist: e.target.checked }))} />}
           label="CA allowlist zorunlu (liste dışı issuer = ihlal)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Açıkken, aşağıdaki listede olmayan bir CA'dan çıkmış leaf sertifikalar “Güvenilmeyen Issuer”
+          Açıkken, aşağıdaki listede olmayan bir CA'dan çıkmış leaf sertifikalar “İzin Listesi Dışı CA”
           olarak işaretlenir. Liste boşken zorlama uygulanmaz (yanlış-pozitif önlemi).
         </Typography>
 
@@ -1115,8 +1115,8 @@ function RevocationTab() {
     <Stack spacing={3}>
       <Alert severity="warning">
         İptal denetimi <b>OCSP/CRL uçlarına dış erişim</b> gerektirir. Kapalı ağda erişilemeyebilir →
-        opsiyonel <b>forward proxy</b> tanımlayın. İç/özel CA'lar çoğu zaman public OCSP sunmaz; bu
-        durumda sonuç <b>“Belirsiz”</b> olur — bu normaldir. JUMBO sertifikayı iptal görse bile
+        opsiyonel <b>forward proxy</b> tanımlayın. Erişim yoksa sonuç <b>“Ulaşılamadı”</b>; iç/özel CA'lar
+        çoğu zaman iptal adresi yayınlamaz, bu durumda sonuç <b>“Kontrol edilemez”</b> olur — ikisi de normaldir. JUMBO sertifikayı iptal görse bile
         <b> otomatik pasife almaz</b>, yalnız durumu gösterir.
       </Alert>
 
@@ -1168,7 +1168,7 @@ type LiveCheckRunStatus = {
 }
 
 const LIVE_STATUS_LABEL: Record<string, string> = {
-  match: 'uyumlu', mismatch: 'uyumsuz', chain_incomplete: 'ara sertifika eksik', unreachable: 'erişilemedi', no_mapping: 'eşleme yok',
+  match: 'eşleşiyor', mismatch: 'eşleşmiyor', chain_incomplete: 'ara sertifika eksik', unreachable: 'erişilemedi', no_mapping: 'bağlı sertifika yok',
   not_checkable: 'kontrol edilemez',
 }
 
@@ -1194,8 +1194,8 @@ function LiveCheckTab() {
     <Stack spacing={3}>
       <Alert severity="info">
         Domainlerin canlıda TLS üzerinden sunduğu sertifika zincirini (leaf+intermediate+root)
-        kontrol eder. Fark bulursa <b>yalnız o domain için</b> ekleme / değişiklik / kaldırma önerisi
-        oluşturur; eşlemeler onaysız değişmez — tamamen yerel, dış erişim gerekmez.
+        kontrol eder. Fark bulursa <b>yalnız o domain için</b> ekleme / değişiklik / kaldırma talebi
+        oluşturur; bağlantılar onaysız değişmez — tamamen yerel, dış erişim gerekmez.
       </Alert>
 
       <Box>

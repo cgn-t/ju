@@ -114,7 +114,7 @@ export default function Discovery() {
   const ctScan = useMutation({
     mutationFn: async () => (await api.post('/discovery/ct-scan')).data,
     onSuccess: (d) => {
-      enqueueSnackbar(d.message ?? 'CT taraması başlatıldı', { variant: 'success' })
+      enqueueSnackbar(d.message ?? 'CT izleme başlatıldı', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['discovery'] })
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
@@ -145,11 +145,11 @@ export default function Discovery() {
                     onClick={() => scan.mutate()}>
               {scanning ? 'Taranıyor…' : 'Ağ Taraması'}
             </Button>
-            <Tooltip title="Certificate Transparency loglarını (crt.sh) tarar — dış internet/proxy erişimi gerekir">
+            <Tooltip title="Certificate Transparency kayıtlarını (crt.sh) sorgular — dış internet/proxy erişimi gerekir">
               <span>
                 <Button variant="outlined" startIcon={<PublicIcon />} disabled={ctScan.isPending || scanning}
                         onClick={() => ctScan.mutate()}>
-                  CT Taraması
+                  CT İzleme
                 </Button>
               </span>
             </Tooltip>
@@ -158,7 +158,7 @@ export default function Discovery() {
       />
 
       <Alert severity="info" icon={<TravelExploreIcon />} sx={{ mb: 2 }}>
-        Keşif iki kaynaktan beslenir: <b>Ağ taraması</b> tanımlı hedeflere TLS bağlanır; <b>CT taraması</b>
+        Keşif iki kaynaktan beslenir: <b>Ağ taraması</b> tanımlı hedeflere TLS bağlanır; <b>CT izleme</b>
         (crt.sh) sertifika şeffaflık loglarını okur (dış internet/proxy gerekir). Kaynakları ve gece
         taramasını <b>Ayarlar → Keşif</b> ve <b>Ayarlar → CT</b> sekmelerinden yönetin. "Bilinmeyen"
         bulgular envanterde olmayan sertifikalardır — inceleyip <b>Envantere Al</b> veya <b>Yok say</b>abilirsiniz.

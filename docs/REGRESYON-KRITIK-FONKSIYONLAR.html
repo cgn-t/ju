@@ -245,7 +245,7 @@
         <li>2.1'in 1-4. adımlarını <code>devir-s4.test</code> ile tekrarlayın (v1 bağla, v2 import → öneri oluşur).</li>
         <li>"Değişiklik Talepleri"nde ilgili satırda <b>"Reddet"</b> butonuna basın.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Toast "Öneri reddedildi"; domain hâlâ v1'e bağlı.</div>
+      <div class="expect"><b>Beklenen:</b> Toast "Talep reddedildi"; domain hâlâ v1'e bağlı.</div>
       <ol class="steps" start="3">
         <li>"SSL Sertifikaları"na gidin, <code>leaf-v2.pem</code> dosyasını TEKRAR içe aktarmayı deneyin (otomatik yol).</li>
       </ol>
@@ -453,7 +453,7 @@
       <div class="mtest-head"><span class="mtest-num">6.3</span><span class="mtest-title">Değişiklik talebi hatırlatma</span></div>
       <ol class="steps">
         <li>Bölüm 2'den kalan bekleyen bir değişiklik talebi olsun.</li>
-        <li>Settings → "E-posta (SMTP)" → <b>"Bekleyen Önerileri Şimdi Hatırlat"</b>.</li>
+        <li>Settings → "E-posta (SMTP)" → <b>"Bekleyen Talepleri Şimdi Hatırlat"</b>.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> İlgili SY ekibine öneriyi (eski→yeni) listeleyen TEK bir hatırlatma maili gider; "Mail Gönderim Geçmişi"nde görünür.</div>
       <span class="ref">test_reminder_one_mail_per_team_lists_proposals</span>

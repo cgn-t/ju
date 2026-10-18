@@ -1,9 +1,13 @@
 """Sertifika iptal (revocation) durumu — OCSP ve/veya CRL ile denetler. live_check felsefesinin uzantısı.
 
 EGRESS: OCSP responder / CRL dağıtım noktalarına DIŞ ERİŞİM gerekir. Kapalı banka/OpenShift ağında
-erişilemeyebilir (ayrıca iç/özel CA'lar çoğu zaman public OCSP sunmaz → çok sayıda 'unknown' NORMALDİR).
-Bu yüzden egress-gated: revocation kategorisi varsayılan KAPALI + opsiyonel proxy; erişilemezse 'unknown'
-(çökme yok). Sertifikayı ASLA otomatik pasifleştirmez — yalnız durum gösterir (JUMBO onay-hattı felsefesi).
+erişilemeyebilir (ayrıca iç/özel CA'lar çoğu zaman public OCSP sunmaz → çok sayıda kesin olmayan sonuç
+NORMALDİR). Bu yüzden egress-gated: revocation kategorisi varsayılan KAPALI + opsiyonel proxy; erişilemezse
+'unreachable' (çökme yok).
+
+Durumlar (literatürdeki ayrımla): good / revoked = kesin yanıt; unknown = OCSP responder sertifikayı
+TANIMIYOR (RFC 6960 'unknown'); unreachable = OCSP/CRL ucuna ulaşılamadı ya da geçerli yanıt gelmedi;
+not_checkable = sorulacak yer yok (sertifikada OCSP/CRL adresi yok ya da OCSP için issuer envanterde yok). Sertifikayı ASLA otomatik pasifleştirmez — yalnız durum gösterir (JUMBO onay-hattı felsefesi).
 
 NOT: OCSP CertID'de SHA-1 kullanımı STANDARTTIR (RFC 6960) — politika motorunun weak_signature kuralıyla
 ilgisi yoktur; farklı bağlam.
@@ -84,7 +88,7 @@ def _revocation_time(single) -> str | None:
 
 def check_ocsp(leaf: x509.Certificate, issuer: x509.Certificate, url: str,
                client: httpx.Client) -> tuple[str, dict]:
-    """Tek OCSP responder'a sorar. Döner: (good|revoked|unknown, detay)."""
+    """Tek OCSP responder'a sorar. Döner: (good|revoked|unknown|unreachable, detay)."""
     try:
         req = (ocsp.OCSPRequestBuilder()
                .add_certificate(leaf, issuer, hashes.SHA1())  # CertID hash — RFC 6960 standardı
@@ -94,7 +98,7 @@ def check_ocsp(leaf: x509.Certificate, issuer: x509.Certificate, url: str,
         resp.raise_for_status()
         oc = ocsp.load_der_ocsp_response(resp.content)
         if oc.response_status != ocsp.OCSPResponseStatus.SUCCESSFUL:
-            return "unknown", {"ocsp_response_status": oc.response_status.name}
+            return "unreachable", {"ocsp_response_status": oc.response_status.name}
         status = oc.certificate_status
         if status == ocsp.OCSPCertStatus.GOOD:
             return "good", {}
@@ -103,11 +107,11 @@ def check_ocsp(leaf: x509.Certificate, issuer: x509.Certificate, url: str,
             return "revoked", {"revocation_time": _revocation_time(oc), "reason": reason}
         return "unknown", {"ocsp_cert_status": "UNKNOWN"}
     except Exception as exc:
-        return "unknown", {"error": f"{type(exc).__name__}: {exc}"[:200]}
+        return "unreachable", {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def check_crl(leaf: x509.Certificate, url: str, client: httpx.Client) -> tuple[str, dict]:
-    """Tek CRL dağıtım noktasını indirip seri numarasını arar. Döner: (good|revoked|unknown, detay)."""
+    """Tek CRL dağıtım noktasını indirip seri numarasını arar. Döner: (good|revoked|unreachable, detay)."""
     try:
         resp = client.get(url)
         resp.raise_for_status()
@@ -121,19 +125,20 @@ def check_crl(leaf: x509.Certificate, url: str, client: httpx.Client) -> tuple[s
             return "revoked", {"revocation_date": _revocation_time(entry)}
         return "good", {}
     except Exception as exc:
-        return "unknown", {"error": f"{type(exc).__name__}: {exc}"[:200]}
+        return "unreachable", {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def check_certificate(db: Session, cert: Certificate, client: httpx.Client,
                       config: dict) -> tuple[str, dict]:
     """Bir sertifikanın iptal durumunu (method'a göre OCSP ve/veya CRL) denetler; kesin sonuç
-    (good/revoked) alınınca durur. Hiçbir yerden kesin yanıt gelmezse 'unknown'."""
+    (good/revoked) alınınca durur. Kesin yanıt yoksa: responder tanımıyorsa 'unknown', uca ulaşılamadıysa
+    'unreachable', hiç sorulacak yer yoksa 'not_checkable'."""
     if not cert.pem_certificate:
-        return "unknown", {"error": "PEM yok"}
+        return "not_checkable", {"error": "PEM yok"}
     try:
         leaf = x509.load_pem_x509_certificate(cert.pem_certificate.encode())
     except Exception:
-        return "unknown", {"error": "PEM parse edilemedi"}
+        return "not_checkable", {"error": "PEM parse edilemedi"}
 
     method = config.get("method") or "ocsp_then_crl"
     tried: list[dict] = []
@@ -156,21 +161,26 @@ def check_certificate(db: Session, cert: Certificate, client: httpx.Client,
             if status in ("good", "revoked"):
                 return status, {"method": "crl", "crl": url, **detail}
 
-    return "unknown", {"tried": tried,
-                       "note": "kesin sonuç yok (erişim yok, uç tanımsız ya da issuer eksik)"}
+    outcomes = {t["status"] for t in tried}
+    if "unknown" in outcomes:
+        return "unknown", {"tried": tried, "note": "OCSP responder sertifikayı tanımıyor"}
+    if "unreachable" in outcomes:
+        return "unreachable", {"tried": tried, "note": "OCSP/CRL ucuna ulaşılamadı"}
+    return "not_checkable", {"tried": tried,
+                             "note": "sorulacak yer yok (OCSP/CRL adresi tanımsız ya da issuer eksik)"}
 
 
 def run_check(db: Session, cert: Certificate, client: httpx.Client, config: dict) -> tuple[str, dict]:
     """check_certificate + sonucu Certificate'e yazar (commit çağırana ait)."""
     status, detail = check_certificate(db, cert, client, config)
-    if status == "unknown" and cert.revocation_status == "revoked":
-        # İptal geri alınamaz: uca o an ulaşılamaması (unknown) önceki 'revoked' kaydını silmez.
+    if status not in ("good", "revoked") and cert.revocation_status == "revoked":
+        # İptal geri alınamaz: kesin olmayan bir sonuç (ör. uca o an ulaşılamaması) önceki 'revoked' kaydını silmez.
         # Aksi halde durum 'Belirsiz'e düşer, uç dönünce aynı sertifika için ikinci iptal maili gider.
         try:
             previous = json.loads(cert.revocation_detail or "{}")
         except ValueError:
             previous = {}
-        previous["last_attempt"] = {"at": utcnow().isoformat(), "result": "unknown", "detail": detail}
+        previous["last_attempt"] = {"at": utcnow().isoformat(), "result": status, "detail": detail}
         cert.revocation_checked_at = utcnow()
         cert.revocation_detail = json.dumps(previous, ensure_ascii=False)[:3900]
         return "revoked", previous

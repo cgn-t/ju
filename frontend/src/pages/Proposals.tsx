@@ -48,7 +48,7 @@ export default function Proposals() {
     mutationFn: async ({ id, action }: { id: number; action: 'approve' | 'reject' }) =>
       (await api.post(`/proposals/${id}/${action}`)).data,
     onSuccess: (_d, v) => {
-      enqueueSnackbar(v.action === 'approve' ? 'Değişiklik onaylandı ve uygulandı' : 'Öneri reddedildi',
+      enqueueSnackbar(v.action === 'approve' ? 'Değişiklik onaylandı ve uygulandı' : 'Talep reddedildi',
                       { variant: v.action === 'approve' ? 'success' : 'info' })
       setReviewId(null)
       invalidate()
@@ -65,7 +65,7 @@ export default function Proposals() {
 
       <Alert severity="info" sx={{ mb: 2 }}>
         Bir değişiklik talebini yalnız domain sahibi SY ekibinin üyesi (veya admin) onaylayabilir.
-        Onayladığınızda eşleme yeni sertifikaya taşınır ve eski kayıt pasife alınır; reddederseniz
+        Onayladığınızda bağlantı yeni sertifikaya taşınır ve eski kayıt pasife alınır; reddederseniz
         hiçbir değişiklik olmaz.
       </Alert>
 
@@ -104,7 +104,7 @@ export default function Proposals() {
               <TableRow key={p.id} hover>
                 <TableCell>
                   <Tooltip title={p.kind === 'server_add' || p.kind === 'server_remove'
-                    ? 'Öneriyi incele' : 'Eski ve yeni sertifikayı karşılaştır'}>
+                    ? 'Talebi incele' : 'Eski ve yeni sertifikayı karşılaştır'}>
                     <Box onClick={() => setReviewId(p.id)}
                          sx={{
                            display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap',
@@ -191,7 +191,7 @@ export default function Proposals() {
                         </Button>
                       </>
                     ) : (
-                      <Tooltip title="Bu öneriyi yalnız domain'in SY ekibi üyesi veya admin karara bağlayabilir">
+                      <Tooltip title="Bu talebi yalnız domain'in SY ekibi üyesi veya admin karara bağlayabilir">
                         <Chip size="small" variant="outlined" label="yetki yok" />
                       </Tooltip>
                     )}

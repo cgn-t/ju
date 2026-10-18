@@ -337,7 +337,7 @@
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">8.2</span><span class="mtest-title">Şablon tutarlılığı — 4 mail türü</span></div>
       <ol class="steps">
-        <li>Sırayla "Süre Uyarılarını Şimdi Gönder", "Süresi Geçenleri Şimdi Gönder", "Bekleyen Önerileri Şimdi Hatırlat" butonlarını çalıştırın; ayrıca bir sertifikayı elle pasife alın.</li>
+        <li>Sırayla "Süre Uyarılarını Şimdi Gönder", "Süresi Geçenleri Şimdi Gönder", "Bekleyen Talepleri Şimdi Hatırlat" butonlarını çalıştırın; ayrıca bir sertifikayı elle pasife alın.</li>
         <li>"Mail Gönderim Geçmişi"nde bu 4 türün her birinin detayını açın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Dördünde de konu satırı <code>[JUMBO]</code> ile başlar, aynı footer ve genişlik kullanılır (görsel tutarlılık); devir-hatırlatma mailinde artık doküman linkleri de (varsa <code>doc_links</code> ayarı) görünür.</div>
@@ -348,7 +348,7 @@
   <section id="s9">
     <h2><span class="idx">9</span>Değişiklik Talebi Hatırlatma Maili</h2>
     <p class="section-note">Temel akış için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s6">kritik doküman 6.3</a>'e bakın.</p>
-    <div class="row"><p class="row-title">E-postasız ekip atlanır</p><p class="row-desc">Settings → "Ekipler"de bir SY ekibinin e-posta alanını boşaltın; bu ekibin bekleyen önerisi varken "Bekleyen Önerileri Şimdi Hatırlat"ı çalıştırın.</p><div class="expect" style="margin-top:8px"><b>Beklenen:</b> Bu ekip için "Mail Gönderim Geçmişi"nde satır oluşmaz (gönderim atlanır), diğer ekipler normal şekilde alır.</div><span class="ref">test_reminder_team_without_email_skipped</span></div>
+    <div class="row"><p class="row-title">E-postasız ekip atlanır</p><p class="row-desc">Settings → "Ekipler"de bir SY ekibinin e-posta alanını boşaltın; bu ekibin bekleyen önerisi varken "Bekleyen Talepleri Şimdi Hatırlat"ı çalıştırın.</p><div class="expect" style="margin-top:8px"><b>Beklenen:</b> Bu ekip için "Mail Gönderim Geçmişi"nde satır oluşmaz (gönderim atlanır), diğer ekipler normal şekilde alır.</div><span class="ref">test_reminder_team_without_email_skipped</span></div>
   </section>
 
   <section id="s10">
@@ -422,7 +422,7 @@
       <div class="mtest-head"><span class="mtest-num">11.2</span><span class="mtest-title">Certificate Transparency (CT) taraması</span></div>
       <ol class="steps">
         <li>Settings → "CT (crt.sh)" sekmesinde izlenecek bir domain ekleyin.</li>
-        <li>"Keşif" sayfasında <b>"CT Taraması"</b> butonuna basın (dış internet/proxy erişimi gerekir).</li>
+        <li>"Keşif" sayfasında <b>"CT İzleme"</b> butonuna basın (dış internet/proxy erişimi gerekir).</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Bulgular "Kaynak" sütununda "CT Log" etiketiyle görünür; precertificate (CT poison uzantılı) kayıtlar listede görünmez (otomatik atlanır).</div>
       <span class="ref">test_ct_scan_flags_shadow_and_known · test_ct_skips_precertificates</span>

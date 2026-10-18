@@ -19,7 +19,7 @@ import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
 import { useUrlState } from '../hooks/useUrlState'
 
 const RULE_LABELS: Record<string, string> = {
-  untrusted_issuer: 'Güvenilmeyen Issuer',
+  untrusted_issuer: 'İzin Listesi Dışı CA',
   weak_key: 'Zayıf Anahtar',
   weak_signature: 'Zayıf İmza',
   excessive_validity: 'Aşırı Ömür',

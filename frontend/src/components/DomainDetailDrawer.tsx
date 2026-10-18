@@ -26,11 +26,11 @@ interface Props {
 }
 
 const LIVE_STATUS: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'default' }> = {
-  match: { label: 'Uyumlu — sunulan sertifika envanterle eşleşiyor', color: 'success' },
-  mismatch: { label: 'UYUMSUZ — sunulan sertifika eşlenen sertifikadan farklı', color: 'error' },
+  match: { label: 'Eşleşiyor — sunulan sertifika envanterle aynı', color: 'success' },
+  mismatch: { label: 'EŞLEŞMİYOR — sunulan sertifika bağlı sertifikadan farklı', color: 'error' },
   chain_incomplete: { label: 'Ara sertifika sunucuda eksik', color: 'warning' },
   unreachable: { label: 'Erişilemedi', color: 'warning' },
-  no_mapping: { label: 'Server sertifikası eşlenmemiş', color: 'warning' },
+  no_mapping: { label: 'Server sertifikası bağlanmamış', color: 'warning' },
   not_checkable: { label: 'Kontrol edilemez (wildcard)', color: 'default' },
 }
 
@@ -131,7 +131,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
     mutationFn: async ({ certId, type }: { certId: number; type: string }) =>
       api.delete(`/domains/${domainId}/certificates/${certId}`, { params: { mapping_type: type } }),
     onSuccess: () => {
-      enqueueSnackbar('Eşleme kaldırıldı', { variant: 'success' })
+      enqueueSnackbar('Bağlantı kaldırıldı', { variant: 'success' })
       invalidate()
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
@@ -199,7 +199,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 {c.is_active === false && <Chip size="small" color="warning" label="Pasif" />}
                 <Chip size="small" color={daysLeftColor(c.days_left)} label={daysLeftLabel(c.days_left)} />
                 {canEdit && (
-                  <Tooltip title="Eşlemeyi kaldır">
+                  <Tooltip title="Bağlantıyı kaldır">
                     <IconButton size="small" color="error"
                                 onClick={() => detach.mutate({ certId: c.certificate_id, type: c.mapping_type })}>
                       <LinkOffIcon fontSize="small" />
@@ -300,7 +300,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <Box sx={{ bgcolor: 'background.default', borderRadius: 1, p: 1.5 }}>
                     {d.served_cn && <Field label="Sunulan Sertifika (CN)" value={`${d.served_cn} — bitiş: ${d.served_valid_to ? new Date(d.served_valid_to).toLocaleDateString('tr-TR') : '—'}`} />}
                     {d.matched_certificate && <Field label="Eşleşen Kayıt" value={d.matched_certificate} />}
-                    {d.expected && <Field label="Beklenen (eşlenmiş)" value={d.expected.join(', ')} />}
+                    {d.expected && <Field label="Beklenen (bağlı)" value={d.expected.join(', ')} />}
                     {d.error && <Field label="Hata" value={d.error} />}
                     {d.reason && <Field label="Not" value={d.reason} />}
                     {d.name_warning && d.name_warning !== d.reason && <Field label="Uyarı" value={d.name_warning} />}
@@ -314,7 +314,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               <Box sx={{ border: 1, borderColor: 'warning.main', borderRadius: 1, p: 1.5 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   Sunucudaki gerçek sertifika envanterle uyuşmuyor. Canlıdaki zinciri
-                  içe aktarabilirsiniz; domain boşsa <b>server</b> olarak eşlenir, zaten
+                  içe aktarabilirsiniz; domain boşsa <b>server</b> olarak bağlanır, zaten
                   aktif bir sertifika varsa <b>değişiklik talebi</b> oluşturulur (SY onayına düşer).
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>

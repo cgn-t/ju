@@ -254,8 +254,8 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
         parts.append("<p>Aşağıdaki sertifikanın süresi DOLMUŞ ancak JUMBO envanterinde hâlâ "
                      "AKTİF görünüyor. Lütfen envanteri güncelleyin.</p>")
     else:
-        parts.append("<p>Aşağıdaki sertifikanın bitiş tarihi yaklaşmaktadır. Sertifika expire "
-                     "date öncesinde alınması gereken aksiyonlar varsa şimdiden başlamanızı "
+        parts.append("<p>Aşağıdaki sertifikanın bitiş tarihi yaklaşmaktadır. Sertifikanın bitiş "
+                     "tarihinden önce alınması gereken aksiyonlar varsa şimdiden başlamanızı "
                      "rica ederiz.</p>")
 
     # Sahibi/e-postası tanımsız domain uyarıları (eski sistemdeki 'mail_addresses bulunamadı'
@@ -1173,7 +1173,7 @@ def _proposal_label(p: TransferProposal) -> str:
 
 
 _PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Değişikliği", "trusted_add": "Trust Store Ekleme",
-                         "server_add": "Eşleme Ekleme", "server_remove": "Eşleme Kaldırma"}
+                         "server_add": "Bağlantı Ekleme", "server_remove": "Bağlantı Kaldırma"}
 _PROPOSAL_SIGNAL_LABELS = {"ski": "SubjectKeyIdentifier", "subject": "Subject"}
 
 
@@ -1185,7 +1185,7 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
         ("Yeni Sertifika", p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"),
         ("Yeni Sertifika Bitiş", p.new_cert.valid_to if p.new_cert else None),
         ("Konum", _proposal_location(p)),
-        ("Öneri Türü", _PROPOSAL_KIND_LABELS.get(p.kind, p.kind)),
+        ("Talep Türü", _PROPOSAL_KIND_LABELS.get(p.kind, p.kind)),
         ("Sinyal Eşleşmesi", _PROPOSAL_SIGNAL_LABELS.get(p.signal, p.signal)),
         ("Kaynak", p.via),
         ("Oluşturulma Tarihi", p.created_at),
@@ -1201,8 +1201,8 @@ def _proposal_reminder_text(props: list, cfg: dict) -> str:
     body = (
         f"JUMBO'da onayınızı bekleyen {len(props)} değişiklik talebi var:\n"
         + "".join(blocks)
-        + "\nLütfen JUMBO 'Değişiklik Talepleri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
-        "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
+        + "\nLütfen JUMBO 'Değişiklik Talepleri' ekranından bu talepleri gözden geçirip ONAYLAYIN veya\n"
+        "REDDEDİN. Onaylanan talepler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
         "onay kuyruğu temizlenir."
     )
     return _mail_text_wrap("Merhabalar,", body, doc_links=cfg.get("doc_links") or "")
@@ -1217,7 +1217,7 @@ def _render_proposal_reminder_html(props: list, cfg: dict) -> str:
         parts.append(_kv_table(_proposal_rows(p)))
     parts.append(
         '<p style="font-size:14px">Lütfen JUMBO <b>\'Değişiklik Talepleri\'</b> ekranından bu '
-        "önerileri gözden geçirip <b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni "
+        "talepleri gözden geçirip <b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni "
         "sertifikayı devreye alır; reddedilenler kapanır ve onay kuyruğu temizlenir.</p>")
     return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=cfg.get("doc_links") or "")
 
@@ -1319,7 +1319,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                                    label="ownerless")
 
     return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
-            "message": f"{len(pending)} bekleyen öneri; {sent} hatırlatma gönderildi, {skipped} atlandı."}
+            "message": f"{len(pending)} bekleyen talep; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
 @audited_job("Değişiklik talebi hatırlatması")

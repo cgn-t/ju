@@ -312,7 +312,7 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     # attach/detach ile tutarlı: SY sahibi domainde eşleme mutasyonu sahibine kilitli
     if not can_manage_team_resource(db, user, domain.sy_team_id):
         raise HTTPException(status_code=403,
-                            detail="Bu domainin eşlemesini yalnız sahibi SY ekibi veya admin değiştirir")
+                            detail="Bu domainin sertifika bağlantısını yalnız sahibi SY ekibi veya admin değiştirir")
     host, port = parse_target(domain.domain)
     if host is None:
         raise HTTPException(status_code=400,
@@ -519,11 +519,11 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
     # doğrudan değiştirebilir (detach+attach ile onay atlanmasın)
     if not can_manage_team_resource(db, user, domain.sy_team_id):
         raise HTTPException(status_code=403,
-                            detail="Bu domainin sertifika eşlemesini yalnız sahibi SY ekibi veya admin değiştirir")
+                            detail="Bu domainin sertifika bağlantısını yalnız sahibi SY ekibi veya admin değiştirir")
     exists = db.query(CertificateDomainMap).filter_by(
         certificate_id=cert.id, domain_id=domain.id, mapping_type=body.mapping_type).first()
     if exists:
-        raise HTTPException(status_code=409, detail="Bu eşleme zaten mevcut")
+        raise HTTPException(status_code=409, detail="Bu bağlantı zaten mevcut")
     # İş kuralı: domaine bağlı sertifika pasif olamaz (bkz. _ensure_deactivatable)
     if not cert.is_active:
         raise HTTPException(status_code=400, detail=(
@@ -650,13 +650,13 @@ def detach_certificate(request: Request, domain_id: int, cert_id: int, mapping_t
     mapping = db.query(CertificateDomainMap).filter_by(
         certificate_id=cert_id, domain_id=domain_id, mapping_type=mapping_type).first()
     if mapping is None:
-        raise HTTPException(status_code=404, detail="Eşleme bulunamadı")
+        raise HTTPException(status_code=404, detail="Bağlantı bulunamadı")
     domain = db.get(Domain, domain_id)
     # ONAY MODELİ: SY sahibi domainin eşlemesini kaldırma da sahibine kilitli
     # (detach+attach ile onaysız devir vektörünü kapatır)
     if not can_manage_team_resource(db, user, domain.sy_team_id if domain else None):
         raise HTTPException(status_code=403,
-                            detail="Bu domainin eşlemesini yalnız sahibi SY ekibi veya admin kaldırır")
+                            detail="Bu domainin sertifika bağlantısını yalnız sahibi SY ekibi veya admin kaldırır")
     log_action(db, user.username, "delete", "certificate_domain_map", mapping.id,
                {"domain_id": domain_id, "cert_id": cert_id, "type": mapping_type}, request)
     db.delete(mapping)

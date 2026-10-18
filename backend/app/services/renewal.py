@@ -362,7 +362,7 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
                               ApplicationTrustedCert.cert_id == new_cert.id).first())
             if exists is None:
                 db.add(ApplicationTrustedCert(app_id=prop.app_id, cert_id=new_cert.id,
-                                              note="halef sertifika (değişiklik talebi onayı ile eklendi)"))
+                                              note="yeni sertifika (değişiklik talebi onayı ile eklendi)"))
         prop.status = "applied"
         prop.applied_at = utcnow()
         db.flush()

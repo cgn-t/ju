@@ -271,7 +271,7 @@ def check_domain(db: Session, domain: Domain) -> Domain:
     }
     if not bound_by_type:
         domain.live_check_status = "no_mapping"
-        detail["reason"] = "Domain'e server sertifikası eşlenmemiş — sunulan sertifika envanter dışı"
+        detail["reason"] = "Domain'e server sertifikası bağlanmamış — sunulan sertifika envanter dışı"
     else:
         levels: dict[str, dict] = {}
         for served in served_list:
@@ -298,13 +298,13 @@ def check_domain(db: Session, domain: Domain) -> Domain:
                                    "sırasında yakalanır.")
         if not levels:
             domain.live_check_status = "no_mapping"
-            detail["reason"] = "Sunulan sertifikaların hiçbiri domaine eşlenmiş bir tiple örtüşmüyor"
+            detail["reason"] = "Sunulan sertifikaların hiçbiri domaine bağlı bir tiple örtüşmüyor"
         else:
             detail["levels"] = levels
             if any(lv["status"] == "mismatch" for lv in levels.values()):
                 domain.live_check_status = "mismatch"
                 detail["expected"] = [c.name for pool in bound_by_type.values() for c in pool.values()]
-                detail["reason"] = "Sunulan zincirin bir veya daha fazla seviyesi eşlenmiş sertifikadan farklı"
+                detail["reason"] = "Sunulan zincirin bir veya daha fazla seviyesi bağlı sertifikadan farklı"
             else:
                 domain.live_check_status = "match"
 

@@ -15,7 +15,7 @@ from app.db.models import Certificate
 from app.services.settings_service import get_category
 
 RULE_LABELS = {
-    "untrusted_issuer": "Güvenilmeyen issuer (CA allowlist dışı)",
+    "untrusted_issuer": "İzin listesi dışı CA (CA allowlist dışı)",
     "weak_key": "Zayıf anahtar",
     "weak_signature": "Zayıf imza algoritması",
     "excessive_validity": "Aşırı geçerlilik süresi",

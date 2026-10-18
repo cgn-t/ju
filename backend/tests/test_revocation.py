@@ -89,12 +89,21 @@ def test_check_ocsp_good_and_revoked():
     assert detail.get("reason") == "key_compromise"
 
 
-def test_check_ocsp_network_error_is_unknown():
+def test_check_ocsp_network_error_is_unreachable():
     ca, ck = certgen.make_ca("Rev CA2")
     leaf, _ = certgen.make_leaf(ca, ck, "rev2.example")
     st, _ = revocation.check_ocsp(_x509(leaf), _x509(ca), "http://ocsp",
                                   _FakeClient(exc=httpx.ConnectError("blocked")))
-    assert st == "unknown"
+    assert st == "unreachable"
+
+
+def test_check_ocsp_responder_unknown_status():
+    """RFC 6960 'unknown' = responder sertifikayı tanımıyor; erişim hatasından ayrı tutulur."""
+    ca, ck = certgen.make_ca("Rev CA3")
+    leaf, _ = certgen.make_leaf(ca, ck, "rev3.example")
+    leaf_x, issuer_x = _x509(leaf), _x509(ca)
+    der = _ocsp_der(leaf_x, issuer_x, ck, ocsp.OCSPCertStatus.UNKNOWN)
+    assert revocation.check_ocsp(leaf_x, issuer_x, "http://ocsp", _FakeClient(der))[0] == "unknown"
 
 
 # ---- CRL parse ----
@@ -110,8 +119,8 @@ def test_check_crl_good_and_revoked():
     assert revocation.check_crl(leaf_x, "http://crl", _FakeClient(good_der))[0] == "good"
 
 
-# ---- orchestration: uç yoksa unknown (certgen leaf'inde AIA/CRL yok) ----
-def test_check_certificate_unknown_without_endpoints():
+# ---- orchestration: uç yoksa not_checkable (certgen leaf'inde AIA/CRL yok) ----
+def test_check_certificate_not_checkable_without_endpoints():
     ca, ck = certgen.make_ca("Plain CA")
     leaf, _ = certgen.make_leaf(ca, ck, "plain.example")
     cert = Certificate(pem_certificate=certgen.pem(leaf), cert_type="leaf")
@@ -120,7 +129,7 @@ def test_check_certificate_unknown_without_endpoints():
         status, _ = revocation.check_certificate(db, cert, _FakeClient(), {"method": "ocsp_then_crl"})
     finally:
         db.close()
-    assert status == "unknown"
+    assert status == "not_checkable"
 
 
 # ---- endpoint + kalıcılık + yetki ----
@@ -182,8 +191,8 @@ def test_revocation_job_skips_when_disabled(client, monkeypatch):
 
 
 def test_unreachable_endpoint_keeps_revoked_and_sends_no_second_mail(client, auth_headers, monkeypatch):
-    """İptal listesine o an ulaşılamazsa (unknown) önceki 'revoked' kalır; uç dönünce ikinci mail yok."""
-    results = iter([("revoked", {"method": "crl"}), ("unknown", {"tried": []}),
+    """İptal listesine o an ulaşılamazsa (unreachable) önceki 'revoked' kalır; uç dönünce ikinci mail yok."""
+    results = iter([("revoked", {"method": "crl"}), ("unreachable", {"tried": []}),
                     ("revoked", {"method": "crl"})])
     # önceki testin arka planda başlattığı toplu denetim de bu sahteyi çağırabilir → yalnız bu sertifika
     monkeypatch.setattr(revocation, "check_certificate",

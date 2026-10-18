@@ -245,10 +245,10 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                               : <Chip size="small" color="success" label="Yeni" />}
                             {p.renewal_of_name && (
                               <Tooltip title={p.renewal_signal === 'ski'
-                                ? 'Aynı anahtar (SKI) — yenileme'
-                                : 'Aynı CN + issuer — yenileme'}>
+                                ? 'Yenileme — aynı anahtar (SKI aynı)'
+                                : 'Yeniden anahtarlama — yeni anahtar (CN + issuer aynı)'}>
                                 <Chip size="small" color="info" variant="outlined"
-                                      label={`Yenileme → ${p.renewal_of_name}`} />
+                                      label={`${p.renewal_signal === 'ski' ? 'Yenileme' : 'Yeniden anahtarlama'} → ${p.renewal_of_name}`} />
                               </Tooltip>
                             )}
                           </Stack>
@@ -286,14 +286,14 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                           </Stack>
                           <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25 }}>
                             {p.renewal_signal === 'ski'
-                              ? 'Tespit: SubjectKeyIdentifier birebir aynı — aynı anahtar yeniden sertifikalandırılmış (anahtar korunarak yenileme).'
-                              : 'Tespit: aynı CN + aynı üretici CA, geçerlilik başlangıcı daha yeni — yeni anahtarla yenileme (tipik Vault rotasyonu).'}
+                              ? 'Tespit: SubjectKeyIdentifier birebir aynı — aynı anahtar yeniden sertifikalandırılmış (yenileme — aynı anahtar).'
+                              : 'Tespit: aynı CN + aynı üretici CA, geçerlilik başlangıcı daha yeni — yeniden anahtarlama, yani yeni anahtarla alınmış sertifika (tipik Vault rotasyonu).'}
                           </Typography>
                           <Typography variant="caption" component="div"
                                       color={p.renewal_of_domains?.length ? 'warning.main' : 'text.secondary'}>
                             {p.renewal_of_domains?.length
-                              ? `Eskinin bağlı olduğu eşlemeler: ${p.renewal_of_domains.join(', ')}`
-                              : 'Eskinin domain eşlemesi yok.'}
+                              ? `Eskinin bağlı olduğu domainler: ${p.renewal_of_domains.join(', ')}`
+                              : 'Eskisi hiçbir domaine bağlı değil.'}
                           </Typography>
                           {(p.renewal_also?.length ?? 0) > 0 && (
                             <Typography variant="caption" component="div" color="warning.main">
@@ -305,7 +305,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                     </Stack>
                     <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
                       İçe aktarma değişiklik talebi <strong>oluşturmaz</strong>. Yeni sertifika bir domainde canlıda
-                      görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> öneri açar; isterseniz
+                      görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> değişiklik talebi açar; isterseniz
                       sertifika detayından <strong>Değişiklik Talebi Oluştur</strong> ile elle de başlatabilirsiniz.
                     </Typography>
                   </Box>

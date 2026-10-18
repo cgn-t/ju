@@ -107,7 +107,7 @@ class Certificate(Base):
     key_curve: Mapped[str | None] = mapped_column(Unicode(50))     # EC eğri adı (secp256r1…), else null
     signature_hash: Mapped[str | None] = mapped_column(Unicode(50))  # sha256|sha1|md5|null(EdDSA)
     # İptal (revocation) durumu — OCSP/CRL ile denetlenir (egress-gated). null = denetlenmemiş.
-    revocation_status: Mapped[str | None] = mapped_column(Unicode(20))   # good|revoked|unknown|null
+    revocation_status: Mapped[str | None] = mapped_column(Unicode(20))   # good|revoked|unknown|unreachable|not_checkable|null
     revocation_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
     revocation_detail: Mapped[str | None] = mapped_column(UnicodeText)   # JSON: method/responder/reason
     # MSSQL kendine referanslı FK'de ON DELETE SET NULL'a izin vermez; DB-cascade YOK, boşaltma
