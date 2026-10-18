@@ -98,8 +98,6 @@ def _is_self_signed_server(cert: x509.Certificate) -> bool:
         ku = cert.extensions.get_extension_for_class(x509.KeyUsage).value
     except x509.ExtensionNotFound:
         ku = None
-    if ku is not None and not ku.key_cert_sign:
-        return True  # imza yetkisi olmayan "CA" sertifika imzalayamaz → uç sertifikadır
     if _san_names(cert):
         return True
     if ku is None:
@@ -121,6 +119,13 @@ def _classify(cert: x509.Certificate) -> str:
             is_ca = False
     if not is_ca:
         return "leaf"
+    try:
+        if not cert.extensions.get_extension_for_class(x509.KeyUsage).value.key_cert_sign:
+            # CA:TRUE ama imza yetkisi yok (bazı cihaz/yanlış şablon sunucu sertifikaları): sertifika
+            # imzalayamaz → kim imzalamış olursa olsun uç sertifikadır (RFC 5280 §4.2.1.3).
+            return "leaf"
+    except x509.ExtensionNotFound:
+        pass
     if cert.issuer != cert.subject:
         return "intermediate"
     if _is_self_signed_server(cert):
@@ -303,7 +308,42 @@ def parse_upload(data: bytes, password: str | None = None) -> list[ParsedCertifi
         certs = _parse_binary(raw if raw is not None else data, password)
     if not certs:
         raise ValueError("Dosyada sertifika bulunamadı")
-    return [parse_x509(c) for c in certs]
+    parsed = [parse_x509(c) for c in certs]
+    _promote_file_signers(certs, parsed)
+    return parsed
+
+
+def is_self_signed(issuer: str | None, subject: str | None, aki: str | None, ski: str | None) -> bool:
+    """Kendi kendini imzalamış sertifika (kök ya da kendinden imzalı sunucu): yayıncısı kendisidir,
+    zincirde üstü OLAMAZ. issuer==subject ve AKI yok ya da kendi SKI'si (anahtar geçişi için
+    üretilen self-issued ara CA'da AKI≠SKI'dir, o hariç)."""
+    return bool(subject) and issuer == subject and (not aki or aki == ski)
+
+
+def _signed_by(child: x509.Certificate, parent: x509.Certificate) -> bool:
+    try:
+        child.verify_directly_issued_by(parent)
+        return True
+    except Exception:
+        return False
+
+
+def _promote_file_signers(certs: list[x509.Certificate], parsed: list[ParsedCertificate]) -> None:
+    """Uzantılarından 'uç' sanılan kendinden imzalı sertifika (uzantısız v1 kök, KU'suz ve CN'i
+    alan adı gibi kök, SAN taşıyan kök) aynı dosyadaki başka bir sertifikayı imzalamışsa CA'dır
+    → 'root'. Kendinden imzalı çocuk (aynı anahtarla yenilenmiş sunucu sertifikası) kanıt sayılmaz."""
+    for i, p in enumerate(parsed):
+        if p.cert_type != "leaf" or not is_self_signed(p.issuer, p.subject, p.authority_key_identifier,
+                                                       p.subject_key_identifier):
+            continue
+        for j, child in enumerate(parsed):
+            if j == i or child.issuer != p.subject or is_self_signed(
+                    child.issuer, child.subject, child.authority_key_identifier,
+                    child.subject_key_identifier):
+                continue
+            if _signed_by(certs[j], certs[i]):
+                p.cert_type = "root"
+                break
 
 
 def parse_pem_text(pem_text: str) -> list[ParsedCertificate]:
@@ -364,21 +404,42 @@ def find_ca_by_issuer(db: Session, issuer: str, child_pem: str | None,
         q = q.filter(Certificate.id != exclude_id)
     for cand in q.order_by(Certificate.is_active.desc(), Certificate.valid_to.desc(),
                            Certificate.id.desc()).all():
-        if normalize_cert_type(cand.cert_type) != "leaf" and _issued_by(child_pem, cand.pem_certificate):
+        # 'Uç' sanılan kendinden imzalı kayıt da aday: imzası doğrulanıyorsa aslında kök CA'dır
+        # (resolve_parent onu 'root'a yükseltir).
+        if (normalize_cert_type(cand.cert_type) != "leaf" or _row_self_signed(cand)) \
+                and _issued_by(child_pem, cand.pem_certificate):
             return cand
     return None
+
+
+def _row_self_signed(row: Certificate) -> bool:
+    return is_self_signed(row.issuer, row.subject, row.authority_key_identifier,
+                          row.subject_key_identifier)
+
+
+def _promote_to_root(row: Certificate) -> None:
+    """Başka bir sertifikayı imzaladığı görülen, 'uç' kayıtlı kendinden imzalı sertifika kök CA'dır."""
+    if normalize_cert_type(row.cert_type) == "leaf" and _row_self_signed(row):
+        row.cert_type = "root"
 
 
 def resolve_parent(db: Session, parsed: ParsedCertificate) -> int | None:
     """AKI → mevcut kayıtların SKI'siyle eşleşiyorsa parent id döner. AKI yoksa issuer DN'i
     ve imza doğrulamasıyla aranır."""
-    if parsed.cert_type == "root":
+    if parsed.cert_type == "root" or is_self_signed(parsed.issuer, parsed.subject,
+                                                     parsed.authority_key_identifier,
+                                                     parsed.subject_key_identifier):
+        # Kendinden imzalı sertifikanın üstü yoktur. (Aynı anahtarla yenilenmiş kendinden imzalı
+        # sunucu sertifikaları aynı SKI'yi taşır; eskiden birbirinin 'üstü' olarak bağlanıyordu.)
         return None
     if parsed.authority_key_identifier:
         parent = find_ca_by_ski(db, parsed.authority_key_identifier)
     else:
         parent = find_ca_by_issuer(db, parsed.issuer, parsed.pem_certificate)
-    return parent.id if parent else None
+    if parent is None:
+        return None
+    _promote_to_root(parent)
+    return parent.id
 
 
 def resolve_server_chain(cert: Certificate) -> tuple[list[Certificate], bool]:
@@ -407,13 +468,14 @@ def relink_children(db: Session, cert: Certificate) -> int:
     Ebeveyni zaten olan çocuklara dokunulmaz — aynı SKI'li CA'lar kriptografik
     olarak eşdeğerdir, mevcut bağları koparmak sürpriz yaratır.
     """
+    _promote_if_signed_orphans(db, cert)
     linked = _relink_aki_less(db, cert)
     if not cert.subject_key_identifier:
         return linked
     best = find_ca_by_ski(db, cert.subject_key_identifier)
     if best is None:
         return linked
-    orphans = (
+    orphans = [o for o in (
         db.query(Certificate)
         .filter(
             Certificate.parent_id.is_(None),
@@ -421,10 +483,30 @@ def relink_children(db: Session, cert: Certificate) -> int:
             Certificate.id != best.id,
         )
         .all()
-    )
+    ) if not _row_self_signed(o)]  # kendinden imzalı kaydın üstü olmaz
     for orphan in orphans:
         orphan.parent_id = best.id
+    if orphans:
+        _promote_to_root(best)
     return len(orphans) + linked
+
+
+def _promote_if_signed_orphans(db: Session, cert: Certificate) -> None:
+    """Yeni eklenen 'uç' kayıtlı kendinden imzalı sertifika, envanterdeki üstsüz bir sertifikayı
+    imzalamışsa kök CA'dır → önce 'root' yapılır ki çocukları ona bağlanabilsin."""
+    if normalize_cert_type(cert.cert_type) != "leaf" or not _row_self_signed(cert) or not cert.subject:
+        return
+    q = db.query(Certificate).filter(Certificate.parent_id.is_(None),
+                                     Certificate.issuer == cert.subject,
+                                     Certificate.id != cert.id)
+    for cand in q.all():
+        if _row_self_signed(cand):
+            continue
+        if cand.authority_key_identifier and cand.authority_key_identifier != cert.subject_key_identifier:
+            continue
+        if _issued_by(cand.pem_certificate, cert.pem_certificate):
+            cert.cert_type = "root"
+            return
 
 
 def _relink_aki_less(db: Session, cert: Certificate) -> int:
