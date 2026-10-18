@@ -328,6 +328,9 @@ def _xlsx_bytes(headers, rows):
 
 
 def test_domain_excel_import(client, auth_headers):
+    # Excel takım OLUŞTURMAZ: takımlar önceden Ayarlar > Ekipler'de tanımlı olmalı
+    for name, type_ in (("MoneyTalks", "SY"), ("IISAdmins", "SY"), ("Integral", "UG")):
+        client.post("/api/teams", headers=auth_headers, json={"name": name, "type": type_})
     content = _xlsx_bytes(
         ["domain", "sy", "ug", "mail_addresses", "external_company"],
         [
@@ -345,9 +348,9 @@ def test_domain_excel_import(client, auth_headers):
     assert body["created"] == 2
     assert body["skipped"] == 1
     assert len(body["errors"]) == 1
-    # Takımlar otomatik oluştu mu?
-    teams = client.get("/api/teams", headers=auth_headers).json()
-    assert {"MoneyTalks", "IISAdmins"} <= {t["name"] for t in teams if t["type"] == "SY"}
+    domains = {d["domain"]: d for d in client.get("/api/domains", headers=auth_headers).json()}
+    assert domains["excel1.jumbo-test.com"]["sy_team_id"] is not None
+    assert domains["excel1.jumbo-test.com"]["ug_team_id"] is not None
     # Aynı dosya tekrar → hepsi atlanır
     r = client.post("/api/domains/import-excel", headers=auth_headers,
                     files={"file": ("domains.xlsx", content,

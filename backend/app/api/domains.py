@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 import openpyxl
-from app.core.textmatch import ci_equals, ci_like
+from app.core.textmatch import ci_equals, ci_like, fold
 from app.core.timeutil import utcnow
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -191,7 +191,10 @@ def import_excel(request: Request, file: UploadFile = File(...),
     """Toplu domain yükleme (.xlsx). 1. satır başlık, altındaki satırlar veri. Zorunlu kolon:
     domain. Opsiyonel: sy, ug (takım adları), external_address, cert_owner, mail_addresses,
     external_company, info, lb_update, env_update, waf_update, action_required, ssl_pinning,
-    keystore, servers_to_update. Var olan domain adları atlanır; sy/ug takımları yoksa oluşturulur."""
+    keystore, servers_to_update. Var olan domain adları atlanır. sy/ug takımı Jumbo'da
+    yoksa satır EKLENMEZ ve hata listesinde bildirilir: eskiden sessizce yeni takım açılıyordu,
+    yanlış yazılan ad (ör. Türkçe harfsiz "ODEME SISTEMLERI") e-postası olmayan ikiz bir takım
+    doğuruyor ve süre uyarıları yedek adrese düşüyordu."""
     try:
         wb = openpyxl.load_workbook(io.BytesIO(file.file.read()), read_only=True, data_only=True)
         ws = wb.active
@@ -208,16 +211,19 @@ def import_excel(request: Request, file: UploadFile = File(...),
     if not rows or "domain" not in {(h or "").strip().lower() for h in headers}:
         raise HTTPException(status_code=400, detail="Excel'de 'domain' kolonu bulunamadı")
 
-    def get_or_create_team(name: str | None, type_: str) -> int | None:
+    # Takım adı Türkçe I/İ ve büyük/küçük harf farkı gözetmeden eşleşir ("ödeme sistemleri" →
+    # "Ödeme Sistemleri"). Python'da katlanır: SQLite ile MSSQL aynı sonucu verir.
+    teams_by_key = {(tm.type, fold(tm.name.strip())): tm.id for tm in db.query(Team).all()}
+
+    def find_team(name: str | None, type_: str) -> tuple[int | None, str | None]:
+        """(takım id, hata). Ad boşsa (None, None)."""
         name = (name or "").strip()
         if not name:
-            return None
-        team = db.query(Team).filter_by(name=name, type=type_).first()
-        if team is None:
-            team = Team(name=name, type=type_)
-            db.add(team)
-            db.flush()
-        return team.id
+            return None, None
+        team_id = teams_by_key.get((type_, fold(name)))
+        if team_id is None:
+            return None, f"'{name}' adlı {type_} ekibi bulunamadı"
+        return team_id, None
 
     created, skipped, errors = 0, 0, []
     for i, raw in enumerate(rows, start=2):  # 1. satır başlık
@@ -230,10 +236,16 @@ def import_excel(request: Request, file: UploadFile = File(...),
         if db.query(Domain.id).filter(ci_equals(Domain.domain, name)).first():
             skipped += 1
             continue
+        sy_id, sy_err = find_team(row.get("sy"), "SY")
+        ug_id, ug_err = find_team(row.get("ug"), "UG")
+        if sy_err or ug_err:
+            errors.append(f"Satır {i} ({name}): " + ", ".join(e for e in (sy_err, ug_err) if e)
+                          + ". Domain eklenmedi; ekibi Ayarlar > Ekipler'de oluşturun ya da adını düzeltin.")
+            continue
         domain = Domain(
             domain=name,
-            sy_team_id=get_or_create_team(row.get("sy"), "SY"),
-            ug_team_id=get_or_create_team(row.get("ug"), "UG"),
+            sy_team_id=sy_id,
+            ug_team_id=ug_id,
             **{f: (row.get(f) or None) for f in CSV_PLAIN_FIELDS},
         )
         db.add(domain)

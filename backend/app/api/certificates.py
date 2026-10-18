@@ -606,7 +606,12 @@ def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_d
 def revocation_run(request: Request, db: Session = Depends(get_db),
                    user: User = Depends(require_role("admin"))):
     """Tüm aktif leaf sertifikalar için iptal denetimini arka planda başlatır (gece işiyle aynı motor).
-    Dış erişim gerektirir; kapalı ağda çoğu sonuç 'unknown' olur (beklenen)."""
+    Dış erişim gerektirir; kapalı ağda çoğu sonuç 'unknown' olur (beklenen). Ayarlarda iptal
+    denetimi KAPALIYSA gece işi hiçbir şey yapmadan döner; "başlatıldı" deyip boşa bekletmemek
+    için burada açıkça 409 verilir. (Tek sertifikalık /revocation-check bilerek ayardan bağımsız.)"""
+    if not revocation.get_config(db).get("enabled"):
+        raise HTTPException(status_code=409,
+                            detail="İptal kontrolü Ayarlar'da kapalı; toplu denetim için önce açın")
     import threading
     threading.Thread(target=revocation.check_all_certificates, daemon=True).start()
     log_action(db, user.username, "revocation_run", "certificates", None, {"trigger": "manual"}, request)

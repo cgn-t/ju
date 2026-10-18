@@ -1,5 +1,6 @@
 import AddIcon from '@mui/icons-material/Add'
 import BusinessIcon from '@mui/icons-material/Business'
+import CloseIcon from '@mui/icons-material/Close'
 import DeleteIcon from '@mui/icons-material/Delete'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import EditIcon from '@mui/icons-material/Edit'
@@ -71,7 +72,7 @@ const COLS: ColDef<Domain>[] = [
 export default function Domains() {
   useDocumentTitle('Domainler')
   const { canEdit } = useAuth()
-  const { enqueueSnackbar } = useSnackbar()
+  const { enqueueSnackbar, closeSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const [view, setView] = useUrlState<'cards' | 'table'>('view', 'table', ['cards', 'table'])
   const [search, setSearch] = useUrlState<string>('q', '')
@@ -113,7 +114,23 @@ export default function Domains() {
         `${d.created} domain eklendi, ${d.skipped} atlandı${d.errors.length ? `, ${d.errors.length} hatalı satır` : ''}`,
         { variant: d.created > 0 ? 'success' : 'warning' },
       )
-      if (d.errors.length) console.warn('Excel import hataları:', d.errors)
+      if (d.errors.length) {
+        // Eklenmeyen satırlar ekranda kalır: kullanıcı hangi ekibin bulunamadığını görüp düzeltsin
+        const shown = d.errors.slice(0, 5)
+        enqueueSnackbar(
+          <div style={{ whiteSpace: 'pre-line' }}>
+            {[...shown, ...(d.errors.length > shown.length ? [`… ve ${d.errors.length - shown.length} satır daha`] : [])].join('\n')}
+          </div>,
+          {
+            variant: 'warning', persist: true,
+            action: (key) => (
+              <IconButton size="small" color="inherit" aria-label="Kapat" onClick={() => closeSnackbar(key)}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            ),
+          },
+        )
+      }
       queryClient.invalidateQueries({ queryKey: ['domains'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['teams'] })
