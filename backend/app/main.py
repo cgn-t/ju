@@ -428,9 +428,20 @@ def backfill_parent_links() -> None:
         for cert in rows:
             if normalize_cert_type(cert.cert_type) == "root":  # legacy "Root"/"ROOT" da atlansın
                 continue
+            if cert_parser.is_self_signed(cert.issuer, cert.subject, cert.authority_key_identifier,
+                                          cert.subject_key_identifier):
+                continue  # kendinden imzalı sunucu sertifikası: aynı anahtarlı yenisi 'üstü' değildir
             parent = cert_parser.find_ca_by_ski(db, cert.authority_key_identifier, exclude_id=cert.id)
             if parent is not None:
                 cert.parent_id = parent.id
+        # v3.8.10 öncesi: aynı anahtarla yenilenmiş kendinden imzalı sertifikalar birbirine 'üst'
+        # olarak bağlanmış olabilir (döngü). Kendinden imzalı kaydın üstü olmaz → bağı temizle.
+        for cert in (db.query(models.Certificate)
+                     .filter(models.Certificate.parent_id.isnot(None),
+                             models.Certificate.issuer == models.Certificate.subject).all()):
+            if cert_parser.is_self_signed(cert.issuer, cert.subject, cert.authority_key_identifier,
+                                          cert.subject_key_identifier):
+                cert.parent_id = None
         db.commit()
     finally:
         db.close()

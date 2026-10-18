@@ -8,7 +8,8 @@ YALNIZ bu domain ele alınır — öneri eski sertifikanın diğer domainlerine 
 
   • import_chain (live=False, insan tetikli): bağlı olmayan seviye doğrudan bağlanır (ilk
     kurulum); seviyede zincir dışı bağlı sertifika varsa canlı doğrulamayla aynı kuralla
-    DEĞİŞİKLİK (tek halef) / EKLEME / KALDIRMA önerisi üretilir.
+    DEĞİŞİKLİK (tek halef) / EKLEME / KALDIRMA önerisi üretilir. Sunulmayan root burada da
+    envanterdeki üst sertifikadan türetilir.
   • live_check (live=True): hiçbir eşleme kendiliğinden değişmez; her seviye için EKLEME /
     DEĞİŞİKLİK (devir) / KALDIRMA önerisi üretilir. Root sunulmadığında envanterdeki üst
     sertifikadan türetilir; türetilen root için kaldırma önerisi üretilmez.
@@ -87,11 +88,13 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
     for row in (r for r in result.rows if r.is_active):
         served_by_type.setdefault(normalize_cert_type(row.cert_type), []).append(row)
     seen_by_type = {t: list(v) for t, v in served_by_type.items()}
-    if live and "root" not in seen_by_type:
+    if "root" not in seen_by_type:
         # Sunucular el sıkışmada root'u pratikte GÖNDERMEZ — root, sunulan zincirin envanterdeki
         # üst sertifikasından (parent_id) türetilir. Türetilen root kaldırma kanıtı SAYILMAZ.
+        # İçe aktarmada da türetilir: elle bağlamadaki gibi kök de bağlanır; yoksa ilk canlı
+        # doğrulama her domain için gereksiz bir "kökü ekle" talebi açıyordu.
         root = _derived_root(db, result.rows)
-        if root is not None:
+        if root is not None and root.is_active:
             seen_by_type["root"] = [root]
 
     # Domaindeki aktif 'server' eşlemeleri, Python'da normalize edilmiş tipe göre (SQL LOWER yok)
@@ -120,6 +123,7 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
         else:
             _reconcile_import(db, domain, cert_type, seen, stale, unbound,
                               matched=bool(seen_ids & bound_ids),
+                              served=cert_type in served_by_type,
                               username=username, request=request, via=via, result=result)
     return result
 
@@ -173,7 +177,7 @@ def _reconcile_live(db: Session, domain: Domain, cert_type: str, seen, stale, un
 
 
 def _reconcile_import(db: Session, domain: Domain, cert_type: str, seen, stale, unbound, *,
-                      matched: bool, username: str, request: Request | None, via: str,
+                      matched: bool, served: bool, username: str, request: Request | None, via: str,
                       result: ChainSyncResult) -> None:
     """ZİNCİR İÇE AKTARMA (insan tetikli): bağlı olmayan seviye doğrudan eklenir (ilk kurulum).
     Seviyede zincir dışında kalan bağlı sertifika varsa (rotasyon) canlı doğrulamayla AYNI kural:
@@ -193,7 +197,7 @@ def _reconcile_import(db: Session, domain: Domain, cert_type: str, seen, stale, 
         return
     targeted: set[int] = set()
     if matched:
-        for m in stale:
+        for m in stale if served else []:  # türetilen root kaldırma kanıtı sayılmaz
             if renewal.propose_server_mapping(db, "server_remove", m.certificate, domain,
                                               username=username, request=request, via=via):
                 result.removed.append(m.certificate.name)
