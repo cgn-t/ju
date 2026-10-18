@@ -7,6 +7,7 @@ enabled=False iken atlar; yetki (revocation-check editor+, batch admin-only).
 Egress yapılmaz: httpx istemcisi sahte (_FakeClient) ile değiştirilir.
 """
 
+import threading
 from datetime import datetime, timedelta
 
 import httpx
@@ -183,9 +184,12 @@ def test_revocation_endpoint_persists_and_auth(client, auth_headers, monkeypatch
 
 
 def test_revocation_job_skips_when_disabled(client, monkeypatch):
+    # Önceki testin arka planda başlattığı toplu denetim (envanter büyükse) hâlâ sürüyor olabilir
+    # ve bu sahteyi çağırabilir → yalnız BU testin kendi çağrısından gelenler sayılır
+    me = threading.get_ident()
     called: list[int] = []
     monkeypatch.setattr(revocation, "run_check",
-                        lambda *a, **k: called.append(1) or ("good", {}))
+                        lambda *a, **k: (threading.get_ident() == me and called.append(1)) or ("good", {}))
     revocation.check_all_certificates()  # revocation.enabled varsayılan False → run_check çağrılmamalı
     assert called == []
 
