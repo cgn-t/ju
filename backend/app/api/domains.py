@@ -45,7 +45,8 @@ from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
 from app.services.dependencies import fill_unwatched_dependencies
 from app.services import live_check as live_check_service
-from app.services.live_check import check_domain, fetch_served_chain, host_name_warning, parse_target
+from app.services.live_check import (check_domain, describe_connection_error, fetch_served_chain,
+                                     host_name_warning, parse_target)
 
 router = APIRouter(prefix="/api/domains", tags=["domains"])
 
@@ -269,7 +270,7 @@ def probe_chain(body: ChainProbeRequest, db: Session = Depends(get_db),
     try:
         chain = fetch_served_chain(host, port)
     except Exception as exc:
-        return ChainProbeOut(reachable=False, host=host, port=port, error=str(exc)[:300])
+        return ChainProbeOut(reachable=False, host=host, port=port, error=describe_connection_error(exc, host, port))
 
     certs = []
     for parsed in (cert_parser.parse_x509(c) for c in chain):
@@ -320,7 +321,7 @@ def import_chain(request: Request, domain_id: int, supersede: bool = False,
     try:
         chain = fetch_served_chain(host, port)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"TLS bağlantısı kurulamadı: {str(exc)[:200]}")
+        raise HTTPException(status_code=502, detail=describe_connection_error(exc, host, port))
     # Sunucu, yazılan adres için başka bir sitenin sertifikasını verdiyse (aynı sunucuda çok site,
     # adres sunucuda tanımlı değil) hiçbir şey eklenmez; kullanıcı bilerek onaylarsa devam edilir.
     name_warning = host_name_warning(host, chain[0])

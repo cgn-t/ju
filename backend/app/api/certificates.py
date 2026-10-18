@@ -135,6 +135,13 @@ def import_preview(file: UploadFile = File(...), password: str | None = Form(Non
         existing = _find_existing(db, parsed)
         parent_id = cert_parser.resolve_parent(db, parsed)
         parent = db.get(Certificate, parent_id) if parent_id else None
+        parent_name = parent.name if parent else None
+        if parent_name is None:
+            # Üst sertifika envanterde yok ama AYNI dosyada geliyorsa (fullchain/p7b) import onu
+            # önce kaydedip zinciri bağlar; önizleme "bulunamadı" demesin
+            in_file = _find_file_parent(parsed, parsed_list)
+            if in_file is not None:
+                parent_name = f"{in_file.name} (bu dosyada)"
         preds: list[Certificate] = []
         file_pred = None
         if existing is None:
@@ -161,7 +168,8 @@ def import_preview(file: UploadFile = File(...), password: str | None = Form(Non
                 renewal_of_ski=predecessor.subject_key_identifier,
                 renewal_of_valid_to=predecessor.valid_to,
                 renewal_of_domains=[f"{m.domain.domain} ({m.mapping_type})"
-                                    for m in predecessor.domain_mappings])
+                                    for m in predecessor.domain_mappings],
+                renewal_of_apps=_pred_app_bindings(db, predecessor))
         elif file_pred is not None:
             same_ski = (parsed.subject_key_identifier
                         and file_pred.subject_key_identifier == parsed.subject_key_identifier)
@@ -178,7 +186,7 @@ def import_preview(file: UploadFile = File(...), password: str | None = Form(Non
             **parsed.__dict__,
             already_exists=existing is not None,
             resolved_parent_id=parent_id,
-            resolved_parent_name=parent.name if parent else None,
+            resolved_parent_name=parent_name,
             renewal_also=also,
             **ren,
         ))
@@ -189,6 +197,36 @@ def _pred_summary(p: Certificate) -> str:
     maps = ", ".join(f"{m.domain.domain} ({m.mapping_type})" for m in p.domain_mappings)
     date = f"{p.valid_to:%d.%m.%Y}" if p.valid_to else "—"
     return f"{p.name} (bitiş {date})" + (f" — bağlantılar: {maps}" if maps else "")
+
+
+def _find_file_parent(parsed, parsed_list):
+    """Aynı dosyadaki üst sertifikayı (AKI = üstün SKI'si, yoksa issuer = üstün subject'i) bulur."""
+    if parsed.cert_type == "root":
+        return None
+    for other in parsed_list:
+        if other is parsed or other.cert_type == "leaf":
+            continue
+        if parsed.authority_key_identifier and other.subject_key_identifier:
+            if other.subject_key_identifier == parsed.authority_key_identifier:
+                return other
+        elif other.subject == parsed.issuer:
+            return other
+    return None
+
+
+def _pred_app_bindings(db: Session, pred: Certificate) -> list[str]:
+    """Eski sertifikanın uygulama tarafındaki bağlantıları: mTLS istemci sertifikası olarak
+    kullanan uygulamalar ve trust store'unda tutan uygulamalar (değişiklik talebi kapsamı)."""
+    out = []
+    for dep in (db.query(AppDependency).options(joinedload(AppDependency.app))
+                .filter(AppDependency.client_cert_id == pred.id).all()):
+        if dep.app is not None:
+            out.append(f"{dep.app.app_name} (istemci sertifikası)")
+    for (name,) in (db.query(Application.app_name)
+                    .join(ApplicationTrustedCert, ApplicationTrustedCert.app_id == Application.id)
+                    .filter(ApplicationTrustedCert.cert_id == pred.id).all()):
+        out.append(f"{name} (trust store)")
+    return sorted(set(out))
 
 
 def _find_file_predecessor(parsed, parsed_list):
@@ -224,7 +262,9 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                         creator: str | None = Form(None), environment: str | None = Form(None),
                         db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     """Binary import: PEM (fullchain destekli) / DER / PFX. Var olanları atlar,
-    zinciri SKI/AKI ile otomatik bağlar. Değişiklik talebi ÜRETMEZ (supersede etkisiz)."""
+    zinciri SKI/AKI ile otomatik bağlar. Değişiklik talebi ÜRETMEZ (supersede etkisiz);
+    önizleme yenileme bulduysa arayüz kullanıcıya sorar ve onay verilirse içe aktarmadan sonra
+    /{yeni}/supersede/{eski} ile talepleri açar."""
     if environment not in (None, "", "prod", "test"):
         raise HTTPException(status_code=400, detail="environment yalnız 'prod' veya 'test' olabilir")
     try:
@@ -249,9 +289,10 @@ def import_certificates(request: Request, file: UploadFile = File(...),
         cert_parser.relink_children(db, cert)
         log_action(db, user.username, "import", "certificates", cert.id,
                    {"name": cert.name, "serial": cert.serial_number}, request)
-        # Dosyadan içe aktarma değişiklik talebi ÜRETMEZ (`supersede` geriye uyum için kabul edilir,
-        # etkisizdir): öneri, yeni sertifikanın deploy edildiği domainin canlı doğrulamasından
-        # (yalnız o domain için) ya da bilinçli elle "Değişiklik Talebi Oluştur"den gelir.
+        # Dosyadan içe aktarma kendi başına değişiklik talebi ÜRETMEZ (`supersede` geriye uyum için
+        # kabul edilir, etkisizdir): talep canlı doğrulamadan (yalnız o domain için), içe aktarma
+        # penceresindeki "değişiklik talebi oluştur" onayından ya da sertifika detayındaki
+        # "Değişiklik Talebi Oluştur"den gelir — ikisi de /supersede ucunu çağırır.
         created.append(cert)
     db.commit()
     if not created:

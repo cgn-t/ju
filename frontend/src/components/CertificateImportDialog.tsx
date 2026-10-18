@@ -50,24 +50,17 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const [manualInternal, setManualInternal] = useState(false)
   const [manualEnvironment, setManualEnvironment] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
+  // Yenileme bulunan sertifikalardan, kullanıcının değişiklik talebi açılmasını İSTEMEDİKLERİ
+  // (varsayılan: hepsi işaretli — öneri olarak sunulur, kullanıcı kaldırabilir)
+  const [skipProposals, setSkipProposals] = useState<Set<string>>(new Set())
 
   const reset = () => {
     setFile(null); setPfxPassword(''); setPreview(null); setNotes(''); setPurchasedBy('')
     setIsInternal(false); setEnvironment(''); setManualName(''); setManualPem('')
     setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setManualEnvironment('')
     setCreator(''); setTab(0)
-    setConfirmOpen(false)
+    setConfirmOpen(false); setSkipProposals(new Set())
   }
-
-  // Onay diyaloğu özeti: import sekmesinde önizlemedeki sertifikalar + BİTİŞ tarihleri
-  // (vurgulu); manuel sekmede yalnız ad (tarihler PEM'den kaydetme sırasında çıkarılır).
-  const confirmItems: ConfirmItem[] = tab === 0
-    ? (preview ?? []).filter((p) => !p.already_exists).flatMap((p) => [
-        { label: 'Sertifika', value: p.name },
-        { label: 'Bitiş (ValidTo)', value: (p.valid_to || '').slice(0, 10) || '—', highlight: true },
-      ])
-    : [{ label: 'Sertifika', value: manualName || '(PEM içeriğinden)' },
-       { label: 'Tarihler', value: manualPem ? 'PEM içinden otomatik okunacak' : '—', highlight: true }]
 
   const close = () => { reset(); onClose() }
 
@@ -96,6 +89,29 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
   // renewal_of_id yoksa bile renewal_of_name dolu olabilir (aynı dosyadaki eski nesil)
   const renewals = preview?.filter((p) => !p.already_exists && p.renewal_of_name) ?? []
+  // Değişiklik talebi önerilebilecekler: öncülü envanterde kayıtlı VE taşınacak bağlantısı olanlar
+  const hasBindings = (p: ImportPreview) =>
+    !!p.renewal_of_id && ((p.renewal_of_domains?.length ?? 0) + (p.renewal_of_apps?.length ?? 0)) > 0
+  const proposalKey = (p: ImportPreview) => p.fingerprint_sha256 ?? p.serial_number
+  const wantsProposal = (p: ImportPreview) => hasBindings(p) && !skipProposals.has(proposalKey(p))
+  const toggleProposal = (p: ImportPreview, on: boolean) => setSkipProposals((prev) => {
+    const next = new Set(prev)
+    if (on) next.delete(proposalKey(p)); else next.add(proposalKey(p))
+    return next
+  })
+
+  // Onay diyaloğu özeti: import sekmesinde önizlemedeki sertifikalar + BİTİŞ tarihleri
+  // (vurgulu); manuel sekmede yalnız ad (tarihler PEM'den kaydetme sırasında çıkarılır).
+  const confirmItems: ConfirmItem[] = tab === 0
+    ? (preview ?? []).filter((p) => !p.already_exists).flatMap((p) => [
+        { label: 'Sertifika', value: p.name },
+        { label: 'Bitiş (ValidTo)', value: (p.valid_to || '').slice(0, 10) || '—', highlight: true },
+        ...(wantsProposal(p)
+          ? [{ label: 'Değişiklik talebi', value: `${p.renewal_of_name} bağlantıları için açılacak` }]
+          : []),
+      ])
+    : [{ label: 'Sertifika', value: manualName || '(PEM içeriğinden)' },
+       { label: 'Tarihler', value: manualPem ? 'PEM içinden otomatik okunacak' : '—', highlight: true }]
 
   const importMutation = useMutation({
     mutationFn: async () => {
@@ -107,13 +123,33 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       if (creator) form.append('creator', creator)
       form.append('is_internal', String(isInternal))
       if (environment) form.append('environment', environment)
-      // İçe aktarma değişiklik talebi ÜRETMEZ — öneri canlı doğrulamadan (o domain için) ya da
-      // sertifika detayındaki "Değişiklik Talebi Oluştur"den gelir
-      return (await api.post('/certificates/import', form)).data
+      const created = (await api.post<Certificate[]>('/certificates/import', form)).data
+      // İçe aktarma kendisi talep üretmez; kullanıcı önizlemede onay verdiyse eski sertifikanın
+      // bağlantıları için talepler sertifika detayındaki "Değişiklik Talebi Oluştur" ile aynı uçtan açılır
+      let proposed = 0
+      const failures: string[] = []
+      for (const p of renewals.filter(wantsProposal)) {
+        const newCert = created.find((c) => c.fingerprint_sha256 === p.fingerprint_sha256)
+        if (!newCert) continue
+        try {
+          proposed += (await api.post<{ proposed: number }>(
+            `/certificates/${newCert.id}/supersede/${p.renewal_of_id}`)).data.proposed
+        } catch (e) {
+          failures.push(`${p.name}: ${apiErrorMessage(e)}`)
+        }
+      }
+      return { created, proposed, failures }
     },
-    onSuccess: (data) => {
-      enqueueSnackbar(`${data.length} sertifika eklendi`, { variant: 'success' })
+    onSuccess: ({ created, proposed, failures }) => {
+      enqueueSnackbar(proposed
+        ? `${created.length} sertifika eklendi — ${proposed} değişiklik talebi oluşturuldu (SY onayı bekliyor)`
+        : `${created.length} sertifika eklendi`, { variant: 'success' })
+      if (failures.length) {
+        enqueueSnackbar(`Değişiklik talebi oluşturulamadı — ${failures.join(' • ')}`,
+                        { variant: 'warning', persist: true })
+      }
       queryClient.invalidateQueries({ queryKey: ['domains'] })
+      queryClient.invalidateQueries({ queryKey: ['proposals'] })
       invalidate(); close()
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
@@ -261,7 +297,9 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                   <Box sx={{ mt: 1.5, p: 1.25, border: '1px solid', borderColor: 'info.main',
                              borderRadius: 1, bgcolor: 'action.hover' }}>
                     <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-                      Yenileme tespit edildi — bilgi
+                      {renewals.some(hasBindings)
+                        ? 'Yenileme tespit edildi — değişiklik talebi önerisi'
+                        : 'Yenileme tespit edildi — bilgi'}
                     </Typography>
                     <Stack spacing={1}>
                       {renewals.map((p) => (
@@ -295,6 +333,19 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                               ? `Eskinin bağlı olduğu domainler: ${p.renewal_of_domains.join(', ')}`
                               : 'Eskisi hiçbir domaine bağlı değil.'}
                           </Typography>
+                          {(p.renewal_of_apps?.length ?? 0) > 0 && (
+                            <Typography variant="caption" component="div" color="warning.main">
+                              Eskinin bağlı olduğu uygulamalar: {p.renewal_of_apps!.join(', ')}
+                            </Typography>
+                          )}
+                          {hasBindings(p) && (
+                            <FormControlLabel sx={{ mt: 0.5 }}
+                              control={<Checkbox size="small" checked={wantsProposal(p)}
+                                                 onChange={(e) => toggleProposal(p, e.target.checked)} />}
+                              label={<Typography variant="body2">
+                                Bu bağlantıların yeni sertifikaya taşınması için <strong>değişiklik talebi oluştur</strong>
+                              </Typography>} />
+                          )}
                           {(p.renewal_also?.length ?? 0) > 0 && (
                             <Typography variant="caption" component="div" color="warning.main">
                               Diğer olası öncüller: {p.renewal_also!.join(' • ')}
@@ -304,9 +355,14 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                       ))}
                     </Stack>
                     <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-                      İçe aktarma değişiklik talebi <strong>oluşturmaz</strong>. Yeni sertifika bir domainde canlıda
-                      görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> değişiklik talebi açar; isterseniz
-                      sertifika detayından <strong>Değişiklik Talebi Oluştur</strong> ile elle de başlatabilirsiniz.
+                      {renewals.some(hasBindings) ? (
+                        <>Talep hiçbir bağlantıyı hemen taşımaz: her domain ve uygulama bağlantısı için ayrı talep
+                          açılır ve sahibi SY ekibinin onayını bekler. İşareti kaldırırsanız talep açılmaz; daha sonra
+                          sertifika detayından <strong>Değişiklik Talebi Oluştur</strong> ile başlatabilirsiniz.</>
+                      ) : (
+                        <>Eski sertifikanın taşınacak bağlantısı olmadığı için değişiklik talebi gerekmiyor. Yeni sertifika
+                          bir domainde canlıda görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> talep açar.</>
+                      )}
                     </Typography>
                   </Box>
                 )}

@@ -51,21 +51,25 @@ export default function Dashboard() {
     <Grid container spacing={3}>
       <Grid size={{ xs: 12 }}>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 6, md: 3 }}>
+          <Grid size={{ xs: 6, md: 'grow' }}>
             <StatCard icon={<BusinessIcon fontSize="large" />} label="Toplam Domain" value={data.total_domains} color="#42a5f5"
                       onClick={() => navigate('/domains')} />
           </Grid>
-          <Grid size={{ xs: 6, md: 3 }}>
-            <StatCard icon={<ErrorOutlineIcon fontSize="large" />} label="Süresi Dolmuş" value={data.expired_domains} color="#ef5350"
+          <Grid size={{ xs: 6, md: 'grow' }}>
+            <StatCard icon={<ErrorOutlineIcon fontSize="large" />} label="Süresi Dolmuş Domain" value={data.expired_domains} color="#ef5350"
                       onClick={() => navigate('/domains')} />
           </Grid>
-          <Grid size={{ xs: 6, md: 3 }}>
-            <StatCard icon={<VerifiedIcon fontSize="large" />} label="Geçerli" value={data.valid_domains} color="#66bb6a"
+          <Grid size={{ xs: 6, md: 'grow' }}>
+            <StatCard icon={<VerifiedIcon fontSize="large" />} label="Geçerli Domain" value={data.valid_domains} color="#66bb6a"
                       onClick={() => navigate('/domains')} />
           </Grid>
-          <Grid size={{ xs: 6, md: 3 }}>
+          <Grid size={{ xs: 6, md: 'grow' }}>
             <StatCard icon={<VerifiedIcon fontSize="large" />} label="Toplam Sertifika" value={data.total_certificates} color="#ab47bc"
                       onClick={() => navigate('/certificates')} />
+          </Grid>
+          <Grid size={{ xs: 6, md: 'grow' }}>
+            <StatCard icon={<ErrorOutlineIcon fontSize="large" />} label="Süresi Dolmuş Sertifika" value={data.expired_certificates}
+                      color="#ef5350" onClick={() => navigate('/certificates')} />
           </Grid>
         </Grid>
       </Grid>

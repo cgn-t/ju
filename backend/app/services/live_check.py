@@ -123,6 +123,34 @@ def _handshake(host: str, port: int, timeout: float) -> tuple[bytes | None, list
         raise
 
 
+def describe_connection_error(exc: Exception, host: str | None = None, port: int | None = None) -> str:
+    """Bağlantı hatasını kullanıcıya gösterilecek Türkçe açıklamaya çevirir.
+
+    İşletim sisteminin ham mesajı ("[Errno 8] nodename nor servname provided…" gibi) ekipler
+    için anlamsız; ne olduğunu ve ne yapılabileceğini söyleyen bir cümle döner. Teknik
+    ayrıntı sonda parantez içinde korunur (destek/inceleme için)."""
+    target = f"{host}:{port}" if host and port else (host or "sunucu")
+    raw = str(exc).strip() or exc.__class__.__name__
+    if isinstance(exc, socket.gaierror):
+        msg = (f"'{host or target}' adresi DNS'te bulunamadı. Adres yanlış yazılmış olabilir "
+               "ya da bu adres yalnız iç ağdan çözülüyor olabilir")
+    elif isinstance(exc, (socket.timeout, TimeoutError)):
+        msg = (f"{target} adresine zaman aşımı nedeniyle bağlanılamadı. Sunucu kapalı olabilir "
+               "ya da araya giren bir güvenlik duvarı bağlantıyı engelliyor olabilir")
+    elif isinstance(exc, ConnectionRefusedError):
+        msg = f"{target} bağlantıyı reddetti. Bu portta çalışan bir servis olmayabilir"
+    elif isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+        msg = f"{target} bağlantıyı yarıda kesti. Sunucu ya da araya giren cihaz TLS'i engelliyor olabilir"
+    elif isinstance(exc, ssl.SSLError):
+        msg = (f"{target} ile TLS el sıkışması tamamlanamadı. Sunucu bu portta TLS sunmuyor "
+               "ya da desteklenmeyen bir ayar kullanıyor olabilir")
+    elif isinstance(exc, OSError) and getattr(exc, "errno", None) in (51, 65, 101, 113):
+        msg = f"{target} adresine ağ üzerinden ulaşılamıyor (yol yok). Sunucu başka bir ağda olabilir"
+    else:
+        msg = f"{target} adresine bağlanılamadı"
+    return f"{msg}. (Teknik ayrıntı: {raw[:150]})"
+
+
 def fetch_served_certificate(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -> x509.Certificate:
     """Sertifika doğrulaması yapmadan (self-signed/iç CA olabilir) sunulan sertifikayı çeker."""
     return fetch_served_chain(host, port, timeout)[0]
@@ -254,7 +282,8 @@ def check_domain(db: Session, domain: Domain) -> Domain:
     except Exception as exc:
         domain.live_check_status = "unreachable"
         domain.live_check_detail = json.dumps(
-            {"host": host, "port": port, "error": str(exc)[:300]}, ensure_ascii=False)
+            {"host": host, "port": port, "error": describe_connection_error(exc, host, port)},
+            ensure_ascii=False)
         domain.live_check_at = checked_at
         return domain
     served_list = [parse_x509(c) for c in served_raw]

@@ -153,9 +153,14 @@
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">1.3</span><span class="mtest-title">Yenileme (halef) algılama</span></div>
       <ol class="steps">
-        <li>1.1 tamamlanmış olsun (v1 sistemde kayıtlı). <b>"Yeni Ekle"</b> → bu kez <code>leaf-v2.pem</code> dosyasını yükleyin.</li>
+        <li>1.1 tamamlanmış olsun (v1 sistemde kayıtlı) ve v1 en az bir domaine bağlı olsun ("Domainler" → domain detayı → "Sertifika Bağla", Bağlantı Tipi = Server).</li>
+        <li><b>"Yeni Ekle"</b> → bu kez <code>leaf-v2.pem</code> dosyasını yükleyin.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Önizleme satırında mavi outline <b>"Yenileme → devir-test.jumbo.local"</b> chip'i görünür; altında <b>"Değişiklik planı — onay gerektirir"</b> kutusu ve işaretli <b>"Değişiklik talebi oluştur…"</b> seçeneği belirir. "İçe Aktar" sonrası toast: <i>"1 sertifika eklendi — 1 değişiklik talebi oluşturuldu (SY onayı bekliyor)"</i>.</div>
+      <div class="expect"><b>Beklenen:</b> Önizleme satırında mavi outline <b>"Yenileme → devir-test.jumbo.local"</b> chip'i görünür; altında <b>"Yenileme tespit edildi — değişiklik talebi önerisi"</b> kutusu, eskinin bağlı olduğu domainler (ve varsa uygulamalar) ile işaretli <b>"Bu bağlantıların yeni sertifikaya taşınması için değişiklik talebi oluştur"</b> seçeneği belirir. "İçe Aktar" → onay penceresinde <b>"Değişiklik talebi"</b> satırı görünür → "Onaylıyorum, İçe Aktar" sonrası toast: <i>"1 sertifika eklendi — 1 değişiklik talebi oluşturuldu (SY onayı bekliyor)"</i>. Talep "Değişiklik Talepleri" sayfasında listelenir.</div>
+      <ol class="steps" start="3">
+        <li>Aynı adımı işareti <b>kaldırarak</b> tekrarlayın (önce v2'yi silin) — ya da v1 hiçbir yere bağlı değilken deneyin.</li>
+      </ol>
+      <div class="expect"><b>Beklenen:</b> İşaret kaldırılınca toast yalnız <i>"1 sertifika eklendi"</i> der, talep açılmaz. v1 hiçbir yere bağlı değilse kutu <b>"Yenileme tespit edildi — bilgi"</b> başlığıyla çıkar ve işaret kutusu görünmez (taşınacak bağlantı yok).</div>
       <span class="ref">certgen "aynı anahtar → halef" mantığı · Bölüm 2'deki değişiklik senaryolarının tetikleyicisi</span>
     </div>
 
@@ -168,7 +173,7 @@
       <ol class="steps" start="2">
         <li>Tekrar <b>"Yeni Ekle"</b> → bu kez <code>backend/tests/fixtures/chain.p7b</code> (PKCS7 paketi) seçin.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Önizlemede TEK dosyadan <b>3 sertifika</b> (root/intermediate/leaf) birden listelenir.</div>
+      <div class="expect"><b>Beklenen:</b> Önizlemede TEK dosyadan <b>3 sertifika</b> (root/intermediate/leaf) birden listelenir. Üst sertifika envanterde yoksa "Üst Sertifika" sütununda <b>"… (bu dosyada)"</b> yazar, "bulunamadı" yazmaz.</div>
       <span class="ref">test_cert_parser.py::test_parse_der · test_parse_p7b_pem_and_der</span>
     </div>
 

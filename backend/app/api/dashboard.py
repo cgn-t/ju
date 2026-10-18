@@ -80,7 +80,12 @@ def dashboard(db: Session = Depends(get_db), user: User = Depends(require_role("
         total_domains=total_domains,
         expired_domains=expired_domains,
         valid_domains=total_domains - expired_domains,
-        total_certificates=db.query(func.count(Certificate.id)).scalar() or 0,
+        # Pasife alınmış (yenilenip yerini yenisine bırakmış) kayıtlar envanterde görünmez;
+        # sayımlar da yalnız AKTİF sertifikaları kapsar
+        total_certificates=db.query(func.count(Certificate.id))
+        .filter(Certificate.is_active == True).scalar() or 0,
+        expired_certificates=db.query(func.count(Certificate.id))
+        .filter(Certificate.is_active == True, Certificate.valid_to < now).scalar() or 0,
         sy_domain_counts=[TeamDomainCount(team=n, count=c) for n, c in sy_counts],
         expiring_certificates=expiring_out,
     )
