@@ -19,8 +19,8 @@ const FEATURES = [
   },
   {
     icon: <VerifiedUserOutlinedIcon />,
-    title: 'Onaylı Devir',
-    desc: 'Her yenileme, sahibi SY ekibinin onayıyla güvenle devredilir',
+    title: 'Onaylı Değişiklik',
+    desc: 'Her yenileme, sahibi SY ekibinin onayıyla güvenle uygulanır',
   },
   {
     icon: <WifiTetheringIcon />,
@@ -97,7 +97,7 @@ export default function Login() {
             Kurumsal sertifika yönetimi,<br />tek denetlenebilir panelde.
           </Typography>
           <Typography sx={{ opacity: 0.82, mb: 4.5, maxWidth: 400, fontSize: 15, lineHeight: 1.55 }}>
-            SSL envanteri, zincir görünürlüğü, SY onaylı devir akışı ve canlı doğrulama —
+            SSL envanteri, zincir görünürlüğü, SY onaylı değişiklik akışı ve canlı doğrulama —
             hepsi tam denetim iziyle tek yerde.
           </Typography>
           <Stack spacing={2.5}>

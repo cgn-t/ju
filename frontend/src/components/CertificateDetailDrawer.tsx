@@ -241,10 +241,10 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                 {cert.superseded_by_id && (
                   // Aktif + superseded_by = temkinli devir sürüyor (liste ile aynı adlandırma)
                   <Tooltip title={cert.is_active
-                    ? 'Temkinli devir sürüyor — canlı doğrulama halefi sunucuda görünce bu kayıt pasife alınır. Halefe gitmek için tıklayın.'
+                    ? 'Yeni sertifikaya geçiş sürüyor — canlı doğrulama yeni sertifikayı sunucuda görünce bu kayıt pasife alınır. Yeni sertifikaya gitmek için tıklayın.'
                     : 'Bu sertifika yenilendi ve pasife alındı — halefine gitmek için tıklayın'}>
                     <Chip size="small" color="info" clickable
-                          label={`${cert.is_active ? 'Devri bekliyor' : 'Yenilendi'} → ${cert.superseded_by_name ?? `#${cert.superseded_by_id}`}`}
+                          label={`${cert.is_active ? 'Yenisi onay bekliyor' : 'Yenilendi'} → ${cert.superseded_by_name ?? `#${cert.superseded_by_id}`}`}
                           onClick={() => onSelectCert?.(cert.superseded_by_id!)} />
                   </Tooltip>
                 )}
@@ -363,10 +363,10 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
             {!editing && canEdit && cert.is_active && (
               <>
                 <Divider />
-                <SectionTitle>Devir Öner</SectionTitle>
+                <SectionTitle>Değişiklik Talebi Oluştur</SectionTitle>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
                   Bu sertifikanın yerine geçecek halefi seçin. Bağlı her domain ve uygulama
-                  bağlantısı için AYRI devir önerisi oluşturulur; her öneri kendi sahibi SY
+                  bağlantısı için AYRI değişiklik talebi oluşturulur; her öneri kendi sahibi SY
                   ekibinin onayını bekler — onaysız hiçbir bağlantı taşınmaz.
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
@@ -376,7 +376,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <Button variant="outlined" onClick={() => supersede.mutate()}
                           disabled={!successor || supersede.isPending}
                           sx={{ flexShrink: 0, px: 2.5 }}>
-                    Devir Öner
+                    Değişiklik Talebi Oluştur
                   </Button>
                 </Stack>
               </>

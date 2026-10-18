@@ -1,7 +1,7 @@
-"""Uçtan uca DEVİR ÖNERİSİ (TransferProposal) YAŞAM DÖNGÜSÜ senaryoları.
+"""Uçtan uca DEĞİŞİKLİK TALEBİ (TransferProposal) YAŞAM DÖNGÜSÜ senaryoları.
 
 Her senaryo GERÇEK HTTP uçları üzerinden yürür: sertifika import → domain/uygulama/bağımlılık
-kur → halef import + ELLE "Devir Öner" (içe aktarma öneri üretmez) → /api/proposals listele → approve/reject/cancel → sonucu hem API
+kur → halef import + ELLE "Değişiklik Talebi Oluştur" (içe aktarma öneri üretmez) → /api/proposals listele → approve/reject/cancel → sonucu hem API
 hem DB'den doğrula. Birim testleri (test_renewal / test_proposals_auth / test_trust_store) tekil
 yolları kapsar; bu dosya onay hattının GRANÜL KOMBİNASYONLARINI ve tam karar döngülerini kapsar:
 

@@ -92,7 +92,7 @@ def test_attach_server_rejects_non_leaf_certificate(client, auth_headers):
 
 def test_attach_server_second_leaf_same_chain_proposes_only_leaf_level(client, auth_headers):
     """Aynı intermediate+root'u paylaşan İKİNCİ bir leaf eklenince yalnız LEAF seviyesi
-    çakışır (devir önerisi) — intermediate/root zaten eşli olduğundan dokunulmaz."""
+    çakışır (değişiklik talebi) — intermediate/root zaten eşli olduğundan dokunulmaz."""
     h = auth_headers
     root, root_key = certgen.make_ca("Shared Root")
     inter, inter_key = certgen.make_intermediate(root, root_key, "Shared Inter")
@@ -126,7 +126,7 @@ def test_attach_server_two_intermediates_bind_without_spurious_proposal(client, 
     """Bug fix: zincirde İKİ 'intermediate' tipli sertifika varsa (gerçek 2 katmanlı ara-CA
     hiyerarşisi VEYA eski istemcilerle uyum için eklenen çapraz-imzalı bir kopya — google.com'da
     görüldüğü gibi), bunlar birbirinin çakışma adayı SAYILMAMALI. Önceki haliyle ikinci
-    intermediate, az önce bağlanan birinciyi 'rakip' sanıp gereksiz bir devir önerisi (202)
+    intermediate, az önce bağlanan birinciyi 'rakip' sanıp gereksiz bir değişiklik talebi (202)
     üretiyordu — ilk kurulumda bile."""
     h = auth_headers
     root, root_key = certgen.make_ca("TwoInter Root")
@@ -150,7 +150,7 @@ def test_attach_server_two_intermediates_bind_without_spurious_proposal(client, 
     assert cert_types.count("leaf") == 1
     assert cert_types.count("root") == 1
 
-    # Hiçbir devir önerisi oluşmamalı — ilk kurulum, rakip yok
+    # Hiçbir değişiklik talebi oluşmamalı — ilk kurulum, rakip yok
     props = [p for p in client.get("/api/proposals", headers=h,
                                    params={"status": "pending"}).json() if p["domain_id"] == dom]
     assert props == []

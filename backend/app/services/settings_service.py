@@ -95,7 +95,7 @@ DEFAULTS: dict[str, dict] = {
         # veri okuyamaz/değiştiremez. Aynı anahtar /notifications/proposal-run için de geçerlidir.
         "trigger_api_key": "",
         # --- Devir-onayı hatırlatması (onay kuyruğunda BEKLEYEN öneriler için) ---
-        # Açıksa her gün proposal_reminder_hour'da, bekleyen devir önerisi olan SY ekiplerine
+        # Açıksa her gün proposal_reminder_hour'da, bekleyen değişiklik talebi olan SY ekiplerine
         # (ekip başına TEK mail, tüm bekleyen önerileri listeler) hatırlatma gönderilir. Kapalıysa
         # zamanlanmış gönderim yok; ama dış API tetiği (POST /notifications/proposal-run) yine çalışır.
         "auto_proposal_reminder_enabled": False,
@@ -117,9 +117,9 @@ DEFAULTS: dict[str, dict] = {
         "dashboard_cert_count": 20,
     },
     "access": {
-        # Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü. Varsayılan hepsi KAPALI = yalnız
+        # Uyum/Değişiklik Talebi/Keşif/Dağıtım sayfa görünürlüğü. Varsayılan hepsi KAPALI = yalnız
         # admin + allviewer görür (bkz. security.page_visible). Açılırsa herkes (viewer dahil)
-        # görüntüleyebilir. Devir Önerisi'nde SY ekip üyeleri bu ayardan BAĞIMSIZ kendi bekleyen
+        # görüntüleyebilir. Değişiklik Talebi'nde SY ekip üyeleri bu ayardan BAĞIMSIZ kendi bekleyen
         # tekliflerini her zaman görür/onaylar (require_team_or_admin hiç değişmez).
         "policy_all_roles": False,
         "proposals_all_roles": False,

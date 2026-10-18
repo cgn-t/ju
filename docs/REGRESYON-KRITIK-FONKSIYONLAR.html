@@ -103,7 +103,7 @@
   <table class="cert-table">
     <tr><th>Dosya</th><th>Açıklama</th><th>Kullanıldığı bölüm</th></tr>
     <tr><td><a href="regresyon-sertifikalari/leaf-v1-fullchain.pem"><code>leaf-v1-fullchain.pem</code></a></td><td>İlk sertifika (v1) + kök CA birleşik — <b>ilk import</b> için kullanın</td><td>1, 2, 4, 5</td></tr>
-    <tr><td><a href="regresyon-sertifikalari/leaf-v2.pem"><code>leaf-v2.pem</code></a></td><td>v1 ile <b>aynı anahtar</b> → 1. yenileme (halef) — devir önerisini tetikler</td><td>2, 3, 5</td></tr>
+    <tr><td><a href="regresyon-sertifikalari/leaf-v2.pem"><code>leaf-v2.pem</code></a></td><td>v1 ile <b>aynı anahtar</b> → 1. yenileme (halef) — değişiklik talebini tetikler</td><td>2, 3, 5</td></tr>
     <tr><td><a href="regresyon-sertifikalari/leaf-v3.pem"><code>leaf-v3.pem</code></a></td><td>v1/v2 ile aynı anahtar → 2. yenileme (rakip halef senaryosu)</td><td>2</td></tr>
     <tr><td><a href="regresyon-sertifikalari/leaf-expiring-soon.pem"><code>leaf-expiring-soon.pem</code></a></td><td>~10 gün içinde dolacak — "süre uyarısı" mailini tetiklemek için</td><td>6</td></tr>
     <tr><td><a href="regresyon-sertifikalari/leaf-expired.pem"><code>leaf-expired.pem</code></a></td><td>Süresi çoktan geçmiş — "süresi geçmiş" mailini tetiklemek için</td><td>6</td></tr>
@@ -115,8 +115,8 @@
     <p class="setup-label">İçindekiler</p>
     <ol>
       <li><a href="#s1">Sertifika Import &amp; Ayrıştırma</a></li>
-      <li><a href="#s2">Devir Önerisi — Yaşam Döngüsü (8 senaryo)</a></li>
-      <li><a href="#s3">Devir Önerisi — Yetkilendirme</a></li>
+      <li><a href="#s2">Değişiklik Talebi — Yaşam Döngüsü (8 senaryo)</a></li>
+      <li><a href="#s3">Değişiklik Talebi — Yetkilendirme</a></li>
       <li><a href="#s4">Pasife Alma Kuralı</a></li>
       <li><a href="#s5">Trust Store</a></li>
       <li><a href="#s6">Mail Bildirimleri — Temel Akış</a></li>
@@ -155,8 +155,8 @@
       <ol class="steps">
         <li>1.1 tamamlanmış olsun (v1 sistemde kayıtlı). <b>"Yeni Ekle"</b> → bu kez <code>leaf-v2.pem</code> dosyasını yükleyin.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Önizleme satırında mavi outline <b>"Yenileme → devir-test.jumbo.local"</b> chip'i görünür; altında <b>"Devir planı — onay gerektirir"</b> kutusu ve işaretli <b>"Devir önerisi oluştur…"</b> seçeneği belirir. "İçe Aktar" sonrası toast: <i>"1 sertifika eklendi — 1 devir önerisi oluşturuldu (SY onayı bekliyor)"</i>.</div>
-      <span class="ref">certgen "aynı anahtar → halef" mantığı · Bölüm 2'deki devir senaryolarının tetikleyicisi</span>
+      <div class="expect"><b>Beklenen:</b> Önizleme satırında mavi outline <b>"Yenileme → devir-test.jumbo.local"</b> chip'i görünür; altında <b>"Değişiklik planı — onay gerektirir"</b> kutusu ve işaretli <b>"Değişiklik talebi oluştur…"</b> seçeneği belirir. "İçe Aktar" sonrası toast: <i>"1 sertifika eklendi — 1 değişiklik talebi oluşturuldu (SY onayı bekliyor)"</i>.</div>
+      <span class="ref">certgen "aynı anahtar → halef" mantığı · Bölüm 2'deki değişiklik senaryolarının tetikleyicisi</span>
     </div>
 
     <div class="mtest">
@@ -183,21 +183,21 @@
   </section>
 
   <section id="s2">
-    <h2><span class="idx">2</span>Devir Önerisi (TransferProposal) — Yaşam Döngüsü</h2>
-    <p class="section-note">Bir sertifika yenilendiğinde (1.3'teki gibi aynı anahtarla), ona bağlı domain eşlemelerinin/mTLS bağımlılıklarının/trust-store üyeliklerinin yeni sertifikaya taşınması önerisi oluşur. Hiçbir mutasyon <b>onay almadan</b> uygulanmaz. Öneriler sol menüde <b>"Devir Önerileri"</b> (<code>/proposals</code>, bekleyen sayısı turuncu rozet) sayfasında listelenir. <b>Her senaryo için farklı bir domain adı kullanın</b> (örn. <code>devir-s1.test</code>, <code>devir-s2.test</code>…) ki senaryolar birbirine karışmasın.</p>
+    <h2><span class="idx">2</span>Değişiklik Talebi (TransferProposal) — Yaşam Döngüsü</h2>
+    <p class="section-note">Bir sertifika yenilendiğinde (1.3'teki gibi aynı anahtarla), ona bağlı domain eşlemelerinin/mTLS bağımlılıklarının/trust-store üyeliklerinin yeni sertifikaya taşınması önerisi oluşur. Hiçbir mutasyon <b>onay almadan</b> uygulanmaz. Öneriler sol menüde <b>"Değişiklik Talepleri"</b> (<code>/proposals</code>, bekleyen sayısı turuncu rozet) sayfasında listelenir. <b>Her senaryo için farklı bir domain adı kullanın</b> (örn. <code>devir-s1.test</code>, <code>devir-s2.test</code>…) ki senaryolar birbirine karışmasın.</p>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">2.1</span><span class="mtest-title">Temel devir — domain server eşlemesi</span></div>
+      <div class="mtest-head"><span class="mtest-num">2.1</span><span class="mtest-title">Temel değişiklik — domain server eşlemesi</span></div>
       <ol class="steps">
         <li>"Domainler" → <b>"Yeni Ekle"</b> → Domain: <code>devir-s1.test</code>, bir "SY Takımı" seçin, kaydedin.</li>
         <li>Domain satırındaki göz ikonuna ("Detay") basın → açılan çekmecede <b>"Sertifika Bağla"</b> bölümünde arama kutusuna "devir-test" yazın, listeden v1'i seçin, "Bağlantı Tipi" = <b>Server</b>, <b>"Bağla"</b>.</li>
         <li><i>(ara kontrol)</i> Toast "Sertifika bağlandı"; üstte "Server" etiketli chip görünür.</li>
         <li>"SSL Sertifikaları" → <b>"Yeni Ekle"</b> → <code>leaf-v2.pem</code> import edin (bkz. 1.3).</li>
-        <li>"Devir Önerileri" sayfasına gidin — <code>devir-s1.test</code> satırını bulun. <b>Henüz onaylamadan</b> Domainler → Detay'a geri dönün.</li>
+        <li>"Değişiklik Talepleri" sayfasına gidin — <code>devir-s1.test</code> satırını bulun. <b>Henüz onaylamadan</b> Domainler → Detay'a geri dönün.</li>
         <li><i>(ara kontrol)</i> Domain hâlâ v1'e bağlı, v1 "Aktif" — onay öncesi hiçbir şey değişmemiştir.</li>
-        <li>Devir Önerileri'ne dönün, satırda <b>"Onayla"</b> butonuna basın.</li>
+        <li>Değişiklik Talepleri'ne dönün, satırda <b>"Onayla"</b> butonuna basın.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Toast "Devir onaylandı ve uygulandı". Domainler → Detay'da artık v2 "Server" olarak bağlı; "SSL Sertifikaları"nda v1 satırı gri <b>"Pasif"</b> chip'i ve mavi <b>"Yenilendi → v2"</b> chip'i ile görünür.</div>
+      <div class="expect"><b>Beklenen:</b> Toast "Değişiklik onaylandı ve uygulandı". Domainler → Detay'da artık v2 "Server" olarak bağlı; "SSL Sertifikaları"nda v1 satırı gri <b>"Pasif"</b> chip'i ve mavi <b>"Yenilendi → v2"</b> chip'i ile görünür.</div>
       <span class="ref">test_scn_domain_transfer_lifecycle</span>
     </div>
 
@@ -208,7 +208,7 @@
         <li>"Uygulamalar" sayfasında bir uygulamanın düzenleme formunu açın → <b>"Dış Bağımlılıklar (trusted)"</b> bölümünde "Hedef Domain *" olarak <code>devir-s2.test</code>'i seçin, <b>"Ekle"</b>.</li>
         <li><i>(ara kontrol)</i> Toast "Bağımlılık eklendi"; listede <code>devir-s2.test</code> ve "mTLS: devir-test.jumbo.local" notu görünür (hedefin aktif server sertifikası otomatik izlenir).</li>
         <li><code>leaf-v2.pem</code>'i içe aktarın.</li>
-        <li>"Devir Önerileri"ne gidin.</li>
+        <li>"Değişiklik Talepleri"ne gidin.</li>
       </ol>
       <div class="expect"><b>Beklenen (ara):</b> <code>devir-s2.test</code> için İKİ ayrı satır görünür — biri domain (server), biri bu uygulamanın bağımlılığı.</div>
       <ol class="steps" start="6">
@@ -223,12 +223,12 @@
     </div>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">2.3</span><span class="mtest-title">Devir + trusted birlikte</span></div>
+      <div class="mtest-head"><span class="mtest-num">2.3</span><span class="mtest-title">Değişiklik + trusted birlikte</span></div>
       <ol class="steps">
         <li>2.1'in 1-3. adımlarını <code>devir-s3.test</code> ile tekrarlayın.</li>
         <li>Bir uygulamanın düzenleme formunda <b>"Trusted Sertifikalar (trust store)"</b> bölümünde Autocomplete'ten v1'i seçin, <b>"Ekle"</b>.</li>
         <li><i>(ara kontrol)</i> Toast "Trusted sertifika eklendi"; listede v1 görünür.</li>
-        <li><code>leaf-v2.pem</code>'i içe aktarın. "Devir Önerileri"nde bu domain için İKİ satır (transfer + trusted_add) görünmelidir.</li>
+        <li><code>leaf-v2.pem</code>'i içe aktarın. "Değişiklik Talepleri"nde bu domain için İKİ satır (transfer + trusted_add) görünmelidir.</li>
         <li>Yalnız <b>domain (server)</b> satırını onaylayın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (trust-store önerisi hâlâ açık olduğu için pasife alınmaz).</div>
@@ -243,13 +243,13 @@
       <div class="mtest-head"><span class="mtest-num">2.4</span><span class="mtest-title">Red kalıcı</span></div>
       <ol class="steps">
         <li>2.1'in 1-4. adımlarını <code>devir-s4.test</code> ile tekrarlayın (v1 bağla, v2 import → öneri oluşur).</li>
-        <li>"Devir Önerileri"nde ilgili satırda <b>"Reddet"</b> butonuna basın.</li>
+        <li>"Değişiklik Talepleri"nde ilgili satırda <b>"Reddet"</b> butonuna basın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Toast "Öneri reddedildi"; domain hâlâ v1'e bağlı.</div>
       <ol class="steps" start="3">
         <li>"SSL Sertifikaları"na gidin, <code>leaf-v2.pem</code> dosyasını TEKRAR içe aktarmayı deneyin (otomatik yol).</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Önizlemede yine "Yenileme" rozeti görünse de, "Devir Önerileri" listesinde YENİ bir satır OLUŞMAZ — red kalıcıdır.</div>
+      <div class="expect"><b>Beklenen:</b> Önizlemede yine "Yenileme" rozeti görünse de, "Değişiklik Talepleri" listesinde YENİ bir satır OLUŞMAZ — red kalıcıdır.</div>
       <div class="callout note">
         <b>Not:</b> Arayüzde bu reddi bilinçli olarak yeniden açan ayrı bir "manuel supersede" butonu bulunmuyor. Bu adım yalnız API üzerinden test edilebilir: <code>POST /api/certificates/{v2_id}/supersede/{v1_id}</code>. Bu çağrı yeni bir öneri açar; onaylandığında domain v2'ye taşınır.
       </div>
@@ -259,25 +259,25 @@
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">2.5</span><span class="mtest-title">İptal (cancel)</span></div>
       <div class="callout note">
-        <b>Not:</b> "Devir Önerileri" sayfasında satır başına yalnız <b>"Onayla"</b> ve <b>"Reddet"</b> butonları var — ayrı bir "İptal" butonu arayüzde bulunmuyor. Bu senaryo yalnız API üzerinden test edilebilir.
+        <b>Not:</b> "Değişiklik Talepleri" sayfasında satır başına yalnız <b>"Onayla"</b> ve <b>"Reddet"</b> butonları var — ayrı bir "İptal" butonu arayüzde bulunmuyor. Bu senaryo yalnız API üzerinden test edilebilir.
       </div>
       <ol class="steps">
         <li>2.1'in 1-4. adımlarını <code>devir-s5.test</code> ile tekrarlayın (v1 bağla, v2 import → öneri "pending").</li>
-        <li>İlgili önerinin id'sini "Devir Önerileri" sayfasında (veya API yanıtından) bulun, <code>POST /api/proposals/{id}/cancel</code> çağırın.</li>
+        <li>İlgili önerinin id'sini "Değişiklik Talepleri" sayfasında (veya API yanıtından) bulun, <code>POST /api/proposals/{id}/cancel</code> çağırın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Öneri "cancelled" olur; Domainler → Detay'da eşleme hâlâ v1'de; hiçbir mutasyon gerçekleşmemiştir.</div>
       <span class="ref">test_scn_cancel_no_mutation</span>
     </div>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">2.6</span><span class="mtest-title">Çok domainli kısmi devir</span></div>
+      <div class="mtest-head"><span class="mtest-num">2.6</span><span class="mtest-title">Çok domainli kısmi değişiklik</span></div>
       <ol class="steps">
         <li>v1'i import edin; <code>devir-s6-a.test</code> ve <code>devir-s6-b.test</code> adlı İKİ domain oluşturun, v1'i HER İKİSİNE de Server olarak bağlayın.</li>
         <li><code>leaf-v2.pem</code>'i import edin.</li>
-        <li>"Devir Önerileri"nde artık her iki domain için ayrı satır görünür. Birinin <b>"İncele"</b> butonuna basıp detay çekmecesindeki kardeş-öneri listesinde diğer domainin de göründüğünü doğrulayın.</li>
+        <li>"Değişiklik Talepleri"nde artık her iki domain için ayrı satır görünür. Birinin <b>"İncele"</b> butonuna basıp detay çekmecesindeki kardeş-öneri listesinde diğer domainin de göründüğünü doğrulayın.</li>
         <li><code>devir-s6-a.test</code> satırını <b>onaylayın</b>, <code>devir-s6-b.test</code> satırını <b>reddedin</b>.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Domainler → <code>devir-s6-a.test</code> artık v2'ye bağlı; <code>devir-s6-b.test</code> hâlâ v1'e bağlı. "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (B'ye hâlâ eşli olduğu için — kısmi devir).</div>
+      <div class="expect"><b>Beklenen:</b> Domainler → <code>devir-s6-a.test</code> artık v2'ye bağlı; <code>devir-s6-b.test</code> hâlâ v1'e bağlı. "SSL Sertifikaları"nda v1 HÂLÂ "Aktif" (B'ye hâlâ eşli olduğu için — kısmi değişiklik).</div>
       <span class="ref">test_scn_multi_domain_partial_transfer</span>
     </div>
 
@@ -286,7 +286,7 @@
       <ol class="steps">
         <li><code>devir-s7.test</code> oluşturun, v1'i import edip Server olarak bağlayın.</li>
         <li><code>leaf-v2.pem</code>'i import edin (öneri #1 oluşur), ardından <code>leaf-v3.pem</code>'i import edin (öneri #2 de oluşur — ikisi de v1'in halefi).</li>
-        <li>"Devir Önerileri"nde <code>devir-s7.test</code> için İKİ satır (v1→v2 ve v1→v3) görünür. Önce v1→v2 satırını onaylayın.</li>
+        <li>"Değişiklik Talepleri"nde <code>devir-s7.test</code> için İKİ satır (v1→v2 ve v1→v3) görünür. Önce v1→v2 satırını onaylayın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Domainler → <code>devir-s7.test</code> artık v2'ye bağlı.</div>
       <ol class="steps" start="4">
@@ -309,21 +309,21 @@
   </section>
 
   <section id="s3">
-    <h2><span class="idx">3</span>Devir Önerisi — Yetkilendirme</h2>
+    <h2><span class="idx">3</span>Değişiklik Talebi — Yetkilendirme</h2>
     <p class="section-note">Bu senaryolar için Settings → <b>"Kullanıcılar"</b> ve <b>"Ekip Üyelikleri"</b> sekmelerinde farklı rol/kapsamda ikinci bir test kullanıcısına ihtiyacınız olacak.</p>
 
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">3.1</span><span class="mtest-title">Ekip dışı editör onaylayamaz</span></div>
       <ol class="steps">
         <li>Settings → "Kullanıcılar"da bir kullanıcının Rol'ünü "Editor" yapın; Settings → "Ekip Üyelikleri"nde bu kullanıcıyı yalnızca "B" ekibine üye yapın.</li>
-        <li>"A" ekibine ait bir domainde Bölüm 2 Senaryo 1'deki gibi bekleyen bir devir önerisi oluşturun.</li>
-        <li>Bu editor kullanıcısıyla (farklı bir tarayıcı/gizli pencerede) giriş yapın, "Devir Önerileri" sayfasına gidin.</li>
+        <li>"A" ekibine ait bir domainde Bölüm 2 Senaryo 1'deki gibi bekleyen bir değişiklik talebi oluşturun.</li>
+        <li>Bu editor kullanıcısıyla (farklı bir tarayıcı/gizli pencerede) giriş yapın, "Değişiklik Talepleri" sayfasına gidin.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> A ekibinin önerisi listede görünse de satırda <b>"yetki yok"</b> chip'i görünür; Onayla/Reddet denenirse sunucu 403 ile reddeder.</div>
       <ol class="steps" start="4">
         <li>Admin veya A ekibi üyesiyle giriş yapıp aynı satırı onaylayın.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Toast "Devir onaylandı ve uygulandı" — bu kez başarılı.</div>
+      <div class="expect"><b>Beklenen:</b> Toast "Değişiklik onaylandı ve uygulandı" — bu kez başarılı.</div>
       <span class="ref">test_non_member_cannot_approve_but_admin_and_member_can</span>
     </div>
 
@@ -331,8 +331,8 @@
       <div class="mtest-head"><span class="mtest-num">3.2</span><span class="mtest-title">Sahipsiz domain → yalnız admin</span></div>
       <div class="callout note"><b>Not:</b> Domain oluşturma formunda "SY Takımı" alanı zorunludur, bu nedenle "sahipsiz" (SY ekibi atanmamış) bir domain normal arayüz akışıyla oluşturulamaz — bu senaryoyu kurmak için veritabanında/API üzerinden domainin <code>sy_team_id</code> alanını NULL yapmanız gerekir.</div>
       <ol class="steps">
-        <li>Sahipsiz bir domainde bekleyen devir önerisi oluşturun (yukarıdaki not ile).</li>
-        <li>Admin olmayan bir kullanıcıyla "Devir Önerileri" sayfasından onaylamayı deneyin.</li>
+        <li>Sahipsiz bir domainde bekleyen değişiklik talebi oluşturun (yukarıdaki not ile).</li>
+        <li>Admin olmayan bir kullanıcıyla "Değişiklik Talepleri" sayfasından onaylamayı deneyin.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Reddedilir (403). Yalnız admin kullanıcı onaylayabilir.</div>
       <span class="ref">test_ownerless_domain_proposal_admin_only</span>
@@ -344,7 +344,7 @@
         <li>Bölüm 2 Senaryo 1'deki gibi bekleyen bir önerisi olan sertifika kurun (henüz onaylamayın).</li>
         <li>"SSL Sertifikaları" sayfasında bu sertifikayı silin (çöp kutusu ikonu — admin-only).</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> "Devir Önerileri" listesinden bu sertifikaya ait satır kaybolur.</div>
+      <div class="expect"><b>Beklenen:</b> "Değişiklik Talepleri" listesinden bu sertifikaya ait satır kaybolur.</div>
       <span class="ref">test_deleting_certificate_clears_its_proposals</span>
     </div>
   </section>
@@ -376,7 +376,7 @@
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">4.3</span><span class="mtest-title">Bilgilendirme ve idempotentlik</span></div>
       <ol class="steps">
-        <li>Bağlı bir domaini olan sertifikayı (örn. 4.1 senaryosundaki devir SONRASI pasifleşen v1) pasife alın (zaten otomatik pasifleşmiş olabilir — değilse elle deneyin).</li>
+        <li>Bağlı bir domaini olan sertifikayı (örn. 4.1 senaryosundaki değişiklik SONRASI pasifleşen v1) pasife alın (zaten otomatik pasifleşmiş olabilir — değilse elle deneyin).</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Toast "success" (mail gönderildi) veya "warning" (mail gönderilemedi); Settings → <b>"Mail Gönderim Geçmişi"</b> sekmesinde bu bildirim bir satır olarak görünür.</div>
       <ol class="steps" start="2">
@@ -406,13 +406,13 @@
     </div>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">5.2</span><span class="mtest-title">Halef → "trusted_add" önerisi (devir değil)</span></div>
+      <div class="mtest-head"><span class="mtest-num">5.2</span><span class="mtest-title">Halef → "trusted_add" önerisi (değişiklik değil)</span></div>
       <ol class="steps">
         <li><code>leaf-v1.pem</code>'i bir uygulamanın trust store'una ekleyin (5.1'deki gibi).</li>
         <li><code>leaf-v2.pem</code>'i içe aktarın (aynı anahtar → halef).</li>
-        <li>"Devir Önerileri" sayfasına gidin.</li>
+        <li>"Değişiklik Talepleri" sayfasına gidin.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> Satırın "Tip" sütununda <b>"trusted_add"</b> (ekleme) görünür — "transfer" (devir) DEĞİL.</div>
+      <div class="expect"><b>Beklenen:</b> Satırın "Tip" sütununda <b>"trusted_add"</b> (ekleme) görünür — "transfer" (değişiklik) DEĞİL.</div>
       <ol class="steps" start="4">
         <li>Satırı onaylayın.</li>
       </ol>
@@ -450,9 +450,9 @@
     </div>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">6.3</span><span class="mtest-title">Devir hatırlatma</span></div>
+      <div class="mtest-head"><span class="mtest-num">6.3</span><span class="mtest-title">Değişiklik talebi hatırlatma</span></div>
       <ol class="steps">
-        <li>Bölüm 2'den kalan bekleyen bir devir önerisi olsun.</li>
+        <li>Bölüm 2'den kalan bekleyen bir değişiklik talebi olsun.</li>
         <li>Settings → "E-posta (SMTP)" → <b>"Bekleyen Önerileri Şimdi Hatırlat"</b>.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> İlgili SY ekibine öneriyi (eski→yeni) listeleyen TEK bir hatırlatma maili gider; "Mail Gönderim Geçmişi"nde görünür.</div>

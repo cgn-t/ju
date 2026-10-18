@@ -2,11 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { AppUser } from '../api/types'
 
-/** Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü. ['auth-me'] cache key'i
+/** Uyum/Değişiklik Talebi/Keşif/Dağıtım sayfa görünürlüğü. ['auth-me'] cache key'i
  * DomainFormDialog/CertMap/Applications ile PAYLAŞILIR — ek ağ isteği çıkarmaz.
  *
  * `nav`: üst navigasyon linki görünürlüğü. Kök seviyedeki alanlardan FARKI: SY ekip üyeliği
- * carve-out'u yok (Devir Önerisi/Sertifika Talepleri'nde SY üyesi, Ayarlar>Erişim kapalıyken
+ * carve-out'u yok (Değişiklik Talebi/Sertifika Talepleri'nde SY üyesi, Ayarlar>Erişim kapalıyken
  * bile ROTAYA erişebilir — DomainDetailDrawer'daki 'Onaya git' linki ve onay iş akışı bozulmaz;
  * yalnız üst menüde link, switch açık olmadıkça gizlenir). Route guard (PageAccessRoute) kök
  * seviyeyi kullanmaya devam eder. */

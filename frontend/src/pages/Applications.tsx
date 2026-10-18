@@ -496,7 +496,7 @@ export default function Applications() {
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                 Bu uygulamanın <b>trusted olarak bağlandığı</b> hedef domainler. İzlenen sertifika <b>otomatik</b>
                 olarak hedef domainin server sertifikasıdır (ayrıca seçmenize gerek yok). O sertifika yenilendiğinde
-                bu uygulamanın SY ekibine <b>trusted bağlantı değişikliği</b> için devir önerisi gider. İlişki haritasında
+                bu uygulamanın SY ekibine <b>trusted bağlantı değişikliği</b> için değişiklik talebi gider. İlişki haritasında
                 turuncu kesikli okla görünür.
               </Typography>
 
@@ -558,7 +558,7 @@ export default function Applications() {
               <Typography variant="subtitle2" gutterBottom>Trusted Sertifikalar (trust store)</Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                 Bu uygulamanın <b>güvendiği</b> (trust store'una eklediği) sertifikalar — CA/peer doğrulama
-                çıpası; sunulan değil <b>kabul edilen</b> sertifika. Çoklu olabilir; <b>devir yoktur</b> —
+                çıpası; sunulan değil <b>kabul edilen</b> sertifika. Çoklu olabilir; <b>eskisinin yerine geçme yoktur</b> —
                 yeni sertifika onayla eklenir, eski kalır. Süresi yaklaşınca uygulamanın SY ekibine mail gider.
               </Typography>
               <Stack spacing={1} sx={{ mb: 2 }}>

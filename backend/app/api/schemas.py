@@ -57,7 +57,7 @@ class UserOut(ORMModel):
     sy_team_names: list[str] = []
     team_ids: list[int] = []         # üye olduğu TÜM takımların (SY/ADMIN/VIEWER/UG) id'leri
     team_names: list[str] = []
-    # Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü — yalnız /auth/me doldurur
+    # Uyum/Değişiklik Talebi/Keşif/Dağıtım sayfa görünürlüğü — yalnız /auth/me doldurur
     # (bkz. security.page_visible). {"policy":bool,"proposals":bool,"discovery":bool,"deployments":bool}
     page_access: dict[str, bool] = {}
     # Üst navigasyon linki görünürlüğü — page_access'ten FARKI: SY üyeliği carve-out'u yok
@@ -317,7 +317,7 @@ class DomainOut(DomainBase, ORMModel):
     live_check_status: str | None = None
     live_check_detail: str | None = None
     live_check_at: IstanbulDateTime | None = None
-    pending_proposals: int = 0  # bu domain için onay bekleyen devir önerisi sayısı
+    pending_proposals: int = 0  # bu domain için onay bekleyen değişiklik talebi sayısı
 
 
 class MappingCreate(BaseModel):
@@ -356,13 +356,13 @@ class ChainImportOut(BaseModel):
     created: list[str] = []       # yeni eklenen sertifika adları
     existing: list[str] = []      # zaten kayıtlı olanlar
     mapped_server: str | None = None  # domain'e server olarak bağlanan leaf
-    superseded: list[str] = []    # devir ÖNERİSİ üretilen öncül adları (onay bekliyor)
+    superseded: list[str] = []    # değişiklik TALEBİ üretilen öncül adları (onay bekliyor)
     added: list[str] = []         # EKLEME önerisi üretilen sertifika adları (onay bekliyor)
     removed: list[str] = []       # KALDIRMA önerisi üretilen sertifika adları (onay bekliyor)
     inactive: list[str] = []      # sunucuda duran ama envanterde PASİF olanlar (bağlanmadı)
 
 
-# ---- Devir önerileri (onay) ----
+# ---- Değişiklik talepleri (onay) ----
 class TransferProposalOut(ORMModel):
     id: int
     old_cert_id: int

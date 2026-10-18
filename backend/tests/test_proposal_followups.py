@@ -1,7 +1,7 @@
-"""Devir önerisi anomalileri (v3.6.3) — regresyon.
+"""Değişiklik talebi anomalileri (v3.6.3) — regresyon.
 
   Y1  Eski leaf elle kaldırılıp devir onaylanınca yeni leaf bağlanır (yuva kontrolü tip bazlı).
-  T1  Domain devri uygulanınca o domaini hedefleyen mTLS bağımlılığına devir önerisi açılır.
+  T1  Domain devri uygulanınca o domaini hedefleyen mTLS bağımlılığına değişiklik talebi açılır.
   T2  Domain devri uygulanınca eski cert'i güvenen uygulamaya trusted_add önerisi açılır.
   Z1  Zincir içe aktarma: iki katmanlı yeni ara CA → eskiye TEK halef + kalan için EKLEME.
   Z2  Zincir içe aktarma: bağlılardan biri hâlâ sunuluyorsa fazladan olan için KALDIRMA.

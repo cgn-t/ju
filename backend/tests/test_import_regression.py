@@ -6,7 +6,7 @@ Her test bir bulguyu sabitler; domain testleri gerçek TLS sunucusu (yerel port)
   3  istemci sertifikası zorunlu TLS 1.2 sunucudan zincir çekilir
   4  kendinden imzalı sunucu sertifikası 'leaf' sayılır, server olarak bağlanır
   5  Manuel Ekle'ye yapıştırılan zincirin tamamı kaydedilir
-  6  zincir içe aktarmada oluşan devir önerisi yanıtta döner
+  6  zincir içe aktarmada oluşan değişiklik talebi yanıtta döner
   7  PFX parolası boş/yanlış ise parola mesajı verilir
   8  domain alanı https://adres/yol ve IPv6 biçiminde yazılabilir
   9  CN'siz sertifika SAN adıyla görünür
@@ -287,7 +287,7 @@ def test_manual_add_keeps_whole_pasted_chain(client, auth_headers):
     assert r.json()["chain_added"] == []  # ara ve kök zaten kayıtlı
 
 
-# ---- 6) Zincir içe aktarmada devir önerisi ---------------------------------------------------
+# ---- 6) Zincir içe aktarmada değişiklik talebi ---------------------------------------------------
 
 def test_import_chain_reports_transfer_proposal(client, auth_headers, tmp_path):
     root, rk, inter, ik = _hier("Rg Yenileme")

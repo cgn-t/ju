@@ -96,10 +96,10 @@
 
   <p class="eyebrow">JUMBO &middot; Regresyon Test Dokümanı — Kapsamlı</p>
   <h1>Platformun tamamı: 15 bölümde elle (manuel) regresyon senaryoları</h1>
-  <p class="lede">Bu doküman, JUMBO arayüzünün <b>gerçek sayfa/buton adlarını</b> kullanarak bir test ekibinin adım adım izleyebileceği, platformun tüm fonksiyonel alanlarını (mail, devir önerisi, sertifika import, trust store, ağ keşfi/CT, dağıtım/Jenkins, politika motoru, iptal kontrolü, etiketler, RBAC/güvenlik) kapsayan manuel regresyon senaryolarını içerir. Arayüzde karşılığı bulunmayan bazı kontroller (örn. öneri iptali, IDOR denemesi) için bu açıkça belirtilmiş ve API ile nasıl test edileceği gösterilmiştir — var olmayan bir buton icat edilmemiştir.</p>
+  <p class="lede">Bu doküman, JUMBO arayüzünün <b>gerçek sayfa/buton adlarını</b> kullanarak bir test ekibinin adım adım izleyebileceği, platformun tüm fonksiyonel alanlarını (mail, değişiklik talebi, sertifika import, trust store, ağ keşfi/CT, dağıtım/Jenkins, politika motoru, iptal kontrolü, etiketler, RBAC/güvenlik) kapsayan manuel regresyon senaryolarını içerir. Arayüzde karşılığı bulunmayan bazı kontroller (örn. öneri iptali, IDOR denemesi) için bu açıkça belirtilmiş ve API ile nasıl test edileceği gösterilmiştir — var olmayan bir buton icat edilmemiştir.</p>
 
   <div class="callout link">
-    En kritik 7 akışın (sertifika import, devir önerisi 8 senaryo, pasife alma, trust store, mail temel akış, RBAC) <b>tam adım adım</b> açıklaması için → <a href="REGRESYON-KRITIK-FONKSIYONLAR.html">REGRESYON-KRITIK-FONKSIYONLAR.html</a>. Bu doküman onun üzerine platformun <b>geri kalanını</b> ekler.
+    En kritik 7 akışın (sertifika import, değişiklik talebi 8 senaryo, pasife alma, trust store, mail temel akış, RBAC) <b>tam adım adım</b> açıklaması için → <a href="REGRESYON-KRITIK-FONKSIYONLAR.html">REGRESYON-KRITIK-FONKSIYONLAR.html</a>. Bu doküman onun üzerine platformun <b>geri kalanını</b> ekler.
   </div>
 
   <div class="callout warn">
@@ -126,13 +126,13 @@
     <ol>
       <li><a href="#s1">Genel API &amp; Sertifika Yaşam Döngüsü</a></li>
       <li><a href="#s2">Sertifika Ayrıştırma</a></li>
-      <li><a href="#s3">Devir Önerisi — 8 Senaryo</a></li>
-      <li><a href="#s4">Devir Önerisi — Yetkilendirme &amp; Edge Case'ler</a></li>
+      <li><a href="#s3">Değişiklik Talebi — 8 Senaryo</a></li>
+      <li><a href="#s4">Değişiklik Talebi — Yetkilendirme &amp; Edge Case'ler</a></li>
       <li><a href="#s5">Pasife Alma Kuralları</a></li>
       <li><a href="#s6">Trust Store</a></li>
       <li><a href="#s7">Mail Senaryoları</a></li>
       <li><a href="#s8">Mail Geçmişi &amp; Şablon Tutarlılığı</a></li>
-      <li><a href="#s9">Devir Hatırlatma Maili</a></li>
+      <li><a href="#s9">Değişiklik Talebi Hatırlatma Maili</a></li>
       <li><a href="#s10">Bildirim Kanalları</a></li>
       <li><a href="#s11">Ağ Keşfi, CT İzleme &amp; Canlı Kontrol</a></li>
       <li><a href="#s12">Dağıtım Motoru &amp; Jenkins</a></li>
@@ -203,20 +203,20 @@
   </section>
 
   <section id="s3">
-    <h2><span class="idx">3</span>Devir Önerisi (TransferProposal) — 8 Senaryo</h2>
-    <p class="section-note">Tüm adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s2">kritik doküman bölüm 2</a>'ye bakın (2.1 — Temel devir, 2.2 — Çoklu granül, 2.3 — Devir+trusted, 2.4 — Red kalıcı, 2.5 — İptal (API-only), 2.6 — Kısmi devir, 2.7 — Rakip halef, 2.8 — Cross-granül). Bu doküman o 8 senaryoyu birebir aynı şekilde kapsar; tekrar yazılmadı.</p>
+    <h2><span class="idx">3</span>Değişiklik Talebi (TransferProposal) — 8 Senaryo</h2>
+    <p class="section-note">Tüm adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s2">kritik doküman bölüm 2</a>'ye bakın (2.1 — Temel değişiklik, 2.2 — Çoklu granül, 2.3 — Değişiklik+trusted, 2.4 — Red kalıcı, 2.5 — İptal (API-only), 2.6 — Kısmi değişiklik, 2.7 — Rakip halef, 2.8 — Cross-granül). Bu doküman o 8 senaryoyu birebir aynı şekilde kapsar; tekrar yazılmadı.</p>
   </section>
 
   <section id="s4">
-    <h2><span class="idx">4</span>Devir Önerisi — Yetkilendirme &amp; Edge Case'ler</h2>
+    <h2><span class="idx">4</span>Değişiklik Talebi — Yetkilendirme &amp; Edge Case'ler</h2>
     <p class="section-note">Temel yetki kuralları için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s3">kritik doküman bölüm 3</a>'e bakın. Burada geçmiş bug'ların regresyonu olan ek edge case'ler var — <code>test_proposals_auth.py</code>.</p>
 
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">4.1</span><span class="mtest-title">SY ekibi değişince açık öneri taşınır (rehome)</span></div>
       <ol class="steps">
-        <li>Kritik doküman 2.1'deki gibi bir domain + bekleyen devir önerisi oluşturun (henüz onaylamayın).</li>
+        <li>Kritik doküman 2.1'deki gibi bir domain + bekleyen değişiklik talebi oluşturun (henüz onaylamayın).</li>
         <li>"Domainler" → bu domainin düzenle (kalem) ikonuna basın → "SY Takımı" alanını farklı bir ekiple değiştirip kaydedin.</li>
-        <li>Önce eski SY ekibinin bir üyesiyle, sonra yeni SY ekibinin bir üyesiyle "Devir Önerileri" sayfasına gidin.</li>
+        <li>Önce eski SY ekibinin bir üyesiyle, sonra yeni SY ekibinin bir üyesiyle "Değişiklik Talepleri" sayfasına gidin.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> Öneri artık YENİ ekibin kapsamında görünür/onaylanabilir; eski ekip üyesi artık bu öneriyi onaylayamaz.</div>
       <span class="ref">test_domain_sy_change_rehomes_open_proposal</span>
@@ -226,7 +226,7 @@
       <div class="mtest-head"><span class="mtest-num">4.2</span><span class="mtest-title">Karara bağlanmış öneri ezilemez + cancel yetkisi</span></div>
       <div class="callout note"><b>Not:</b> Arayüzde "İptal" butonu yok (bkz. kritik doküman 2.5). Bu senaryo API ile test edilir.</div>
       <ol class="steps">
-        <li>Bir öneriyi "Devir Önerileri" sayfasından onaylayın veya reddedin (UI).</li>
+        <li>Bir öneriyi "Değişiklik Talepleri" sayfasından onaylayın veya reddedin (UI).</li>
         <li>Aynı öneri için <code>POST /api/proposals/{id}/cancel</code> çağırın.</li>
       </ol>
       <div class="expect"><b>Beklenen:</b> 409 Conflict — karara bağlanmış bir öneri cancel ile ezilemez.</div>
@@ -248,7 +248,7 @@
       <ol class="steps">
         <li>Kritik doküman 3.3'teki sertifika silme senaryosuna ek olarak: bekleyen bir dependency önerisi olan bir "Uygulama"yı "Uygulamalar" sayfasından silin.</li>
       </ol>
-      <div class="expect"><b>Beklenen:</b> O uygulamaya bağlı dependency önerileri de "Devir Önerileri" listesinden kaybolur.</div>
+      <div class="expect"><b>Beklenen:</b> O uygulamaya bağlı dependency önerileri de "Değişiklik Talepleri" listesinden kaybolur.</div>
       <span class="ref">test_deleting_application_clears_dependency_proposals · test_deleting_domain_clears_its_proposals · test_deleting_dependency_clears_its_proposal</span>
     </div>
   </section>
@@ -262,7 +262,7 @@
   <section id="s6">
     <h2><span class="idx">6</span>Trust Store</h2>
     <p class="section-note">Tam adımlar için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s5">kritik doküman bölüm 5</a>'e bakın. Ek kontrol (arayüz dışı, davranışsal regresyon):</p>
-    <div class="row"><p class="row-title">Phantom önleme (startup backfill)</p><p class="row-desc">Bu kontrol backend başlangıcında (uygulama yeniden başlatıldığında) çalışan bir arka plan işlemidir; arayüzde tetiklenecek bir buton yoktur. Zaten uygulanmış bir "trusted_add" önerisinin, sistem yeniden başlatıldığında tekrar "bekliyor" olarak belirmediğini Devir Önerileri listesinden gözlemleyerek doğrulayın.</p><span class="ref">test_backfill_no_phantom_trusted_add</span></div>
+    <div class="row"><p class="row-title">Phantom önleme (startup backfill)</p><p class="row-desc">Bu kontrol backend başlangıcında (uygulama yeniden başlatıldığında) çalışan bir arka plan işlemidir; arayüzde tetiklenecek bir buton yoktur. Zaten uygulanmış bir "trusted_add" önerisinin, sistem yeniden başlatıldığında tekrar "bekliyor" olarak belirmediğini Değişiklik Talepleri listesinden gözlemleyerek doğrulayın.</p><span class="ref">test_backfill_no_phantom_trusted_add</span></div>
   </section>
 
   <section id="s7">
@@ -346,7 +346,7 @@
   </section>
 
   <section id="s9">
-    <h2><span class="idx">9</span>Devir Hatırlatma Maili</h2>
+    <h2><span class="idx">9</span>Değişiklik Talebi Hatırlatma Maili</h2>
     <p class="section-note">Temel akış için <a href="REGRESYON-KRITIK-FONKSIYONLAR.html#s6">kritik doküman 6.3</a>'e bakın.</p>
     <div class="row"><p class="row-title">E-postasız ekip atlanır</p><p class="row-desc">Settings → "Ekipler"de bir SY ekibinin e-posta alanını boşaltın; bu ekibin bekleyen önerisi varken "Bekleyen Önerileri Şimdi Hatırlat"ı çalıştırın.</p><div class="expect" style="margin-top:8px"><b>Beklenen:</b> Bu ekip için "Mail Gönderim Geçmişi"nde satır oluşmaz (gönderim atlanır), diğer ekipler normal şekilde alır.</div><span class="ref">test_reminder_team_without_email_skipped</span></div>
   </section>
@@ -439,7 +439,7 @@
 
     <div class="mtest">
       <div class="mtest-head"><span class="mtest-num">11.4</span><span class="mtest-title">"Server" eşlemesi artık TAM ZİNCİR bağlar (leaf+intermediate+root)</span></div>
-      <div class="callout note"><b>Kök neden:</b> Daha önce bir domaine root+intermediate+leaf'in üçü de bağlıyken Canlı Doğrulama root/intermediate'i de "leaf ile eşleşmedi" diyerek yanlış uyumsuzluk/devir sinyali üretiyordu. Artık her seviye kendi tipiyle (leaf↔leaf, intermediate↔intermediate, root↔root) karşılaştırılıyor; bunun için "server" eşlemesi tek sertifika değil, çözülebilen tam zincir oluyor.</div>
+      <div class="callout note"><b>Kök neden:</b> Daha önce bir domaine root+intermediate+leaf'in üçü de bağlıyken Canlı Doğrulama root/intermediate'i de "leaf ile eşleşmedi" diyerek yanlış uyumsuzluk/değişiklik sinyali üretiyordu. Artık her seviye kendi tipiyle (leaf↔leaf, intermediate↔intermediate, root↔root) karşılaştırılıyor; bunun için "server" eşlemesi tek sertifika değil, çözülebilen tam zincir oluyor.</div>
       <ol class="steps">
         <li>"SSL Sertifikaları" → "Yeni Ekle" ile <code>chain-fullchain.pem</code>'i içe aktarın (leaf+intermediate+root üçü birden eklenir).</li>
         <li>"Domainler" → yeni bir domain oluşturun → Detay çekmecesinde "Sertifika Bağla"dan bu leaf'i (<code>zincir-test.jumbo.local</code>) seçip "Bağlantı Tipi: Server" ile bağlayın.</li>
@@ -468,9 +468,9 @@
     </div>
 
     <div class="mtest">
-      <div class="mtest-head"><span class="mtest-num">11.7</span><span class="mtest-title">Intermediate/root rotasyonu — yalnız değişen seviye için devir önerisi</span></div>
+      <div class="mtest-head"><span class="mtest-num">11.7</span><span class="mtest-title">Intermediate/root rotasyonu — yalnız değişen seviye için değişiklik talebi</span></div>
       <div class="callout note"><b>Not:</b> Bu senaryo canlıda gerçek bir TLS sunucusunun ZAMAN İÇİNDE farklı bir intermediate/root sunmasını gerektirir (ör. CA geçişi); test ekibinin kendi ortamında böyle bir sunucu kurması gerekir. Arayüzden izlenebilecek akış: zinciri ilk hâliyle içe aktarıp bir domaine bağlayın → sunucu tarafında intermediate/root değiştikten sonra o domainde "Canlı Doğrula"yı veya "Zinciri İçe Aktar"ı tekrar çalıştırın.</div>
-      <div class="expect"><b>Beklenen:</b> "Devir Önerileri" sayfasında YALNIZ değişen seviye (örn. intermediate) için bir öneri çıkar; leaf ve root dokunulmadan aynı kalır — kök neden bug'ının tam tersi davranış. Bu, otomatik testlerle uçtan uca doğrulanmıştır.</div>
+      <div class="expect"><b>Beklenen:</b> "Değişiklik Talepleri" sayfasında YALNIZ değişen seviye (örn. intermediate) için bir öneri çıkar; leaf ve root dokunulmadan aynı kalır — kök neden bug'ının tam tersi davranış. Bu, otomatik testlerle uçtan uca doğrulanmıştır.</div>
       <span class="ref">test_live_check_per_level_type_aware · test_live_check_proactively_syncs_leaf_rotation_without_import_chain</span>
     </div>
 

@@ -1,4 +1,4 @@
-"""Devir önerisi akışları — uçtan uca REGRESYON seti (v3.5.0 öneri modeli).
+"""Değişiklik talebi akışları — uçtan uca REGRESYON seti (v3.5.0 öneri modeli).
 
 Gerçek HTTP uçları üzerinden: içe aktarma → domain/eşleme → canlı doğrulama (sunulan zincir
 monkeypatch ile) → /api/proposals → onay/red → eşleme ve sertifika durumunun doğrulanması.

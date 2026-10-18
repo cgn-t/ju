@@ -1,6 +1,6 @@
-"""SY ekip üyeliği ve devir önerisi onay yetkisi testleri.
+"""SY ekip üyeliği ve değişiklik talebi onay yetkisi testleri.
 
-İlke: bir devir önerisini yalnız domain sahibi SY ekibinin ÜYESİ veya admin
+İlke: bir değişiklik talebini yalnız domain sahibi SY ekibinin ÜYESİ veya admin
 onaylar. Sahipsiz domain önerisi yalnız admin. Editör öneri üretebilir ama
 kendi ekibi olmayan domainin devrini onaylayamaz.
 """
@@ -109,7 +109,7 @@ def test_non_member_cannot_approve_but_admin_and_member_can(client, auth_headers
     outsider = _mk_user(client, auth_headers, "outsider")
     oh = _login(client, "outsider")
     assert client.post(f"/api/proposals/{prop_id}/approve", headers=oh).status_code == 403
-    # Görünürlük: hiçbir SY ekibine üye olmayan editör Devir Önerileri sayfasını hiç göremez
+    # Görünürlük: hiçbir SY ekibine üye olmayan editör Değişiklik Talepleri sayfasını hiç göremez
     # (varsayılan admin+allviewer-only; bkz. test_page_visibility.py)
     assert client.get("/api/proposals", headers=oh).status_code == 403
 
@@ -153,7 +153,7 @@ def test_ownerless_domain_proposal_admin_only(client, auth_headers):
 
 
 def test_deleting_certificate_clears_its_proposals(client, auth_headers):
-    """Sertifika silinince ilgili devir önerileri de düşer (orphan öneri kalmaz)."""
+    """Sertifika silinince ilgili değişiklik talepleri de düşer (orphan öneri kalmaz)."""
     team_id = _sy_team(client, auth_headers, "TeamDelta")
     prop_id, v1_id, v2_id, domain_id = _setup_pending_proposal(
         client, auth_headers, "delta.example.com", team_id)
@@ -354,7 +354,7 @@ def test_manual_creator_can_cancel_own_cross_team_proposal(client, auth_headers)
 
 
 def test_domain_sy_change_rehomes_open_proposal(client, auth_headers):
-    """Domain'in sy_team_id'si değişince, o domain'e ait AÇIK (pending) devir önerisinin
+    """Domain'in sy_team_id'si değişince, o domain'e ait AÇIK (pending) değişiklik talebinin
     sy_team_id'si de yeni sahibe taşınır (domains.py::update_domain sy_changed bloğu) —
     aksi halde öneri eski ekipte kalır ve yeni sahip onaylayamazdı."""
     t1 = _sy_team(client, auth_headers, "TeamRehomeDom1")
@@ -374,7 +374,7 @@ def test_domain_sy_change_rehomes_open_proposal(client, auth_headers):
 
 
 def test_app_sy_change_rehomes_dependency_proposal(client, auth_headers):
-    """Uygulamanın sy_team_id'si değişince, mTLS bağımlılığına ait AÇIK devir önerisinin
+    """Uygulamanın sy_team_id'si değişince, mTLS bağımlılığına ait AÇIK değişiklik talebinin
     sy_team_id'si de yeni sahibe taşınır (applications.py::update_application sy_changed
     bloğu, dep_ids filtresi) — trusted_add dışındaki (dep-tabanlı) önerileri de kapsar."""
     t1 = _sy_team(client, auth_headers, "TeamRehomeDep1")
@@ -406,7 +406,7 @@ def test_app_sy_change_rehomes_dependency_proposal(client, auth_headers):
 
 
 def test_deleting_domain_clears_its_proposals(client, auth_headers):
-    """Domain silinince ona ait devir önerileri de düşer (orphan öneri kalmaz; MSSQL FK
+    """Domain silinince ona ait değişiklik talepleri de düşer (orphan öneri kalmaz; MSSQL FK
     NO ACTION uyumu için domains.py::delete_domain uygulama seviyesinde elle temizler)."""
     team_id = _sy_team(client, auth_headers, "TeamDomDelete")
     prop_id, v1_id, v2_id, domain_id = _setup_pending_proposal(
@@ -418,7 +418,7 @@ def test_deleting_domain_clears_its_proposals(client, auth_headers):
 
 
 def test_deleting_application_clears_dependency_proposals(client, auth_headers):
-    """Uygulama silinince ona bağlı mTLS bağımlılıklarının devir önerileri de düşer
+    """Uygulama silinince ona bağlı mTLS bağımlılıklarının değişiklik talepleri de düşer
     (applications.py::delete_application, dep_ids üzerinden elle temizlik)."""
     team_id = _sy_team(client, auth_headers, "TeamAppDelete")
     ca, ca_key = certgen.make_ca("AppDelete CA")
@@ -444,7 +444,7 @@ def test_deleting_application_clears_dependency_proposals(client, auth_headers):
 
 
 def test_deleting_dependency_clears_its_proposal(client, auth_headers):
-    """Tek bir mTLS bağımlılığı (dependency) silinince, yalnız ONA ait devir önerisi düşer
+    """Tek bir mTLS bağımlılığı (dependency) silinince, yalnız ONA ait değişiklik talebi düşer
     (applications.py::delete_dependency elle temizlik) — uygulamanın kendisi silinmez."""
     team_id = _sy_team(client, auth_headers, "TeamDepDelete")
     ca, ca_key = certgen.make_ca("DepDelete CA")

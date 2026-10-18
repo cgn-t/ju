@@ -49,7 +49,7 @@ Dış istek ─▶ nginx :8080 ─┤ /api/*  ─▶ uvicorn :5000    │  (tek 
 | `domains.py` | Domainler sayfası — CRUD, sertifika bağlama, canlı doğrulama tetikleme | Domain kaydedilmiyor, canlı doğrulama yanlış sonuç |
 | `dashboard.py` | Anasayfa özet sayıları | Dashboard'daki sayılar tutmuyor |
 | `applications.py` | Uygulamalar sayfası — envanter, bağımlılık, trust store, etiketler | Uygulama/bağımlılık CRUD sorunları |
-| `proposals.py` | Devir Önerileri — onay/red/iptal (CAS deseni) | Onay butonu çalışmıyor, öneri kaybolmuyor |
+| `proposals.py` | Değişiklik Talepleri — onay/red/iptal (CAS deseni) | Onay butonu çalışmıyor, öneri kaybolmuyor |
 | `discovery.py` | Keşif — tarama hedefleri, sonuçlar, adopt/yok say | Tarama sonuç vermiyor, adopt hata veriyor |
 | `policy.py` | Uyum politikası kuralları ve değerlendirme sonucu | Bir sertifika yanlış "uyumsuz" görünüyor |
 | `deployments.py` | Dağıtım (Jenkins) akış editörü + çalıştırmalar | Job tetiklenmiyor, adım durumu güncellenmiyor |
@@ -65,7 +65,7 @@ Dış istek ─▶ nginx :8080 ─┤ /api/*  ─▶ uvicorn :5000    │  (tek 
 | Dosya | Sorumluluk | "Buraya bak" ne zaman |
 |---|---|---|
 | `cert_parser.py` | PEM/DER/PFX ayrıştırma, alan çıkarma, SKI/AKI zincir kurma, fingerprint | İçe aktarılan sertifikanın alanları yanlış/eksik |
-| `renewal.py` | Yenileme (rotation) algılama — aynı SKI/CN+issuer eşleşmesi, `TransferProposal` üretimi, `apply_proposal`, `find_predecessors` | Devir önerisi hiç oluşmuyor / yanlış eski sertifikayı öneriyor |
+| `renewal.py` | Yenileme (rotation) algılama — aynı SKI/CN+issuer eşleşmesi, `TransferProposal` üretimi, `apply_proposal`, `find_predecessors` | Değişiklik talebi hiç oluşmuyor / yanlış eski sertifikayı öneriyor |
 | `live_check.py` | Canlı doğrulama (drift detection) — domain:port'a bağlanıp sunulan sertifikayı fingerprint ile karşılaştırma | "Şimdi Doğrula" yanlış sonuç veriyor, mismatch algılanmıyor |
 | `discovery.py` | Ağ taraması — hedef port aralığı tarama, `DiscoveredCertificate` üretimi, adopt | Keşif taraması hiç sonuç bulmuyor/timeout |
 | `ct_monitor.py` | Certificate Transparency (crt.sh) log izleme | CT'den beklenen sertifika gelmiyor |
@@ -124,7 +124,7 @@ dosya sonu): bir zamanlanmış işin çalışıp çalışmadığını kontrol ed
 | İş | Sıklık | Ne yapar |
 |---|---|---|
 | `check_expiring_certificates` | Günlük 08:00 | Süresi yaklaşan sertifikalar için mail |
-| `check_pending_proposals` | Günlük (ayarlanabilir saat) | Bekleyen devir önerileri için hatırlatma maili |
+| `check_pending_proposals` | Günlük (ayarlanabilir saat) | Bekleyen değişiklik talepleri için hatırlatma maili |
 | `check_all_domains` | Günlük 07:00 | Canlı doğrulama (drift detection) taraması |
 | `run_scan_job` | Günlük (ayarlanabilir saat) | Ağ keşif taraması |
 | `run_ct_scan_job` | Günlük (ayarlanabilir saat, varsayılan 4) | Certificate Transparency log taraması |
@@ -156,7 +156,7 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
 - `drain_mail_queue()` — kuyruktaki `pending` satırları gerçekten gönderen arka plan işi;
   başarısızlıkta `attempts`/`last_error` günceller, `failed` yazar.
 - Mail HTML şablonları: `_banner()`, `_section()`, `_kv_table()`, `_mail_html_wrap()` — 4 mail
-  türü (süresi yaklaşan/geçen sertifika, domain hatırlatma, devir onayı, pasife alma) bu ortak
+  türü (süresi yaklaşan/geçen sertifika, domain hatırlatma, değişiklik talebi, pasife alma) bu ortak
   bileşenleri paylaşır; hepsi `"Merhabalar,"` ile başlar. Body'yi değiştirirken bu yardımcıları
   kullan, HTML'i elle yazma.
   - `_mail_html_wrap` gövdesi `width:100%` (sabit `max-width` YOK) — mail istemcisinin okuma
@@ -185,7 +185,7 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
   - "Admin ekranında 'Gönderildi' görünüyor ama alıcı almadı" → `MailQueue.status`/`last_error`'a
     bak (Ayarlar > Mail Gönderim Geçmişi'nde satıra tıkla → detay paneli gerçek durumu gösterir).
   - "Yanlış/eksik alıcıya gitti" → `_expiry_stakeholders`/`_domain_expiry_stakeholder`.
-  - "Devir onayı hatırlatması gelmiyor" → `check_pending_proposals` + `send_pending_proposal_notifications`.
+  - "Değişiklik talebi hatırlatması gelmiyor" → `check_pending_proposals` + `send_pending_proposal_notifications`.
 
 ## 6. RBAC / Yetkilendirme Modeli
 
@@ -194,8 +194,8 @@ Akış: **karar (kim, neden, ne zaman)** → **gönderim/kuyruğa alma** → **k
 - **Takım üyeliği veri kapsamını belirler** — bir kullanıcının hangi domain/sertifikaları
   gördüğü, `UserTeam` üyeliklerinden türer (bkz. memory: RBAC takım modeli).
   `user_team_ids()`/`domain_scope_team_ids()` kapsam sorgularının başlangıç noktasıdır.
-- **Sayfa görünürlüğü** (Uyum/Devir Önerisi/Keşif/Dağıtım): `PAGE_SETTING_KEY` → Ayarlar>Erişim
-  switch'i. admin+allviewer HER ZAMAN görür; Devir Önerisi'nde ayrıca SY üyeliği olan herkes
+- **Sayfa görünürlüğü** (Uyum/Değişiklik Talebi/Keşif/Dağıtım): `PAGE_SETTING_KEY` → Ayarlar>Erişim
+  switch'i. admin+allviewer HER ZAMAN görür; Değişiklik Talebi'nde ayrıca SY üyeliği olan herkes
   kendi ekibinin tekliflerini görür — bu görünürlük kuralı, ONAY yetkisinden (`require_team_or_admin`)
   BAĞIMSIZDIR.
 - "Bu kullanıcı bir sayfayı/butonu göremiyor" şikayetinde bakılacak sıra: 1) rolü, 2) takım
@@ -249,7 +249,7 @@ buradaki `additions` sözlüğü prod'da eksik olabilecek kolonları process aç
 | Giriş yapılamıyor (AD/LDAP kullanıcısı) | `services/ldap_auth.py`, Ayarlar>LDAP bağlantı testi |
 | 403 "yetkisiz" hatası | `core/security.py` rol/sayfa kontrolleri, kullanıcının rolü+takım üyeliği |
 | Sertifika içe aktarma hata veriyor | `services/cert_parser.py`, `api/certificates.py` import ucu |
-| Devir önerisi oluşmuyor/yanlış | `services/renewal.py` (`find_predecessors`/`propose`) |
+| Değişiklik talebi oluşmuyor/yanlış | `services/renewal.py` (`find_predecessors`/`propose`) |
 | Canlı doğrulama (drift) yanlış sonuç | `services/live_check.py` |
 | Mail gitmiyor / yanlış alıcıya gidiyor | §5 — `services/notifier.py` |
 | Mail geçmişinde durum yanlış görünüyor | `Notification.mail_queue_id`, `api/notifications.py:list_mail_history` |

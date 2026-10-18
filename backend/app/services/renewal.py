@@ -133,7 +133,7 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
             domain_id: int | None = None, include_domains: bool = True,
             dep_ids: set[int] | None = None) -> list[TransferProposal]:
     """Eski cert'in her (domain, mapping_type) eşlemesi ve her mTLS bağımlılığı için
-    PENDING devir önerisi üretir. HİÇBİR mutasyon yapmaz (eşleme taşımaz, pasife almaz,
+    PENDING değişiklik talebi üretir. HİÇBİR mutasyon yapmaz (eşleme taşımaz, pasife almaz,
     superseded_by yazmaz). İdempotent: aynı granül için açık öneri varsa yenisini
     yazmaz, yalnız live_seen kanıtını günceller. Commit çağırana aittir.
 
@@ -149,7 +149,7 @@ def propose(db: Session, new_cert: Certificate, old_cert: Certificate, *, userna
     TAKİPÇİLER: `include_domains=False` domain eşlemelerini atlar; `dep_ids` verilirse yalnız o
     mTLS bağımlılıkları önerilir (bkz. _propose_followers — domain devri uygulanınca).
 
-    TİP: farklı seviyeler (root/intermediate/leaf) arasında devir önerisi ÜRETİLMEZ."""
+    TİP: farklı seviyeler (root/intermediate/leaf) arasında değişiklik talebi ÜRETİLMEZ."""
     if new_cert.id == old_cert.id or not same_type(new_cert, old_cert):
         return []
     db.flush()  # autoflush=False: bekleyen kayıtlar aşağıdaki sorgularda görünsün
@@ -323,7 +323,7 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
     # Eski sürümlerden kalan farklı seviyeli (ör. root → leaf) devir onaylansa bile UYGULANMAZ.
     if prop.kind == "transfer" and not same_type(old_cert, new_cert):
         prop.status = "cancelled"
-        prop.note = "Geçersiz: sertifika tipleri farklı — devir uygulanmadı"
+        prop.note = "Geçersiz: sertifika tipleri farklı — değişiklik uygulanmadı"
         return
 
     # İş kuralı: domaine bağlı sertifika pasif olamaz — öneri beklerken yeni sertifika pasife
@@ -362,7 +362,7 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
                               ApplicationTrustedCert.cert_id == new_cert.id).first())
             if exists is None:
                 db.add(ApplicationTrustedCert(app_id=prop.app_id, cert_id=new_cert.id,
-                                              note="halef sertifika (devir önerisi onayı ile eklendi)"))
+                                              note="halef sertifika (değişiklik talebi onayı ile eklendi)"))
         prop.status = "applied"
         prop.applied_at = utcnow()
         db.flush()
@@ -444,7 +444,7 @@ def _propose_followers(db: Session, new_cert: Certificate, old_cert: Certificate
     """Domain kapsamlı bir devir UYGULANDIĞINDA eski cert'e bağlı mTLS bağımlılıkları ve trust
     store kayıtları geride kalmasın. Canlı doğrulama / zincir içe aktarma / attach çakışması
     yalnız o domaini önerir; o domainin server sertifikası fiilen değiştiğinde:
-      • bu domaini hedefleyen ve hâlâ eski cert'i izleyen mTLS bağımlılıkları → devir önerisi
+      • bu domaini hedefleyen ve hâlâ eski cert'i izleyen mTLS bağımlılıkları → değişiklik talebi
         (uygulama sahibi SY onayı),
       • eski cert'i trust store'unda tutan uygulamalar → trusted_add önerisi.
     Öneri yine ONAY bekler (mutasyon yok); idempotent ve red kalıcı (propose ile aynı kurallar).
@@ -464,7 +464,7 @@ def _propose_followers(db: Session, new_cert: Certificate, old_cert: Certificate
 
 
 def _maybe_deactivate_old(db: Session, old_cert: Certificate) -> None:
-    """Eski cert, kendisine ait tüm devir önerileri sonuçlandıysa (açık pending/approved
+    """Eski cert, kendisine ait tüm değişiklik talepleri sonuçlandıysa (açık pending/approved
     kalmadıysa) VE üstünde artık aktif eşleme/mTLS bağı kalmadıysa pasife alınır.
     Bir domain reddedilirse eski o domain için aktif kalır — kısmi devir doğru yönetilir."""
     db.flush()

@@ -376,7 +376,7 @@ def get_domain(domain_id: int, db: Session = Depends(get_db),
 
 def _ensure_unique_domain(db: Session, name: str | None, exclude_id: int | None = None) -> None:
     """Aynı domain ikinci kez kaydedilmez (büyük/küçük harf farkı dahil: `WWW.x` = `www.x`).
-    İkiz kayıt mailleri ve devir önerilerini iki domain arasında böler. Var olan ikizlere dokunmaz."""
+    İkiz kayıt mailleri ve değişiklik taleplerini iki domain arasında böler. Var olan ikizlere dokunmaz."""
     name = (name or "").strip()
     if not name:
         return
@@ -438,7 +438,7 @@ def update_domain(request: Request, domain_id: int, body: DomainUpdate,
     for key, value in changes.items():
         setattr(domain, key, value)
     if sy_changed:
-        # ONAY MODELİ senkron: bu domain'in HÂLÂ AÇIK (pending/approved) devir önerilerini yeni
+        # ONAY MODELİ senkron: bu domain'in HÂLÂ AÇIK (pending/approved) değişiklik taleplerini yeni
         # sahibe taşı. Terminal öneriler (applied/rejected/cancelled) tarih olarak korunur.
         db.query(TransferProposal).filter(
             TransferProposal.domain_id == domain.id,
@@ -460,7 +460,7 @@ def delete_domain(request: Request, domain_id: int, db: Session = Depends(get_db
     scope = domain_scope_team_ids(db, user)
     if scope is not None and domain.sy_team_id not in scope:
         raise HTTPException(status_code=404, detail="Domain bulunamadı")
-    # FK NO ACTION (MSSQL uyumu): domain silinmeden önce ona bağlı devir önerilerini elle temizle.
+    # FK NO ACTION (MSSQL uyumu): domain silinmeden önce ona bağlı değişiklik taleplerini elle temizle.
     # Domain silinince eşlemeleri ve app-bağımlılıkları DB-cascade ile düşer; ama bu bağımlılıklara
     # veya domaine referans veren öneriler önce silinmeli, yoksa MSSQL FK'yi bloklar.
     dep_ids = [d.id for d in db.query(AppDependency.id)
@@ -536,7 +536,7 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
         # yeni eşleme eklemek fiilen DEVİRDİR (detach+attach ya da pause+attach ile onay
         # atlanmasın — is_active FİLTRESİ YOK; pasife alınıp eklenmesi de devir sayılır).
         # Yalnız AYNI seviyedeki (root/intermediate/leaf) client sertifika çakışmadır — farklı
-        # seviyeler trust olarak birlikte durabilir; root → leaf gibi devir önerisi ÜRETİLMEZ.
+        # seviyeler trust olarak birlikte durabilir; root → leaf gibi değişiklik talebi ÜRETİLMEZ.
         cert_level = normalize_cert_type(cert.cert_type)
         collision = next(
             (m for m in (db.query(CertificateDomainMap)
@@ -552,15 +552,15 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
                 # RED KALICI: bu granülün devri daha önce REDDEDİLDİ — rutin attach yeniden açamaz.
                 db.rollback()
                 raise HTTPException(status_code=409, detail=(
-                    f"'{domain.domain}' için bu devir ({collision.certificate.name} → {cert.name}) "
+                    f"'{domain.domain}' için bu değişiklik ({collision.certificate.name} → {cert.name}) "
                     f"daha önce reddedildi ve kalıcıdır. Yeniden önermek gerekiyorsa sertifika "
-                    f"detayından 'Devir Öner' ile bilinçli olarak yeniden başlatın."))
+                    f"detayından 'Değişiklik Talebi Oluştur' ile bilinçli olarak yeniden başlatın."))
             db.commit()
             return JSONResponse(status_code=202, content={
                 "status": "proposal_created", "proposal_id": prop.id,
                 "message": f"'{domain.domain}' zaten aktif bir client sertifikası "
                            f"({collision.certificate.name}) taşıyor. Doğrudan değiştirilemez — "
-                           f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."})
+                           f"değişiklik talebi oluşturuldu, SY ekibi onayı bekleniyor."})
         db.add(CertificateDomainMap(certificate_id=cert.id, domain_id=domain.id, mapping_type="client"))
         log_action(db, user.username, "create", "certificate_domain_map", None,
                    {"domain": domain.domain, "cert": cert.name, "type": "client"}, request)
@@ -577,7 +577,7 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
     chain, complete = cert_parser.resolve_server_chain(cert)
     warning = None if complete else (
         "Zincir eksik: intermediate/root envanterde yok — yalnızca bulunabilen seviyeler "
-        "bağlandı. Devir takibi ve canlı doğrulama bu seviyeler için şimdilik sınırlı "
+        "bağlandı. Yenileme takibi ve canlı doğrulama bu seviyeler için şimdilik sınırlı "
         "kalacak; zincir ileride içe aktarılırsa otomatik tamamlanır.")
     passive_parents = [m.name for m in chain if not m.is_active]
     if passive_parents:
@@ -613,9 +613,9 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
                     # RED KALICI (leaf) — bugünkü davranışla aynı: sert 409.
                     db.rollback()
                     raise HTTPException(status_code=409, detail=(
-                        f"'{domain.domain}' için bu devir ({collision.certificate.name} → "
+                        f"'{domain.domain}' için bu değişiklik ({collision.certificate.name} → "
                         f"{member.name}) daha önce reddedildi ve kalıcıdır. Yeniden önermek "
-                        f"gerekiyorsa sertifika detayından 'Devir Öner' ile bilinçli olarak "
+                        f"gerekiyorsa sertifika detayından 'Değişiklik Talebi Oluştur' ile bilinçli olarak "
                         f"yeniden başlatın."))
                 continue  # intermediate/root reddi leaf attach'ini bloklamaz
             proposals.append((member_type, prop))
@@ -632,7 +632,7 @@ def attach_certificate(request: Request, domain_id: int, body: MappingCreate,
             "proposal_ids": [p.id for _, p in proposals],
             "message": (f"'{domain.domain}' zaten aktif server sertifikası taşıyan seviye(ler) "
                        f"var ({', '.join(t for t, _ in proposals)}). Doğrudan değiştirilemez — "
-                       f"devir önerisi oluşturuldu, SY ekibi onayı bekleniyor."
+                       f"değişiklik talebi oluşturuldu, SY ekibi onayı bekleniyor."
                        + (f" {warning}" if warning else ""))})
     # domaine bu server leaf'i bağlanmadan önce eklenmiş (izlediği sertifikası boş) mTLS
     # bağımlılıkları artık bu sertifikayı izlesin — uygulama sahibi süre uyarısı alsın

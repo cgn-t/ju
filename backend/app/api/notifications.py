@@ -74,7 +74,7 @@ def run_expired_notifications(request: Request, actor: str = Depends(_trigger_ac
 @router.post("/proposal-run")
 def run_proposal_notifications(request: Request, actor: str = Depends(_trigger_actor),
                                db: Session = Depends(get_db)):
-    """Onay kuyruğunda BEKLEYEN devir önerileri için ilgili SY ekiplerine (ekip başına tek mail)
+    """Onay kuyruğunda BEKLEYEN değişiklik talepleri için ilgili SY ekiplerine (ekip başına tek mail)
     hatırlatma gönderir. Dış otomasyon (X-API-Key) veya admin JWT tetikler; ayarlardaki
     auto_proposal_reminder_enabled bayrağından ETKİLENMEZ — çağrıldığında her zaman gönderir."""
     return _run_scan(notifier.send_pending_proposal_notifications, "proposal-run", request, actor, db)

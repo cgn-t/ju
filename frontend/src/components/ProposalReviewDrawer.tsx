@@ -271,7 +271,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   const isAdd = proposal?.kind === 'server_add'
   const title = proposal?.kind === 'trusted_add' ? 'Trust Store İncelemesi'
     : isAdd ? 'Eşleme Ekleme İncelemesi'
-    : proposal?.kind === 'server_remove' ? 'Eşleme Kaldırma İncelemesi' : 'Devir İncelemesi'
+    : proposal?.kind === 'server_remove' ? 'Eşleme Kaldırma İncelemesi' : 'Değişiklik Talebi İncelemesi'
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}
@@ -353,7 +353,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                   <Box sx={{ display: 'flex', alignItems: 'center', color: 'info.main' }}>
                     <ArrowRightAltIcon sx={{ fontSize: 34 }} />
                   </Box>
-                  <CertCard cert={newCert} tone="new" kicker="YENİ · DEVREDİLECEK" />
+                  <CertCard cert={newCert} tone="new" kicker="YENİ · BAĞLANACAK" />
                 </Box>
 
                 {/* Kapsam — bu devrin domainleri ve ayrı SY onayları */}
@@ -368,7 +368,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                   </Box>
                   {multiDomain && (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
-                      Bu sertifika birden fazla domaine bağlı. Devir, <strong>her domain için o domainin sahibi SY
+                      Bu sertifika birden fazla domaine bağlı. Değişiklik, <strong>her domain için o domainin sahibi SY
                       ekibince ayrı ayrı</strong> onaylanır (admin hepsini onaylayabilir). Aşağıdaki her satır bağımsız
                       bir karardır; yalnızca <strong>inceleniyor</strong> etiketli satırı şu an karara bağlıyorsunuz.
                     </Typography>
@@ -407,7 +407,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                     <Evidence ok={proposal.live_seen}
                               icon={<TravelExploreIcon fontSize="small" />}
                               title={proposal.live_seen ? 'Canlıda görüldü' : 'Henüz canlıda görülmedi'}
-                              detail={proposal.live_seen ? 'Yeni sertifika sunucuda tespit edildi' : 'Devir öncesi canlı doğrulama önerilir'} />
+                              detail={proposal.live_seen ? 'Yeni sertifika sunucuda tespit edildi' : 'Onay öncesi canlı doğrulama önerilir'} />
                     <Evidence ok icon={<RuleIcon fontSize="small" />}
                               title={proposal.signal === 'ski' ? 'Sinyal: aynı anahtar' : proposal.signal === 'subject' ? 'Sinyal: aynı CN + CA' : viaLabel(proposal.via, proposal.created_by)}
                               detail={`${proposal.signal ? `Kaynak: ${viaLabel(proposal.via, proposal.created_by)} · ` : ''}Öneren: ${proposerLine(proposal.created_by, proposal.created_at, proposal.created_by_name)}`} />
@@ -444,7 +444,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                     {uniqueFields.map((f) => <CompareRow key={f.label} f={f} />)}
                   </Stack>
                   <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1 }}>
-                    <strong>Kimlik</strong> alanları (Subject, CA, SKI) eşleşmeli — devrin aynı sertifikanın yenilenmiş
+                    <strong>Kimlik</strong> alanları (Subject, CA, SKI) eşleşmeli — yeni sertifikanın eskisinin yenilenmiş
                     hali olduğunu gösterir. <strong>Benzersiz</strong> alanlar (parmak izi, serial) ise değişmeli —
                     gerçekten yeni bir sertifika olduğunu kanıtlar.
                   </Typography>
@@ -463,7 +463,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                 <Typography variant="caption" color="text.secondary"
                             sx={{ flex: '1 1 220px', minWidth: 0 }}>
                   {proposal.kind === 'trusted_add'
-                    ? 'Onaylandığında yeni sertifika uygulamanın trust store\'una eklenir; eski trusted sertifika KALIR (devir/pasife alma yok). Reddederseniz hiçbir değişiklik olmaz.'
+                    ? 'Onaylandığında yeni sertifika uygulamanın trust store\'una eklenir; eski trusted sertifika KALIR (eski kaldırılmaz, pasife alınmaz). Reddederseniz hiçbir değişiklik olmaz.'
                     : isAdd
                       ? 'Onaylandığında sertifika bu domaine server olarak bağlanır. Reddederseniz hiçbir değişiklik olmaz.'
                       : proposal.kind === 'server_remove'

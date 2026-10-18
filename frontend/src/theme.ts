@@ -8,7 +8,7 @@ const FONT_STACK = '"IBM Plex Sans","Segoe UI","Roboto","Helvetica","Arial",sans
 // Monospace: seri no, fingerprint, PEM gibi alanlar
 export const MONO_FONT = '"JetBrains Mono","SFMono-Regular","Menlo","Consolas",monospace'
 
-// Devir/import sonrası "devir önerisi oluşturuldu" bildirimi — normal bilgiden uzun ama
+// Devir/import sonrası "değişiklik talebi oluşturuldu" bildirimi — normal bilgiden uzun ama
 // eski 8000ms'den kısaltıldı (kullanıcı geri bildirimi: ekranda çok uzun kalıyordu).
 export const TRANSFER_TOAST_MS = 3000
 

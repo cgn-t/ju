@@ -34,7 +34,7 @@ const NAV: NavEntry[] = [
     { to: '/discovery', label: 'Keşif' },
   ] },
   { label: 'İşlemler', items: [
-    { to: '/proposals', label: 'Devir Önerileri' },
+    { to: '/proposals', label: 'Değişiklik Talepleri' },
     { to: '/deployments', label: 'Dağıtım' },
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
   ] },
