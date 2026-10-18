@@ -1,3 +1,4 @@
+import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AddIcon from '@mui/icons-material/Add'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -25,12 +26,14 @@ import type { Certificate } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificateDetailDrawer from '../components/CertificateDetailDrawer'
 import CertificateImportDialog from '../components/CertificateImportDialog'
+import ChainCheckDialog from '../components/ChainCheckDialog'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import SkiText from '../components/SkiText'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, nodeColors, sourceLabel } from '../theme'
+import { buildTree, type TreeRow } from '../utils/certTree'
 import { exportSheet } from '../utils/exportSheet'
 import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
@@ -93,29 +96,6 @@ const stickyCellSx = (right: number) => ({
   '.MuiTableRow-hover:hover &': { bgcolor: 'action.hover' },
 })
 
-interface TreeRow {
-  cert: Certificate
-  depth: number
-}
-
-function buildTree(certs: Certificate[]): TreeRow[] {
-  const byParent = new Map<number | null, Certificate[]>()
-  const ids = new Set(certs.map((c) => c.id))
-  for (const cert of certs) {
-    const key = cert.parent_id && ids.has(cert.parent_id) ? cert.parent_id : null
-    byParent.set(key, [...(byParent.get(key) ?? []), cert])
-  }
-  const rows: TreeRow[] = []
-  const walk = (parentId: number | null, depth: number) => {
-    for (const cert of byParent.get(parentId) ?? []) {
-      rows.push({ cert, depth })
-      walk(cert.id, depth + 1)
-    }
-  }
-  walk(null, 0)
-  return rows
-}
-
 export default function Certificates() {
   useDocumentTitle('SSL Sertifikaları')
   const { canEdit, isAdmin } = useAuth()
@@ -127,6 +107,7 @@ export default function Certificates() {
   const [view, setView] = useUrlState<'table' | 'cards'>('view', 'table', ['table', 'cards'])
   const [search, setSearch] = useUrlState<string>('q', '')
   const [importOpen, setImportOpen] = useState(false)
+  const [chainCheckOpen, setChainCheckOpen] = useState(false)
   const [detailId, setDetailId] = useUrlId('cert')
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
   const [deactivateTarget, setDeactivateTarget] = useState<Certificate | null>(null)
@@ -477,6 +458,11 @@ export default function Certificates() {
                 Vault'tan Senkronize Et
               </Button>
             )}
+            {isAdmin && (
+              <Button variant="outlined" startIcon={<AccountTreeIcon />} onClick={() => setChainCheckOpen(true)}>
+                Zincir Kontrolü
+              </Button>
+            )}
             <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
               <ToggleButton value="table"><Tooltip title="Tablo görünümü"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
               <ToggleButton value="cards"><Tooltip title="Kart görünümü"><GridViewIcon fontSize="small" /></Tooltip></ToggleButton>
@@ -626,6 +612,7 @@ export default function Certificates() {
       <ColumnFilterMenu cf={cf} facetRows={certs ?? []} />
 
       <CertificateImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <ChainCheckDialog open={chainCheckOpen} onClose={() => setChainCheckOpen(false)} />
       <CertificateDetailDrawer certId={detailId} onClose={() => setDetailId(null)}
                                onSelectCert={(id) => setDetailId(id)} />
 

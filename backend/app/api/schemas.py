@@ -214,6 +214,15 @@ class CertificateChainOut(BaseModel):
     children: list["CertificateOut"] = []
 
 
+class ChainCheckFinding(BaseModel):
+    """Zincir Kontrolü bulgusu: kayıttaki değer ile PEM'den hesaplanan arasındaki fark."""
+    certificate_id: int
+    name: str | None = None
+    kind: str          # type | parent | subject_key_identifier | authority_key_identifier
+    current: str
+    expected: str
+
+
 class VaultSyncResult(BaseModel):
     """Vault KV'den senkron sonucu."""
     created: int = 0

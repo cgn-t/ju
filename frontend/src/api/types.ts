@@ -132,6 +132,15 @@ export interface CertificateChain {
   children: Certificate[]
 }
 
+/** Zincir Kontrolü bulgusu: kayıttaki değer ile PEM'den hesaplanan arasındaki fark. */
+export interface ChainCheckFinding {
+  certificate_id: number
+  name: string | null
+  kind: 'type' | 'parent' | 'subject_key_identifier' | 'authority_key_identifier'
+  current: string
+  expected: string
+}
+
 export interface ImportPreview {
   name: string
   serial_number: string

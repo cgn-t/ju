@@ -373,15 +373,22 @@ def find_ca_by_ski(db: Session, ski: str | None, exclude_id: int | None = None) 
 
     Aynı anahtarla yenilenmiş CA'lar aynı SKI'yi taşıdığından birden fazla aday
     olabilir; aktif ve bitişi en geç olan tercih edilir (id ile kararlı tie-break).
+    Aynı anahtarın hem kendinden imzalı kökü hem çapraz imzalı kopyası varsa (ör. yeni kök +
+    eski kökün imzaladığı kopyası) aktif KÖK seçilir: kısa yol odur; kopya seçilirse zincir
+    eski köke çıkar ve domaine erken bitecek eski kök bağlanırdı.
     """
     if not ski:
         return None
     q = db.query(Certificate).filter(Certificate.subject_key_identifier == ski)
     if exclude_id is not None:
         q = q.filter(Certificate.id != exclude_id)
-    return q.order_by(Certificate.is_active.desc(),
-                      Certificate.valid_to.desc(),
-                      Certificate.id.desc()).first()
+    candidates = q.order_by(Certificate.is_active.desc(),
+                            Certificate.valid_to.desc(),
+                            Certificate.id.desc()).all()
+    if not candidates:
+        return None
+    return min(candidates, key=lambda c: (not c.is_active,
+                                          normalize_cert_type(c.cert_type) != "root"))
 
 
 def _issued_by(child_pem: str | None, parent_pem: str | None) -> bool:
@@ -423,20 +430,22 @@ def _promote_to_root(row: Certificate) -> None:
         row.cert_type = "root"
 
 
-def resolve_parent(db: Session, parsed: ParsedCertificate) -> int | None:
+def resolve_parent(db: Session, parsed: ParsedCertificate | Certificate,
+                   exclude_id: int | None = None) -> int | None:
     """AKI → mevcut kayıtların SKI'siyle eşleşiyorsa parent id döner. AKI yoksa issuer DN'i
-    ve imza doğrulamasıyla aranır."""
-    if parsed.cert_type == "root" or is_self_signed(parsed.issuer, parsed.subject,
-                                                     parsed.authority_key_identifier,
-                                                     parsed.subject_key_identifier):
+    ve imza doğrulamasıyla aranır. Kayıtlı bir Certificate satırı da verilebilir (aynı alanlar);
+    `exclude_id` o kaydı (ör. silinmekte olan üst sertifikayı) aday dışı bırakır."""
+    if normalize_cert_type(parsed.cert_type) == "root" or is_self_signed(
+            parsed.issuer, parsed.subject, parsed.authority_key_identifier,
+            parsed.subject_key_identifier):
         # Kendinden imzalı sertifikanın üstü yoktur. (Aynı anahtarla yenilenmiş kendinden imzalı
         # sunucu sertifikaları aynı SKI'yi taşır; eskiden birbirinin 'üstü' olarak bağlanıyordu.)
         return None
     if parsed.authority_key_identifier:
-        parent = find_ca_by_ski(db, parsed.authority_key_identifier)
+        parent = find_ca_by_ski(db, parsed.authority_key_identifier, exclude_id=exclude_id)
     else:
-        parent = find_ca_by_issuer(db, parsed.issuer, parsed.pem_certificate)
-    if parent is None:
+        parent = find_ca_by_issuer(db, parsed.issuer, parsed.pem_certificate, exclude_id=exclude_id)
+    if parent is None or (isinstance(parsed, Certificate) and parent.id == parsed.id):
         return None
     _promote_to_root(parent)
     return parent.id
