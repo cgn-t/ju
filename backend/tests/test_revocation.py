@@ -162,7 +162,15 @@ def test_revocation_endpoint_persists_and_auth(client, auth_headers, monkeypatch
     assert client.post(f"/api/certificates/{cid}/revocation-check", headers=vh).status_code == 403
     assert client.post(f"/api/certificates/{cid}/revocation-check", headers=eh).status_code == 200
     assert client.post("/api/certificates/revocation-run", headers=eh).status_code == 403
-    assert client.post("/api/certificates/revocation-run", headers=auth_headers).status_code == 200
+    # ayar kapalıyken toplu denetim "başlatıldı" demez, açıkça reddeder
+    r = client.post("/api/certificates/revocation-run", headers=auth_headers)
+    assert r.status_code == 409 and "kapalı" in r.json()["detail"]
+    r = client.put("/api/settings/revocation", headers=auth_headers, json={"enabled": True})
+    assert r.status_code == 200
+    try:
+        assert client.post("/api/certificates/revocation-run", headers=auth_headers).status_code == 200
+    finally:
+        client.put("/api/settings/revocation", headers=auth_headers, json={"enabled": False})
 
 
 def test_revocation_job_skips_when_disabled(client, monkeypatch):

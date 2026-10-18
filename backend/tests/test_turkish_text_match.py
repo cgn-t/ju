@@ -79,6 +79,35 @@ def test_excel_import_skips_case_variants_and_in_file_duplicates(client, auth_he
     assert r.json()["created"] == 1 and r.json()["skipped"] == 2
 
 
+
+def test_excel_import_unknown_team_is_reported_not_created(client, auth_headers):
+    client.post("/api/teams", headers=auth_headers,
+                json={"name": "Ödeme Sistemleri Excel", "type": "SY", "email": "odeme@firma.com.tr"})
+    before = {t["name"] for t in client.get("/api/teams", headers=auth_headers).json()}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["domain", "sy", "ug"])
+    ws.append(["excel-tr-1.firma.com.tr", "ÖDEME SİSTEMLERİ EXCEL", ""])   # Türkçe büyük harf → eşleşir
+    ws.append(["excel-tr-2.firma.com.tr", "ödeme sistemleri excel ", ""])  # küçük harf + boşluk → eşleşir
+    ws.append(["excel-tr-3.firma.com.tr", "ODEME SISTEMLERI EXCEL", ""])   # Türkçe harfsiz → bulunamaz
+    ws.append(["excel-tr-4.firma.com.tr", "", "Olmayan UG Ekibi"])         # bilinmeyen UG → bulunamaz
+    buf = io.BytesIO()
+    wb.save(buf)
+    r = client.post("/api/domains/import-excel", headers=auth_headers,
+                    files={"file": ("d.xlsx", buf.getvalue(),
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["created"] == 2
+    assert len(body["errors"]) == 2
+    assert "ODEME SISTEMLERI EXCEL" in body["errors"][0] and "bulunamadı" in body["errors"][0]
+    assert "Olmayan UG Ekibi" in body["errors"][1]
+    after = {t["name"] for t in client.get("/api/teams", headers=auth_headers).json()}
+    assert after == before  # sessizce yeni takım açılmadı
+    names = {d["domain"] for d in client.get("/api/domains", headers=auth_headers).json()}
+    assert {"excel-tr-1.firma.com.tr", "excel-tr-2.firma.com.tr"} <= names
+    assert not {"excel-tr-3.firma.com.tr", "excel-tr-4.firma.com.tr"} & names
+
 # ---- Arama ----
 def test_search_ignores_case_of_ascii_i(client, auth_headers):
     client.post("/api/domains", headers=auth_headers, json={"domain": "iletisim-arama.firma.com.tr"})
