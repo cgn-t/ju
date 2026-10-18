@@ -169,6 +169,20 @@ def run_check(db: Session, cert: Certificate, client: httpx.Client, config: dict
     return status, detail
 
 
+def notify_newly_revoked(db: Session, certs: list[Certificate]) -> dict | None:
+    """Durumu 'revoked'a YENİ geçen sertifikalar için paydaşlara mail (bkz.
+    notifier.send_revoked_notifications). Mail hatası denetimi bozmaz — loglanır."""
+    if not certs:
+        return None
+    from app.services import notifier
+    try:
+        return notifier.send_revoked_notifications(db, certs)
+    except Exception:
+        db.rollback()
+        logger.exception("İptal maili gönderilemedi")
+        return None
+
+
 @audited_job("İptal (OCSP/CRL) denetimi")
 def check_all_certificates() -> dict:
     """Zamanlanmış gece işi. Yalnız revocation ETKİNSE çalışır. Aktif leaf'leri sıralı denetler
@@ -186,18 +200,26 @@ def check_all_certificates() -> dict:
             q = q.filter(Certificate.is_active == True)  # noqa: E712
         certs = q.all()
         revoked = 0
+        newly_revoked: list[Certificate] = []
         with _client(config) as client:
             for cert in certs:
                 try:
+                    previous = cert.revocation_status
                     status, _ = run_check(db, cert, client, config)
                     if status == "revoked":
                         revoked += 1
+                        if previous != "revoked":
+                            newly_revoked.append(cert)
                     db.commit()
                 except Exception:
                     db.rollback()
                     logger.exception("Revocation denetim hatası (cert #%s)", cert.id)
         logger.info("Revocation denetimi bitti: %s leaf, %s revoked", len(certs), revoked)
-        return {"status": "ok", "checked": len(certs), "revoked": revoked}
+        mail = notify_newly_revoked(db, newly_revoked)
+        result = {"status": "ok", "checked": len(certs), "revoked": revoked}
+        if mail is not None:
+            result["mails_sent"] = mail.get("sent", 0)
+        return result
     except Exception as exc:
         db.rollback()
         logger.exception("Zamanlanmış revocation denetimi hatası")

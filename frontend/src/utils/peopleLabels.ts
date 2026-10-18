@@ -1,5 +1,6 @@
 /** Kullanıcı rolü ve ekip tipi etiketleri — Kullanıcılar, Ekipler ve Ekip Üyelikleri ortak kullanır. */
 import type { AppUser } from '../api/types'
+import { includesFolded } from './textMatch'
 
 export type ChipColor = 'default' | 'error' | 'primary' | 'warning' | 'info' | 'success'
 
@@ -40,11 +41,11 @@ export function initials(fullName: string | null | undefined, username: string):
   return username.slice(0, 2).toLocaleUpperCase('tr-TR')
 }
 
-/** Türkçe duyarlı "içerir" araması (İ/ı doğru eşleşir). */
+/** Türkçe duyarlı "içerir" araması (İ/ı ve ASCII yazım doğru eşleşir: "ISMAIL" → "İsmail"). */
 export function includesTr(haystack: (string | null | undefined)[], needle: string): boolean {
-  const n = needle.trim().toLocaleLowerCase('tr-TR')
+  const n = needle.trim()
   if (!n) return true
-  return haystack.some((h) => (h ?? '').toLocaleLowerCase('tr-TR').includes(n))
+  return haystack.some((h) => includesFolded(h, n))
 }
 
 /** Son giriş aralığı (filtre değeri). */

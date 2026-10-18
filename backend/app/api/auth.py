@@ -11,15 +11,30 @@ from app.core.security import (PAGE_SETTING_KEY, create_access_token, effective_
                                 verify_password)
 from app.db.models import Team, User, UserTeam
 from app.db.session import get_db
+from app.core.textmatch import ci_equals
 from app.services import ldap_auth
 from app.services.audit import log_action, log_standalone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _find_user(db: Session, username: str) -> User | None:
+    """Kullanıcıyı adına göre bulur; önce birebir, yoksa büyük/küçük harf duyarsız. AD girişi harf
+    duyarsızdır: aynı kişi `ISMAIL.CELIK` yazınca (Turkish_CI_AS'de I≠i) yeni, rolsüz bir kullanıcı
+    açılıp boş ekran görmemeli. Geçmişten kalan harf-ikizi kayıtlar varsa rol atanmış ve aktif olan,
+    sonra en eski kayıt seçilir."""
+    exact = db.query(User).filter(User.username == username).first()
+    if exact is not None:
+        return exact
+    matches = db.query(User).filter(ci_equals(User.username, username)).order_by(User.id).all()
+    if not matches:
+        return None
+    return sorted(matches, key=lambda u: (not u.is_active, (u.role or "none") == "none", u.id))[0]
+
+
 def _login(db: Session, username: str, password: str, request: Request | None) -> TokenResponse:
     username = username.strip()
-    user = db.query(User).filter(User.username == username).first()
+    user = _find_user(db, username)
 
     authenticated = False
     # Yerel (bcrypt-hash'li) şifresi olan kullanıcı YALNIZ yerelden doğrulanır; LDAP'a düşmez

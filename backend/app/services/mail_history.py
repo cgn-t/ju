@@ -18,10 +18,12 @@ from datetime import datetime
 from sqlalchemy import case, exists, func, literal, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.textmatch import ci_like
 from app.db.models import Certificate, Domain, MailQueue, Notification
 
 # Tür → konu kalıpları (şablondaki yazımla birebir; eski ASCII şablonlar da dahil)
 TYPE_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("revoked", ("İPTAL EDİLMİŞ",)),
     ("expired", ("SÜRESİ GEÇMİŞ",)),
     ("expiry", ("Sertifika süresi doluyor", "Sertifika suresi doluyor",
                 "Domain bitiş tarihi yaklaşıyor", "Domain bitis tarihi yaklasiyor")),
@@ -86,15 +88,15 @@ def _notif_query(db: Session, f: _Filters, *, ignore_status=False, ignore_type=F
         q = q.filter(mtype == f.mail_type)
     if f.q:
         like = f"%{f.q}%"
-        q = q.filter(or_(Notification.recipient.ilike(like), Notification.subject.ilike(like),
-                         Certificate.name.ilike(like), Domain.domain.ilike(like)))
+        q = q.filter(or_(ci_like(Notification.recipient, like), ci_like(Notification.subject, like),
+                         ci_like(Certificate.name, like), ci_like(Domain.domain, like)))
     if f.recipient:
-        q = q.filter(Notification.recipient.ilike(f"%{f.recipient}%"))
+        q = q.filter(ci_like(Notification.recipient, f"%{f.recipient}%"))
     if f.subject:
-        q = q.filter(Notification.subject.ilike(f"%{f.subject}%"))
+        q = q.filter(ci_like(Notification.subject, f"%{f.subject}%"))
     if f.record:
         like = f"%{f.record}%"
-        q = q.filter(or_(Certificate.name.ilike(like), Domain.domain.ilike(like)))
+        q = q.filter(or_(ci_like(Certificate.name, like), ci_like(Domain.domain, like)))
     if f.lo is not None:
         q = q.filter(ts >= f.lo)
     if f.hi is not None:
@@ -121,15 +123,15 @@ def _queue_query(db: Session, f: _Filters, *, ignore_status=False, ignore_type=F
         q = q.filter(mtype == f.mail_type)
     if f.q:
         like = f"%{f.q}%"
-        q = q.filter(or_(MailQueue.to_addresses.ilike(like), MailQueue.subject.ilike(like),
-                         Certificate.name.ilike(like), Domain.domain.ilike(like)))
+        q = q.filter(or_(ci_like(MailQueue.to_addresses, like), ci_like(MailQueue.subject, like),
+                         ci_like(Certificate.name, like), ci_like(Domain.domain, like)))
     if f.recipient:
-        q = q.filter(MailQueue.to_addresses.ilike(f"%{f.recipient}%"))
+        q = q.filter(ci_like(MailQueue.to_addresses, f"%{f.recipient}%"))
     if f.subject:
-        q = q.filter(MailQueue.subject.ilike(f"%{f.subject}%"))
+        q = q.filter(ci_like(MailQueue.subject, f"%{f.subject}%"))
     if f.record:
         like = f"%{f.record}%"
-        q = q.filter(or_(Certificate.name.ilike(like), Domain.domain.ilike(like)))
+        q = q.filter(or_(ci_like(Certificate.name, like), ci_like(Domain.domain, like)))
     if f.lo is not None:
         q = q.filter(ts >= f.lo)
     if f.hi is not None:

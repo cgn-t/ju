@@ -320,3 +320,27 @@ def test_absolute_datetime_range_is_istanbul_local(client, auth_headers):
 def test_audit_endpoints_require_admin(client):
     for path in ("/api/audit", "/api/audit/facets", "/api/audit/meta", "/api/audit/export", "/api/audit/1"):
         assert client.get(path).status_code == 401
+
+
+def test_audit_action_names_fit_prod_column():
+    """Prod MSSQL AuditLog.Action NVARCHAR(20): daha uzun eylem adı INSERT'te hata verir ve işlemi
+    500'e düşürür (SQLite uzunluğu zorlamadığından testlerde görünmez). Koddaki tüm sabit eylem
+    adları kolona sığmalı."""
+    import ast
+    from pathlib import Path
+
+    limit = AuditLog.__table__.c.Action.type.length
+    app_dir = Path(__file__).resolve().parents[1] / "app"
+    too_long = []
+    for path in app_dir.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            idx = {"log_action": 2, "log_standalone": 1}.get(name)
+            if idx is None or len(node.args) <= idx:
+                continue
+            arg = node.args[idx]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and len(arg.value) > limit:
+                too_long.append(f"{path.name}:{node.lineno} {arg.value!r}")
+    assert not too_long, f"AuditLog.Action ({limit}) sınırını aşan eylem adları: {too_long}"

@@ -1,4 +1,5 @@
 from datetime import datetime
+from app.core.textmatch import ci_like
 from app.core.timeutil import utcnow
 from uuid import uuid4
 
@@ -19,7 +20,8 @@ from app.api.schemas import (
 from app.core.certtype import cert_type_filter
 from app.core.security import require_role, user_team_ids
 from app.db.models import (
-    AppDependency, Certificate, CertificateDomainMap, TransferProposal, User,
+    AppDependency, Application, ApplicationTrustedCert, Certificate, CertificateDomainMap, Domain,
+    Team, TransferProposal, User,
 )
 from app.db.session import get_db
 from app.services import cert_parser, notifier, renewal, revocation
@@ -58,9 +60,9 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
     )
     if search:
         like = f"%{search}%"
-        q = q.filter(Certificate.name.ilike(like) | Certificate.serial_number.ilike(like)
-                     | Certificate.issuer.ilike(like) | Certificate.subject.ilike(like)
-                     | Certificate.subject_key_identifier.ilike(like))
+        q = q.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                     | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
+                     | ci_like(Certificate.subject_key_identifier, like))
     if cert_type:
         # normalize: DB ham ("Intermediate") tutabilir; filtre kanonik eşleşme yapar (bkz. core/certtype)
         q = q.filter(cert_type_filter(Certificate.cert_type, cert_type))
@@ -488,12 +490,49 @@ def _ensure_deactivatable(db: Session, cert: Certificate) -> None:
                                    f"halef sertifikaya devredin.")
 
 
+def _cert_owner_team_ids(db: Session, cert: Certificate) -> set[int]:
+    """Sertifikanın SAHİP SY ekipleri: Oluşturan Ekip + bağlı olduğu domainlerin, mTLS
+    bağımlılığında kullanan ve trust store'una ekleyen uygulamaların SY ekipleri. Boş küme →
+    sahipsiz/ortak kayıt (ör. hiçbir yere bağlı olmayan kök/ara sertifika)."""
+    owners: set[int] = set()
+    if cert.creator:
+        team = db.query(Team).filter(Team.name == cert.creator, Team.type == "SY").first()
+        if team is not None:
+            owners.add(team.id)
+    owners.update(r[0] for r in db.query(Domain.sy_team_id)
+                  .join(CertificateDomainMap, CertificateDomainMap.domain_id == Domain.id)
+                  .filter(CertificateDomainMap.certificate_id == cert.id,
+                          Domain.sy_team_id.isnot(None)).all())
+    owners.update(r[0] for r in db.query(Application.sy_team_id)
+                  .join(AppDependency, AppDependency.app_id == Application.id)
+                  .filter(AppDependency.client_cert_id == cert.id,
+                          Application.sy_team_id.isnot(None)).all())
+    owners.update(r[0] for r in db.query(Application.sy_team_id)
+                  .join(ApplicationTrustedCert, ApplicationTrustedCert.app_id == Application.id)
+                  .filter(ApplicationTrustedCert.cert_id == cert.id,
+                          Application.sy_team_id.isnot(None)).all())
+    return owners
+
+
+def _ensure_can_edit_cert(db: Session, user: User, cert: Certificate) -> None:
+    """Editör yalnız KENDİ ekibine ait (ya da sahipsiz/ortak) sertifikayı düzenler; başka
+    ekibin sertifikasının adı/türü/notu o ekibin uyarılarını etkiler. Admin her zaman."""
+    if user.role == "admin":
+        return
+    owners = _cert_owner_team_ids(db, cert)
+    if owners and not owners & user_team_ids(db, user):
+        raise HTTPException(status_code=403,
+                            detail="Bu sertifika başka bir ekibe ait; yalnız o ekibin editörü "
+                                   "veya admin düzenleyebilir")
+
+
 @router.put("/{cert_id}", response_model=CertificateOut)
 def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                        db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     cert = db.get(Certificate, cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
+    _ensure_can_edit_cert(db, user, cert)
     changes = body.model_dump(exclude_unset=True)
     # Aktif/pasif durumu (is_active) YALNIZ admin tarafından değiştirilir. Aksi halde SY editörü
     # deactivate ucunu baypas edip PUT is_active=false ile sertifikayı pasife alabilirdi.
@@ -548,6 +587,7 @@ def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail="Bu kaydın PEM'i yok, iptal durumu denetlenemez")
     config = revocation.get_config(db)
     client = revocation._client(config)
+    previous = cert.revocation_status
     try:
         status, _ = revocation.run_check(db, cert, client, config)
     finally:
@@ -555,6 +595,8 @@ def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_d
     log_action(db, user.username, "revocation_check", "certificates", cert.id,
                {"name": cert.name, "status": status}, request)
     db.commit()
+    if status == "revoked" and previous != "revoked":
+        revocation.notify_newly_revoked(db, [cert])
     return {"revocation_status": cert.revocation_status,
             "revocation_checked_at": cert.revocation_checked_at,
             "revocation_detail": cert.revocation_detail}

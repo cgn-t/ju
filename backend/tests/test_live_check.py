@@ -169,7 +169,7 @@ def test_live_check_no_mapping(client, auth_headers, tls_server):
 
 
 def test_live_check_unreachable(client, auth_headers):
-    domain_id = _make_domain(client, auth_headers, "127.0.0.1:1")  # kapalı port
+    domain_id = _make_domain(client, auth_headers, "127.0.0.1:9")  # kapalı port (127.0.0.1:1 test_audit kullanıyor)
     r = client.post(f"/api/domains/{domain_id}/live-check", headers=auth_headers)
     assert r.json()["live_check_status"] == "unreachable"
 

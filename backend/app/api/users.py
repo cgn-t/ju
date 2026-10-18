@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import Unicode, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.textmatch import ci_like
 from app.api.schemas import (
     AuditListOut,
     AuditOut,
@@ -318,8 +319,8 @@ _DETAILS_TEXT = cast(AuditLog.details, Unicode())
 
 def _user_like(like: str):
     """Audit kullanıcı araması: kullanıcı adı ya da users.full_name eşleşmesi."""
-    by_name = select(User.username).where(User.full_name.ilike(like))
-    return or_(AuditLog.username.ilike(like), AuditLog.username.in_(by_name))
+    by_name = select(User.username).where(ci_like(User.full_name, like))
+    return or_(ci_like(AuditLog.username, like), AuditLog.username.in_(by_name))
 
 
 def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | None = None,
@@ -357,14 +358,14 @@ def _audit_query(db: Session, *, date_from: date | None = None, date_to: date | 
         qry = qry.filter(AuditLog.record_id == record_id)
     if q:
         like = f"%{q}%"
-        qry = qry.filter(or_(_DETAILS_TEXT.ilike(like), AuditLog.record_id.ilike(like),
+        qry = qry.filter(or_(ci_like(_DETAILS_TEXT, like), ci_like(AuditLog.record_id, like),
                              _user_like(like)))
     if ip:
-        qry = qry.filter(AuditLog.ip_address.ilike(f"%{ip}%"))
+        qry = qry.filter(ci_like(AuditLog.ip_address, f"%{ip}%"))
     if record:  # "Kayıt" kolonu: kimlik birebir VEYA ad detayda geçiyor (ör. web.aa.com)
-        qry = qry.filter(or_(AuditLog.record_id == record, _DETAILS_TEXT.ilike(f"%{record}%")))
+        qry = qry.filter(or_(AuditLog.record_id == record, ci_like(_DETAILS_TEXT, f"%{record}%")))
     if details:  # "Değişiklik" kolonu: yalnız detay metni
-        qry = qry.filter(_DETAILS_TEXT.ilike(f"%{details}%"))
+        qry = qry.filter(ci_like(_DETAILS_TEXT, f"%{details}%"))
     return qry
 
 

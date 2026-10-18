@@ -2,7 +2,7 @@
 
 Settings > Vault sekmesindeki alanlar (adres, auth yöntemi, token/approle,
 pki mount) saklanıyor. JUMBO'nun Vault ile ilişkisi READ-ONLY'dir:
-  - health(): bağlantı + PKI mount kontrolü ("Bağlantıyı Test Et")
+  - health(): bağlantı + token + KV kasası kontrolü ("Bağlantıyı Test Et"; PKI isteğe bağlı)
   - fetch(): PKI CA zincirini (root/intermediate) envantere almak için okur
 
 Sertifika ÜRETİMİ (issue) ve YENİLEME (renew) JUMBO'da YAPILMAZ — özel anahtar
@@ -38,22 +38,36 @@ class VaultProvider(CertificateProvider):
         return bool(self.config.get("enabled") and self.config.get("address"))
 
     def health(self) -> tuple[bool, str]:
-        """Bağlantı testi: sys/health + PKI mount'ın CA'sı okunabiliyor mu?"""
+        """Bağlantı testi ("Bağlantıyı Test Et"): sys/health → token geçerli mi → sertifikaların
+        okunduğu KV kasası erişilebilir mi. PKI mount İSTEĞE BAĞLIDIR (senkron KV'den okur);
+        yoksa test başarısız sayılmaz, yalnız mesajda belirtilir."""
         if not self.is_available():
             return False, "Vault entegrasyonu etkin değil (adres veya 'enabled' eksik)"
         address = self._address()
-        mount = self.config.get("pki_mount") or "pki"
+        pki = self.config.get("pki_mount") or "pki"
+        kv = self._kv_mount()
+        prefix = (self.config.get("kv_prefix") or "certs").strip("/")
         try:
             with httpx.Client(timeout=5.0) as client:
                 h = client.get(f"{address}/v1/sys/health", headers=self._headers())
                 if h.status_code not in _HEALTHY_STATUSES:
                     return False, f"Vault erişilemedi (sys/health HTTP {h.status_code})"
-                ca = client.get(f"{address}/v1/{mount}/ca/pem", headers=self._headers())
-                if ca.status_code != 200 or "BEGIN CERTIFICATE" not in ca.text:
-                    return False, f"Vault erişilebilir ama '{mount}' PKI mount bulunamadı (HTTP {ca.status_code})"
+                tok = client.get(f"{address}/v1/auth/token/lookup-self", headers=self._headers())
+                if tok.status_code in (401, 403):
+                    return False, "Vault erişilebilir ama token geçersiz veya süresi dolmuş"
+                lst = client.request("LIST", f"{address}/v1/{kv}/metadata/{prefix}",
+                                     headers=self._headers())
+                if lst.status_code == 403:
+                    return False, f"Token geçerli ama '{kv}/{prefix}' KV yolunu okuma yetkisi yok"
+                if lst.status_code not in (200, 404):
+                    return False, f"'{kv}' KV kasası okunamadı (HTTP {lst.status_code})"
+                count = len(lst.json().get("data", {}).get("keys", [])) if lst.status_code == 200 else 0
+                ca = client.get(f"{address}/v1/{pki}/ca/pem", headers=self._headers())
+                pki_ok = ca.status_code == 200 and "BEGIN CERTIFICATE" in ca.text
         except httpx.HTTPError as exc:
             return False, f"Vault bağlantı hatası: {exc}"
-        return True, f"Vault erişilebilir, PKI mount '{mount}' hazır"
+        pki_note = f"PKI mount '{pki}' hazır" if pki_ok else f"PKI mount '{pki}' yok (senkron için gerekmez)"
+        return True, f"Vault erişilebilir; '{kv}/{prefix}' altında {count} kayıt; {pki_note}"
 
     def fetch(self, identifier: str = "ca_chain") -> list[ParsedCertificate]:
         """PKI CA zincirini (intermediate + root) okur — envantere almak için (read-only)."""
