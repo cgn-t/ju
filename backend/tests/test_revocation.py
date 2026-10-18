@@ -179,3 +179,25 @@ def test_revocation_job_skips_when_disabled(client, monkeypatch):
                         lambda *a, **k: called.append(1) or ("good", {}))
     revocation.check_all_certificates()  # revocation.enabled varsayılan False → run_check çağrılmamalı
     assert called == []
+
+
+def test_unreachable_endpoint_keeps_revoked_and_sends_no_second_mail(client, auth_headers, monkeypatch):
+    """İptal listesine o an ulaşılamazsa (unknown) önceki 'revoked' kalır; uç dönünce ikinci mail yok."""
+    results = iter([("revoked", {"method": "crl"}), ("unknown", {"tried": []}),
+                    ("revoked", {"method": "crl"})])
+    # önceki testin arka planda başlattığı toplu denetim de bu sahteyi çağırabilir → yalnız bu sertifika
+    monkeypatch.setattr(revocation, "check_certificate",
+                        lambda db, cert, cl, config: next(results) if cert.name == "flap.example"
+                        else ("good", {}))
+    mailed: list[str] = []
+    monkeypatch.setattr(revocation, "notify_newly_revoked",
+                        lambda db, certs: mailed.extend(c.name for c in certs if c.name == "flap.example"))
+    ca, ck = certgen.make_ca("Flap CA")
+    leaf, _ = certgen.make_leaf(ca, ck, "flap.example")
+    _import(client, auth_headers, certgen.pem(leaf) + certgen.pem(ca))
+    cid = next(c["id"] for c in client.get("/api/certificates", headers=auth_headers).json()
+               if c["name"] == "flap.example")
+    statuses = [client.post(f"/api/certificates/{cid}/revocation-check",
+                            headers=auth_headers).json()["revocation_status"] for _ in range(3)]
+    assert statuses == ["revoked", "revoked", "revoked"]
+    assert mailed == ["flap.example"]

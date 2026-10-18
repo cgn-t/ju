@@ -111,7 +111,7 @@ export default function ApplicationDetailDrawer({ appId, onClose }: Props) {
                   {d.client_cert_name && (
                     <>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        mTLS: {d.client_cert_name}
+                        Trusted: {d.client_cert_name}
                       </Typography>
                       <SkiText value={d.client_cert_ski} />
                     </>

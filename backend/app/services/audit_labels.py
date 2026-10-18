@@ -48,7 +48,7 @@ ACTION_TONE = {
 TABLE_LABELS = {
     "certificates": "Sertifika", "SSLCertificates": "Sertifika", "domains": "Domain",
     "certificate_domain_map": "Domain eşlemesi", "applications": "Uygulama",
-    "app_dependencies": "mTLS bağımlılığı", "app_trusted_certs": "Trust store",
+    "app_dependencies": "Trusted bağlantı", "app_trusted_certs": "Trust store",
     "transfer_proposals": "Değişiklik talebi", "users": "Kullanıcı", "teams": "Ekip",
     "user_teams": "Ekip üyeliği", "tags": "Etiket", "app_settings": "Ayarlar",
     "scan_targets": "Keşif hedefi", "scan_runs": "Keşif taraması",

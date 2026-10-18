@@ -190,7 +190,7 @@ function ScopeRow({ p, current }: { p: TransferProposal; current: boolean }) {
     }}>
       <LanguageIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
       <Typography variant="body2" sx={{ fontWeight: 600, flexGrow: 1, minWidth: 0, wordBreak: 'break-all' }}>
-        {p.domain_name ?? (p.app_dependency_id ? 'mTLS bağımlılığı' : '—')}
+        {p.domain_name ?? (p.app_dependency_id ? 'Trusted bağlantı' : '—')}
         {p.mapping_type && (
           <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
             ({mappingTypeLabel(p.mapping_type)})
@@ -289,7 +289,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                   <Typography variant="body2" color="text.secondary">
                     {proposal.kind === 'trusted_add'
                       ? `${proposal.app_name ?? 'uygulama'} (trust store)`
-                      : (proposal.domain_name ?? (proposal.app_dependency_id ? 'mTLS bağımlılığı' : 'hedef yok'))}
+                      : (proposal.domain_name ?? (proposal.app_dependency_id ? 'Trusted bağlantı' : 'hedef yok'))}
                   </Typography>
                   {proposal.kind === 'trusted_add'
                     ? <Chip size="small" variant="outlined" color="secondary" label="trusted (ekle)" sx={{ height: 20 }} />

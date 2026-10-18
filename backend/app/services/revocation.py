@@ -163,6 +163,17 @@ def check_certificate(db: Session, cert: Certificate, client: httpx.Client,
 def run_check(db: Session, cert: Certificate, client: httpx.Client, config: dict) -> tuple[str, dict]:
     """check_certificate + sonucu Certificate'e yazar (commit çağırana ait)."""
     status, detail = check_certificate(db, cert, client, config)
+    if status == "unknown" and cert.revocation_status == "revoked":
+        # İptal geri alınamaz: uca o an ulaşılamaması (unknown) önceki 'revoked' kaydını silmez.
+        # Aksi halde durum 'Belirsiz'e düşer, uç dönünce aynı sertifika için ikinci iptal maili gider.
+        try:
+            previous = json.loads(cert.revocation_detail or "{}")
+        except ValueError:
+            previous = {}
+        previous["last_attempt"] = {"at": utcnow().isoformat(), "result": "unknown", "detail": detail}
+        cert.revocation_checked_at = utcnow()
+        cert.revocation_detail = json.dumps(previous, ensure_ascii=False)[:3900]
+        return "revoked", previous
     cert.revocation_status = status
     cert.revocation_checked_at = utcnow()
     cert.revocation_detail = json.dumps(detail, ensure_ascii=False)[:3900]

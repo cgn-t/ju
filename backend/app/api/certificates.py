@@ -289,6 +289,10 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
                           db.query(AppDependency).options(joinedload(AppDependency.app))
                           .filter(AppDependency.client_cert_id == old_cert.id).all()
                           if dep.app is not None}
+        # Trust store'unda tutan uygulamanın ekibi de kendi trusted sertifikası için talep açabilir
+        binding_teams |= {r[0] for r in db.query(Application.sy_team_id)
+                          .join(ApplicationTrustedCert, ApplicationTrustedCert.app_id == Application.id)
+                          .filter(ApplicationTrustedCert.cert_id == old_cert.id).all()}
         if not (binding_teams & user_team_ids(db, user)):
             raise HTTPException(status_code=403, detail=(
                 "Değişiklik talebini yalnız sertifikanın bağlı olduğu domain/uygulamaların "

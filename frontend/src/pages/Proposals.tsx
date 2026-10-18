@@ -141,7 +141,7 @@ export default function Proposals() {
                 </TableCell>
                 <TableCell>{p.kind === 'trusted_add'
                   ? `${p.app_name ?? 'uygulama'} (trust store)`
-                  : (p.domain_name ?? (p.app_dependency_id ? 'mTLS bağımlılığı' : '—'))}</TableCell>
+                  : (p.domain_name ?? (p.app_dependency_id ? 'Trusted bağlantı' : '—'))}</TableCell>
                 <TableCell>
                   {p.kind === 'trusted_add'
                     ? <Chip size="small" color="secondary" variant="outlined" label="trusted (ekle)" />
