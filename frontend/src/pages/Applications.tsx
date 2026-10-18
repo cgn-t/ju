@@ -154,14 +154,23 @@ export default function Applications() {
     queryFn: async () => (await api.get(`/applications/${editTarget!.id}/trusted`)).data,
     enabled: formOpen && !!editTarget,
   })
-  // Trusted eklerken seçilecek sertifika kataloğu (kapsamlı liste).
+  // Trusted eklerken seçilecek sertifika kataloğu: yalnız AKTİF sertifikalar (pasif trust store'a eklenemez).
   const { data: certs } = useQuery<Certificate[]>({
     queryKey: ['certificates', 'trusted-picker'],
-    queryFn: async () => (await api.get('/certificates')).data,
-    enabled: formOpen && !!editTarget,
+    queryFn: async () => (await api.get('/certificates', { params: { is_active: true } })).data,
+    enabled: formOpen,
   })
   const [trustedForm, setTrustedForm] = useState({ certificate_id: '', note: '' })
-  useEffect(() => { setTrustedForm({ certificate_id: '', note: '' }) }, [editTarget, formOpen])
+  // YENİ uygulama formunda biriktirilen trusted sertifikalar: kayıt sonrası sırayla POST edilir
+  const [pendingTrusted, setPendingTrusted] = useState<{ certificate_id: string; note: string }[]>([])
+  useEffect(() => {
+    setTrustedForm({ certificate_id: '', note: '' })
+    setPendingTrusted([])
+  }, [editTarget, formOpen])
+  // Seçicide zaten trust store'da (ya da eklenecekler listesinde) olanlar tekrar çıkmaz
+  const trustedOptions = (certs ?? []).filter((c) => editTarget
+    ? !(trusted ?? []).some((t) => t.cert_id === c.id)
+    : !pendingTrusted.some((p) => p.certificate_id === c.id.toString()))
   const invalidateTrusted = () => {
     queryClient.invalidateQueries({ queryKey: ['app-trusted', editTarget?.id] })
     queryClient.invalidateQueries({ queryKey: ['applications'] })
@@ -259,11 +268,12 @@ export default function Applications() {
       }
       if (editTarget) {
         await api.put(`/applications/${editTarget.id}`, body)
-        return { depFails: [] as string[] }
+        return { depFails: [] as string[], trustedFails: [] as string[] }
       }
       // Yeni kayıt: önce uygulama, sonra formda biriktirilen client bağımlılıkları
       const created = (await api.post<Application>('/applications', body)).data
       const depFails: string[] = []
+      const trustedFails: string[] = []
       for (const dep of pendingDeps) {
         try {
           await api.post(`/applications/${created.id}/dependencies`, {
@@ -274,12 +284,25 @@ export default function Applications() {
           depFails.push(`${name ?? dep.target_domain_id}: ${apiErrorMessage(e)}`)
         }
       }
-      return { depFails }
+      for (const tr of pendingTrusted) {
+        try {
+          await api.post(`/applications/${created.id}/trusted`, {
+            certificate_id: Number(tr.certificate_id), note: tr.note || null,
+          })
+        } catch (e) {
+          const name = (certs ?? []).find((c) => c.id.toString() === tr.certificate_id)?.name
+          trustedFails.push(`${name ?? tr.certificate_id}: ${apiErrorMessage(e)}`)
+        }
+      }
+      return { depFails, trustedFails }
     },
-    onSuccess: ({ depFails }) => {
+    onSuccess: ({ depFails, trustedFails }) => {
       enqueueSnackbar(editTarget ? 'Uygulama güncellendi' : 'Uygulama eklendi', { variant: 'success' })
       for (const f of depFails) {
         enqueueSnackbar(`Bağımlılık eklenemedi — ${f}`, { variant: 'warning', autoHideDuration: 6000 })
+      }
+      for (const f of trustedFails) {
+        enqueueSnackbar(`Trusted sertifika eklenemedi — ${f}`, { variant: 'warning', autoHideDuration: 6000 })
       }
       queryClient.invalidateQueries({ queryKey: ['applications'] })
       setFormOpen(false)
@@ -509,7 +532,7 @@ export default function Applications() {
                       {(d.client_cert_name || d.note) && (
                         <Typography variant="caption" color="text.secondary" noWrap
                                     title={d.client_cert_ski ? `SKI: ${d.client_cert_ski}` : undefined}>
-                          {d.client_cert_name ? `mTLS: ${d.client_cert_name}` : ''}
+                          {d.client_cert_name ? `Trusted: ${d.client_cert_name}` : ''}
                           {d.client_cert_name && d.client_cert_ski ? ` [${d.client_cert_ski.slice(0, 23)}…]` : ''}
                           {d.client_cert_name && d.note ? ' — ' : ''}
                           {d.note ?? ''}
@@ -591,7 +614,7 @@ export default function Applications() {
               {canEdit && (
                 <Grid container spacing={1} sx={{ alignItems: 'center' }}>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <Autocomplete size="small" options={certs ?? []}
+                    <Autocomplete size="small" options={trustedOptions}
                                   getOptionLabel={(c) => c.name}
                                   value={(certs ?? []).find((c) => c.id.toString() === trustedForm.certificate_id) ?? null}
                                   onChange={(_, v) => setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))}
@@ -669,6 +692,62 @@ export default function Applications() {
                           onClick={() => {
                             setPendingDeps((l) => [...l, { ...depForm }])
                             setDepForm({ target_domain_id: '', note: '' })
+                          }}>Ekle</Button>
+                </Grid>
+              </Grid>
+
+              {/* Trust store (trusted sertifikalar) — kayıtla birlikte eklenir */}
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="subtitle2" gutterBottom>Trusted Sertifikalar (trust store)</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                Bu uygulamanın <b>güvendiği</b> sertifikaları şimdiden ekleyebilirsiniz — uygulama kaydedilirken
+                trust store'a da eklenir. Süresi yaklaşınca uygulamanın SY ekibine mail gider.
+              </Typography>
+              <Stack spacing={1} sx={{ mb: 2 }}>
+                {pendingTrusted.map((t, i) => (
+                  <Paper key={t.certificate_id} variant="outlined"
+                         sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <VerifiedUserIcon fontSize="small" sx={{ color: '#ab47bc' }} />
+                    <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                      <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
+                        {(certs ?? []).find((c) => c.id.toString() === t.certificate_id)?.name
+                          ?? `#${t.certificate_id}`}
+                      </Typography>
+                      {t.note && (
+                        <Typography variant="caption" color="text.secondary" noWrap>{t.note}</Typography>
+                      )}
+                    </Box>
+                    <Tooltip title="Listeden çıkar">
+                      <IconButton size="small" color="error"
+                                  onClick={() => setPendingTrusted((l) => l.filter((_, j) => j !== i))}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Paper>
+                ))}
+                {pendingTrusted.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">Eklenecek trusted sertifika yok.</Typography>
+                )}
+              </Stack>
+              <Grid container spacing={1} sx={{ alignItems: 'center' }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Autocomplete size="small" options={trustedOptions}
+                                getOptionLabel={(c) => c.name}
+                                value={(certs ?? []).find((c) => c.id.toString() === trustedForm.certificate_id) ?? null}
+                                onChange={(_, v) => setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))}
+                                isOptionEqualToValue={(o, v) => o.id === v.id}
+                                renderInput={(params) => <TextField {...params} label="Sertifika" />} />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField label="Not" fullWidth size="small" value={trustedForm.note}
+                             onChange={(e) => setTrustedForm((f) => ({ ...f, note: e.target.value }))} />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 2 }}>
+                  <Button fullWidth variant="outlined" startIcon={<AddIcon />}
+                          disabled={!trustedForm.certificate_id}
+                          onClick={() => {
+                            setPendingTrusted((l) => [...l, { ...trustedForm }])
+                            setTrustedForm({ certificate_id: '', note: '' })
                           }}>Ekle</Button>
                 </Grid>
               </Grid>

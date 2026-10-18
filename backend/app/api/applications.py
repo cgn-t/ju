@@ -237,7 +237,7 @@ def create_dependency(request: Request, app_id: int, body: AppDependencyCreate,
     # ONAY MODELİ: SY sahibi uygulamanın mTLS bağımlılığını yalnız o ekibin üyesi/admin yönetir
     if not can_manage_team_resource(db, user, app_row.sy_team_id):
         raise HTTPException(status_code=403,
-                            detail="Bu uygulamanın mTLS bağımlılığını yalnız sahibi SY ekibi veya admin yönetir")
+                            detail="Bu uygulamanın trusted bağlantısını yalnız sahibi SY ekibi veya admin yönetir")
     exists = (db.query(AppDependency)
               .filter(AppDependency.app_id == app_id,
                       AppDependency.target_domain_id == body.target_domain_id).first())
@@ -266,7 +266,7 @@ def delete_dependency(request: Request, dep_id: int, db: Session = Depends(get_d
     app_row = db.get(Application, dep.app_id)
     if not can_manage_team_resource(db, user, app_row.sy_team_id if app_row else None):
         raise HTTPException(status_code=403,
-                            detail="Bu uygulamanın mTLS bağımlılığını yalnız sahibi SY ekibi veya admin yönetir")
+                            detail="Bu uygulamanın trusted bağlantısını yalnız sahibi SY ekibi veya admin yönetir")
     # FK NO ACTION (MSSQL): bu bağımlılığa referans veren değişiklik taleplerini önce sil
     db.query(TransferProposal).filter(
         TransferProposal.app_dependency_id == dep.id).delete(synchronize_session=False)
@@ -312,6 +312,8 @@ def add_trusted(request: Request, app_id: int, body: AppTrustedCertCreate,
     cert = db.get(Certificate, body.certificate_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
+    if not cert.is_active:
+        raise HTTPException(status_code=400, detail="Pasif bir sertifika trust store'a eklenemez")
     exists = (db.query(ApplicationTrustedCert)
               .filter(ApplicationTrustedCert.app_id == app_id,
                       ApplicationTrustedCert.cert_id == body.certificate_id).first())

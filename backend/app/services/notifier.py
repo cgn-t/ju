@@ -1156,7 +1156,7 @@ def _proposal_location(p: TransferProposal) -> str:
     if p.domain is not None:
         return f"{p.domain.domain} ({_mapping_label(p.mapping_type)})"
     if p.app_dependency_id is not None:
-        return "mTLS bağımlılığı"
+        return "Trusted bağlantı"
     return "-"
 
 
