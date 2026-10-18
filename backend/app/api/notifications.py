@@ -99,7 +99,7 @@ def list_mail_history(
         limit: int = Query(MAIL_HISTORY_LIMIT, ge=1, le=MAIL_HISTORY_LIMIT),
         channel: str | None = None,          # vars. frontend 'email' gönderir; boş = tüm kanallar
         status: str | None = None,           # sent | pending | failed
-        mail_type: str | None = None,        # expiry | expired | deactivated | proposal | other
+        mail_type: str | None = None,        # expiry | expired | revoked | deactivated | proposal | other
         q: str | None = None,                # genel arama: alıcı / konu / sertifika / domain
         search: str | None = None,           # (geriye uyum: q ile aynı)
         recipient: str | None = None, subject: str | None = None, record: str | None = None,

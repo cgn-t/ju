@@ -239,14 +239,18 @@ def _mail_text_wrap(greeting: str, body_text: str, *, doc_links: str = "") -> st
 
 
 def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expired: bool,
-                           doc_links: str = "") -> str:
+                           doc_links: str = "", revoked: bool = False) -> str:
     """Tek paydaşa giden tablolu HTML gövde. Düzen, bağlı domain sayısına göre eski
     sistemdeki iki mail tipini karşılar: tek domain → 'Domain Detay Bilgileri' +
     Bağlantı Tipi şeridi + 'SSL Sertifika Detayı'; çok domain → 'SSL Sertifika
     Detayı' + 'İlişkili Domainler' özeti; domain'siz → yalnız sertifika detayı."""
     mappings = [m for m in cert.domain_mappings if m.domain is not None]
     parts: list[str] = []
-    if expired:
+    if revoked:
+        parts.append("<p>Aşağıdaki sertifika, onu veren sertifika otoritesi (CA) tarafından "
+                     "İPTAL EDİLMİŞ (revoked) olarak bildirildi. İptal edilen sertifikaya "
+                     "tarayıcılar ve istemciler güvenmez; lütfen hemen aksiyon alın.</p>")
+    elif expired:
         parts.append("<p>Aşağıdaki sertifikanın süresi DOLMUŞ ancak JUMBO envanterinde hâlâ "
                      "AKTİF görünüyor. Lütfen envanteri güncelleyin.</p>")
     else:
@@ -261,7 +265,9 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
             parts.append(_warn_line(f"{m.domain.domain} için sahibi SY ekibi/e-postası tanımlı "
                                     "değil — bu domain'in ekibi bilgilendirilemiyor."))
 
-    if expired:
+    if revoked:
+        parts.append(_banner("Bu sertifika İPTAL EDİLMİŞ (revoked) — güvenilir değil!"))
+    elif expired:
         parts.append(_banner(f"Bu sertifikanın süresi {-days_left} gün önce doldu — "
                              "JUMBO'da hâlâ AKTİF görünüyor!"))
     else:
@@ -283,7 +289,13 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
     parts.append("<ul style='margin:4px 0;font-size:14px'>"
                  + "".join(f"<li>{_esc(r)}</li>" for r in p["reasons"]) + "</ul>")
 
-    if expired:
+    if revoked:
+        parts.append('<p style="font-size:14px">Lütfen şu adımları izleyin:</p>'
+                     '<ol style="font-size:14px;margin:4px 0">'
+                     "<li>Yeni bir sertifika alın ve kullanıldığı sunuculara yükleyin.</li>"
+                     "<li>Yeni sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).</li>"
+                     "<li>'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.</li></ol>")
+    elif expired:
         parts.append('<p style="font-size:14px">Lütfen JUMBO envanterini güncelleyin:</p>'
                      '<ol style="font-size:14px;margin:4px 0">'
                      "<li>Yenilenen sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).</li>"
@@ -677,7 +689,7 @@ def _no_recipient_party(cfg: dict, global_days: int) -> dict | None:
 
 def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                          make_subject, make_body, make_html=None, global_days: int = 30,
-                         include_trusted: bool = True) -> dict:
+                         include_trusted: bool = True, ignore_window: bool = False) -> dict:
     """Ortak gönderim çekirdeği: her sertifika için paydaşları çözer ve HER paydaşa
     kendi nedenleriyle AYRI mail atar. force=False + resend_dedup_enabled AÇIK → o paydaşa
     (alıcıya) son `resend_interval_hours` saatte (varsayılan 3) bildirim gönderilmişse O PAYDAŞ
@@ -712,7 +724,8 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
             for p in parties:  # HER paydaşa AYRI mail — kendi nedenleriyle
                 # per-domain geçit: paydaş kendi bildirim penceresine (effective_days) girmeden
                 # mail almaz. Süresi-geçmiş akışında days_left negatif → geçit hep geçer.
-                if days_left > p.get("effective_days", global_days):
+                # ignore_window: olay-tetiklemeli mailler (iptal) kalan güne bakmaz.
+                if not ignore_window and days_left > p.get("effective_days", global_days):
                     continue
                 recipient_str = ", ".join(p["emails"])
                 if not force and dedup_enabled:
@@ -984,6 +997,45 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
                     f"tarandı, {cert_result['sent'] + dom_result['sent']} mail gönderildi, "
                     f"{cert_result['skipped'] + dom_result['skipped']} atlandı."),
     }
+
+
+def send_revoked_notifications(db: Session, certs: list) -> dict:
+    """İPTAL EDİLMİŞ (revoked) olarak YENİ tespit edilen sertifikalar: süre uyarısıyla AYNI
+    paydaşlar (trusted dahil), aynı şablon ve aynı gönderim çekirdeği. Olay-tetiklemelidir —
+    çağıran (revocation) yalnız durum 'revoked'a İLK geçtiğinde çağırır; bu yüzden tekrar-önleme
+    ve kalan-gün penceresi uygulanmaz. Alıcısız sertifika yedek adrese gider."""
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    if not certs:
+        return {"enabled": bool(cfg.get("enabled")), "checked": 0, "sent": 0, "skipped": 0,
+                "details": [], "message": "İptal edilen yeni sertifika yok."}
+    if not cfg.get("enabled") or not cfg.get("host"):
+        return dict(_SMTP_OFF)
+
+    def subject(cert, days_left):
+        return f"[JUMBO] İPTAL EDİLMİŞ sertifika: {cert.name} — acil aksiyon gerekli"
+
+    def body(cert, days_left, p):
+        return (
+            f"Sertifika: {cert.name}\nSeri No: {cert.serial_number}\n"
+            f"Bitiş: {_fmt(cert.valid_to)}\n"
+            "Durum: İPTAL EDİLMİŞ (revoked) — sertifika otoritesi bu sertifikayı iptal etti.\n\n"
+            + _reason_block(p)
+            + "\nLütfen şu adımları izleyin:\n"
+              "  1) Yeni bir sertifika alın ve kullanıldığı sunuculara yükleyin.\n"
+              "  2) Yeni sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).\n"
+              "  3) 'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
+            + _doc_links_text(cfg.get("doc_links") or "")
+            + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
+        )
+
+    def html(cert, days_left, p):
+        return _render_cert_mail_html(cert, days_left, p, expired=False, revoked=True,
+                                      doc_links=cfg.get("doc_links") or "")
+
+    global_days = int(cfg.get("expiry_warning_days") or 30)
+    return _dispatch_cert_mails(db, cfg, [c for c in certs if c.valid_to is not None], force=True,
+                                make_subject=subject, make_body=body, make_html=html,
+                                global_days=global_days, include_trusted=True, ignore_window=True)
 
 
 def send_expired_notifications(db: Session, *, force: bool = False) -> dict:

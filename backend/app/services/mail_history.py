@@ -23,6 +23,7 @@ from app.db.models import Certificate, Domain, MailQueue, Notification
 
 # Tür → konu kalıpları (şablondaki yazımla birebir; eski ASCII şablonlar da dahil)
 TYPE_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("revoked", ("İPTAL EDİLMİŞ",)),
     ("expired", ("SÜRESİ GEÇMİŞ",)),
     ("expiry", ("Sertifika süresi doluyor", "Sertifika suresi doluyor",
                 "Domain bitiş tarihi yaklaşıyor", "Domain bitis tarihi yaklasiyor")),
