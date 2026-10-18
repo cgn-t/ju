@@ -259,7 +259,7 @@ def test_live_check_disabled_setting_skips_scheduled_scan(client, auth_headers):
 
 def test_live_check_proactively_syncs_leaf_rotation_without_import_chain(client, auth_headers):
     """Günlük canlı doğrulama, import-chain çağrılmadan da (tek TLS bağlantısıyla) zincir
-    senkronizasyonu yapıp devir önerisi üretmeli (madde 7 — tek taramaya birleşik)."""
+    senkronizasyonu yapıp değişiklik talebi üretmeli (madde 7 — tek taramaya birleşik)."""
     h = auth_headers
     ca, ca_key = certgen.make_ca("LC Sync Root")
     leaf_old, _ = certgen.make_leaf(ca, ca_key, "lc-sync.test", san=["lc-sync.test"],
@@ -285,14 +285,14 @@ def test_live_check_proactively_syncs_leaf_rotation_without_import_chain(client,
         props = [p for p in client.get("/api/proposals", headers=h,
                                        params={"status": "pending"}).json()
                 if p["domain_id"] == domain_id and p["old_cert_id"] == leaf_old_id]
-        assert len(props) == 1, "live-check kendisi import-chain çağrılmadan devir önerisi üretmeli"
+        assert len(props) == 1, "live-check kendisi import-chain çağrılmadan değişiklik talebi üretmeli"
         assert props[0]["mapping_type"] == "server"
 
 
 def test_import_chain_two_intermediates_bind_without_spurious_proposal(client, auth_headers):
     """chain_sync.py bug fix: zincirde İKİ 'intermediate' tipli sertifika varsa (gerçek 2
     katmanlı ara-CA hiyerarşisi), ikisi de bağlanmalı ve birbirini 'rakip' sanıp gereksiz
-    bir devir önerisi üretmemeli — attach_certificate ile aynı kök neden, import_chain'in
+    bir değişiklik talebi üretmemeli — attach_certificate ile aynı kök neden, import_chain'in
     kullandığı chain_sync.sync_domain_chain_certs içinde ayrıca doğrulanıyor."""
     h = auth_headers
     root, root_key = certgen.make_ca("LC TwoInter Root")
@@ -318,7 +318,7 @@ def test_import_chain_two_intermediates_bind_without_spurious_proposal(client, a
         props = [p for p in client.get("/api/proposals", headers=h,
                                        params={"status": "pending"}).json()
                 if p["domain_id"] == domain_id]
-        assert props == [], "ilk kurulumda hiçbir devir önerisi oluşmamalı"
+        assert props == [], "ilk kurulumda hiçbir değişiklik talebi oluşmamalı"
 
 
 def test_import_chain_environment_applies_only_to_newly_created_certs(client, auth_headers):

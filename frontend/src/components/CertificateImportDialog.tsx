@@ -107,8 +107,8 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       if (creator) form.append('creator', creator)
       form.append('is_internal', String(isInternal))
       if (environment) form.append('environment', environment)
-      // İçe aktarma devir önerisi ÜRETMEZ — öneri canlı doğrulamadan (o domain için) ya da
-      // sertifika detayındaki "Devir Öner"den gelir
+      // İçe aktarma değişiklik talebi ÜRETMEZ — öneri canlı doğrulamadan (o domain için) ya da
+      // sertifika detayındaki "Değişiklik Talebi Oluştur"den gelir
       return (await api.post('/certificates/import', form)).data
     },
     onSuccess: (data) => {
@@ -304,9 +304,9 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                       ))}
                     </Stack>
                     <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-                      İçe aktarma devir önerisi <strong>oluşturmaz</strong>. Yeni sertifika bir domainde canlıda
+                      İçe aktarma değişiklik talebi <strong>oluşturmaz</strong>. Yeni sertifika bir domainde canlıda
                       görüldüğünde canlı doğrulama <strong>yalnız o domain için</strong> öneri açar; isterseniz
-                      sertifika detayından <strong>Devir Öner</strong> ile elle de başlatabilirsiniz.
+                      sertifika detayından <strong>Değişiklik Talebi Oluştur</strong> ile elle de başlatabilirsiniz.
                     </Typography>
                   </Box>
                 )}

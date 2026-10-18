@@ -344,7 +344,20 @@ def check_domain(db: Session, domain: Domain) -> Domain:
             if "inactive_served" not in detail:
                 detail["reason"] = name_warning
 
-    # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir devir önerisinin
+    # Sunulan sertifika eşlenen kayıtla AYNI, tek sorun süresinin dolmuş olması: "farklı
+    # sertifika" demek yanıltır. Durum kırmızı kalır, ekranda "süresi dolmuş" olarak anlatılır.
+    if (domain.live_check_status == "mismatch" and detail.get("levels")
+            and "inactive_served" not in detail and not (name_warning and not leaf_bound)
+            and all(lv["status"] == "match" or lv.get("reason") == "SÜRESİ DOLMUŞ"
+                    for lv in detail["levels"].values())):
+        expired = [lv["matched_certificate"] for lv in detail["levels"].values()
+                   if lv.get("reason") == "SÜRESİ DOLMUŞ"]
+        detail["expired_served"] = expired
+        detail.pop("expected", None)
+        detail["reason"] = ("Sunucu envanterdeki sertifikanın aynısını sunuyor ama süresi dolmuş: "
+                            + ", ".join(expired) + " — yeni sertifika sunucuya kurulmalı")
+
+    # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir değişiklik talebinin
     # HALEFİ ise (eşli olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay
     # sinyali. Hiçbir devir uygulanmaz; onay hattı korunur.
     seen = _record_live_evidence(db, domain, served_list)
@@ -374,7 +387,7 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
     """ONAY MODELİ: Canlı doğrulama artık HİÇBİR devri kendiliğinden tamamlamaz —
     ne pasife alır ne eşleme siler. Yalnızca 'yeni sertifika sunucuda gerçekten
     görüldü' KANITINI işler: sunulan HER sertifika (fingerprint) envanterde bir kayda
-    denk geliyorsa ve o kayıt bu domaine ait bekleyen bir devir önerisinin HALEFİ ise
+    denk geliyorsa ve o kayıt bu domaine ait bekleyen bir değişiklik talebinin HALEFİ ise
     live_seen=True işaretlenir. Yeni öneriler (ekleme/değişiklik/kaldırma) YALNIZ bu domain
     için zincir uzlaştırmasında (chain_sync, live=True) üretilir. Gerçek değişiklik yalnız
     SY onayıyla olur."""

@@ -56,7 +56,7 @@ def test_allviewer_global_read_only(client, auth_headers):
     assert client.get("/api/users", headers=h).status_code == 403  # admin-only
 
 
-# --- allviewer: Devir Önerileri sayfasında TÜM ekiplerin önerilerini görür (bug fix regresyonu) ---
+# --- allviewer: Değişiklik Talepleri sayfasında TÜM ekiplerin önerilerini görür (bug fix regresyonu) ---
 def test_allviewer_sees_all_teams_pending_proposals(client, auth_headers):
     """Bug: allviewer sayfaya girebiliyordu (require_page_access geçiyordu, page_visible admin+
     allviewer'ı eşit tutuyor) ama liste sorgusu onu 'hiç takımı yok' sayıp boş döndürüyordu —

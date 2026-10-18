@@ -1,10 +1,10 @@
-"""Devir önerisi kapsamı ve tip koruması (2026-10-16 canlı vakası).
+"""Değişiklik talebi kapsamı ve tip koruması (2026-10-16 canlı vakası).
 
   • Canlı doğrulama YALNIZ kontrol ettiği domain için öneri üretir — eski sertifikanın diğer
     domainlerine yayılmaz (SSLVA ve abc.com/fff.com.tr vakaları).
   • Her seviye (leaf/intermediate/root) için EKLEME / DEĞİŞİKLİK / KALDIRMA önerisi; eşleme
     kendiliğinden değişmez. Root sunulmadığında envanterdeki üst sertifikadan türetilir.
-  • Farklı seviyeler (root/intermediate ↔ leaf) arasında hiçbir yoldan devir önerisi oluşmaz.
+  • Farklı seviyeler (root/intermediate ↔ leaf) arasında hiçbir yoldan değişiklik talebi oluşmaz.
   • cert_type_filter LOWER() kullanmaz (Türkçe collation'da 'Intermediate' → 'ıntermediate').
 """
 

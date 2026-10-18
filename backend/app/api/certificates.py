@@ -224,7 +224,7 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                         creator: str | None = Form(None), environment: str | None = Form(None),
                         db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     """Binary import: PEM (fullchain destekli) / DER / PFX. Var olanları atlar,
-    zinciri SKI/AKI ile otomatik bağlar. Devir önerisi ÜRETMEZ (supersede etkisiz)."""
+    zinciri SKI/AKI ile otomatik bağlar. Değişiklik talebi ÜRETMEZ (supersede etkisiz)."""
     if environment not in (None, "", "prod", "test"):
         raise HTTPException(status_code=400, detail="environment yalnız 'prod' veya 'test' olabilir")
     try:
@@ -249,9 +249,9 @@ def import_certificates(request: Request, file: UploadFile = File(...),
         cert_parser.relink_children(db, cert)
         log_action(db, user.username, "import", "certificates", cert.id,
                    {"name": cert.name, "serial": cert.serial_number}, request)
-        # Dosyadan içe aktarma devir önerisi ÜRETMEZ (`supersede` geriye uyum için kabul edilir,
+        # Dosyadan içe aktarma değişiklik talebi ÜRETMEZ (`supersede` geriye uyum için kabul edilir,
         # etkisizdir): öneri, yeni sertifikanın deploy edildiği domainin canlı doğrulamasından
-        # (yalnız o domain için) ya da bilinçli elle "Devir Öner"den gelir.
+        # (yalnız o domain için) ya da bilinçli elle "Değişiklik Talebi Oluştur"den gelir.
         created.append(cert)
     db.commit()
     if not created:
@@ -277,10 +277,10 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
     if new_cert is None or old_cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
     if not new_cert.is_active:
-        raise HTTPException(status_code=400, detail="Pasif bir sertifika devralamaz")
+        raise HTTPException(status_code=400, detail="Pasif bir sertifika yeni sertifika olarak seçilemez")
     if not renewal.same_type(new_cert, old_cert):
         raise HTTPException(status_code=400, detail=(
-            "Devir yalnız aynı seviyedeki sertifikalar arasında yapılabilir "
+            "Değişiklik yalnız aynı seviyedeki sertifikalar arasında yapılabilir "
             "(leaf → leaf, intermediate → intermediate, root → root)"))
     if user.role != "admin":
         binding_teams = {m.domain.sy_team_id for m in old_cert.domain_mappings
@@ -291,7 +291,7 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
                           if dep.app is not None}
         if not (binding_teams & user_team_ids(db, user)):
             raise HTTPException(status_code=403, detail=(
-                "Devri yalnız sertifikanın bağlı olduğu domain/uygulamaların "
+                "Değişiklik talebini yalnız sertifikanın bağlı olduğu domain/uygulamaların "
                 "SY ekibi üyesi veya admin tetikleyebilir"))
     created = renewal.propose(db, new_cert, old_cert, username=user.username, request=request,
                               via="manual", reopen_rejected=True)
@@ -299,9 +299,9 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
     if not created:
         return {"proposed": 0, "message":
                 "Yeni öneri oluşmadı — granüller için zaten açık öneri var ya da eski "
-                "sertifikanın devredilecek bağlantısı yok"}
+                "sertifikanın yeni sertifikaya taşınacak bağlantısı yok"}
     return {"proposed": len(created), "message":
-            f"{len(created)} devir önerisi oluşturuldu — ilgili SY ekiplerinin onayı bekleniyor"}
+            f"{len(created)} değişiklik talebi oluşturuldu — ilgili SY ekiplerinin onayı bekleniyor"}
 
 
 @router.post("/vault-sync", response_model=VaultSyncResult)
@@ -372,7 +372,7 @@ def vault_sync(request: Request, db: Session = Depends(get_db),
             db.flush()
             cert_parser.relink_children(db, cert)
             created += 1
-            # Vault senkronu devir önerisi ÜRETMEZ (superseded hep 0) — yalnız envantere ekler.
+            # Vault senkronu değişiklik talebi ÜRETMEZ (superseded hep 0) — yalnız envantere ekler.
             # Öneri, yeni sertifikanın deploy edildiği domainin canlı doğrulamasından gelir.
 
     log_action(db, user.username, "vault_sync", "certificates", None,
@@ -631,7 +631,7 @@ def delete_certificate(request: Request, cert_id: int, db: Session = Depends(get
     # (MSSQL self-FK'de ON DELETE SET NULL'a izin vermez → DB boşaltmaz, elle yapılır)
     db.query(Certificate).filter(Certificate.superseded_by_id == cert.id).update(
         {Certificate.superseded_by_id: None}, synchronize_session=False)
-    # İlgili devir önerilerini temizle (FK NO ACTION — hem SQLite hem MSSQL'de elle sil)
+    # İlgili değişiklik taleplerini temizle (FK NO ACTION — hem SQLite hem MSSQL'de elle sil)
     db.query(TransferProposal).filter(
         (TransferProposal.old_cert_id == cert.id)
         | (TransferProposal.new_cert_id == cert.id)).delete(synchronize_session=False)

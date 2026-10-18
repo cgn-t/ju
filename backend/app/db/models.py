@@ -457,7 +457,7 @@ class UserTeam(Base):
 
 
 class TransferProposal(Base):
-    """Sertifika devir ÖNERİSİ. YENİ tablo (prod'da yok). Granül = (old_cert, new_cert, domain,
+    """Sertifika değişiklik TALEBİ. YENİ tablo (prod'da yok). Granül = (old_cert, new_cert, domain,
     mapping_type, app_dependency); domain sahibi SY ekibinin onayını bekler."""
 
     __tablename__ = "transfer_proposals"

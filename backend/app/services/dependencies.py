@@ -13,7 +13,7 @@ def domain_server_cert_id(db: Session, domain_id: int) -> int | None:
     eşlemesi artık zinciri (intermediate/root dahil) da taşıyabildiğinden burada cert_type
     LEAF'e sabitlenir, aksi halde çok daha uzun ömürlü bir root/intermediate yanlışlıkla
     seçilebilirdi. O leaf yenilendiğinde renewal.propose bu bağımlılık için uygulama
-    sahibi SY ekibine devir önerisi üretir."""
+    sahibi SY ekibine değişiklik talebi üretir."""
     row = (db.query(CertificateDomainMap)
            .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
            .filter(CertificateDomainMap.domain_id == domain_id,
@@ -30,7 +30,7 @@ def fill_unwatched_dependencies(db: Session, domain_id: int | None = None) -> in
     leaf'ine bağlar. Bağımlılık, hedef domainde henüz sertifika yokken eklenmişse boş kalır;
     domaine sonradan sertifika bağlanınca (elle, zincir içe aktarma, canlı doğrulama, devir)
     burada doldurulur — aksi halde uygulama sahibi süre uyarısı hiç almazdı. Dolu bağımlılığa
-    DOKUNMAZ (sertifika değişimi devir önerisiyle, onayla olur). Commit çağırana aittir.
+    DOKUNMAZ (sertifika değişimi değişiklik talebiyle, onayla olur). Commit çağırana aittir.
     Döner: doldurulan bağımlılık sayısı."""
     db.flush()  # oturum autoflush'suz olabilir — yeni eklenen eşlemeler sorguda görünsün
     q = db.query(AppDependency).filter(AppDependency.client_cert_id.is_(None))

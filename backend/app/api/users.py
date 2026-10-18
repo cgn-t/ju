@@ -218,7 +218,7 @@ def update_team(request: Request, team_id: int, body: TeamUpdate, db: Session = 
 @router.delete("/teams/{team_id}")
 def delete_team(request: Request, team_id: int, db: Session = Depends(get_db),
                 admin: User = Depends(require_role("admin"))):
-    """Ekip siler (yalnız admin). ADMIN/VIEWER tekilleri silinemez. Domain/uygulama/devir önerisi
+    """Ekip siler (yalnız admin). ADMIN/VIEWER tekilleri silinemez. Domain/uygulama/değişiklik talebi
     ile ilişkili ekip silinemez (FK bütünlüğü) — önce ilişkiler kaldırılmalı. Ekibin üyelik
     satırları (user_teams) beraberinde temizlenir."""
     team = db.get(Team, team_id)
@@ -240,7 +240,7 @@ def delete_team(request: Request, team_id: int, db: Session = Depends(get_db),
         if app:
             parts.append(f"{app} uygulama")
         if prop:
-            parts.append(f"{prop} devir önerisi")
+            parts.append(f"{prop} değişiklik talebi")
         raise HTTPException(status_code=400,
                             detail=f"Ekip {', '.join(parts)} ile ilişkili — önce bu ilişkileri kaldırın")
     db.query(UserTeam).filter(UserTeam.team_id == team_id).delete(synchronize_session=False)

@@ -153,7 +153,7 @@ def can_manage_team_resource(db: Session, user: User, sy_team_id: int | None) ->
 
 def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_user),
                           db: Session = Depends(get_db)) -> User:
-    """Bir devir önerisini yalnız domain sahibi SY ekibinin EDİTÖR üyesi VEYA admin
+    """Bir değişiklik talebini yalnız domain sahibi SY ekibinin EDİTÖR üyesi VEYA admin
     onaylar/reddeder (onay = sertifika devrini UYGULAR, bir yazma işlemidir). Öneri
     sy_team_id'si NULL ise (sahipsiz domain) yalnız admin.
 
@@ -167,10 +167,10 @@ def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_use
     # Salt-okur roller (viewer/allviewer/none) onaylayamaz — SY üyesi olsalar bile
     if ROLE_LEVELS.get(user.role, -1) < ROLE_LEVELS["editor"]:
         raise HTTPException(status_code=403,
-                            detail="Devir önerisini yalnız Ekip Editörü veya admin onaylayabilir")
+                            detail="Değişiklik talebini yalnız Ekip Editörü veya admin onaylayabilir")
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     if prop.sy_team_id is None:
         raise HTTPException(status_code=403,
                             detail="Sahipsiz domain — bu öneriyi yalnız admin onaylayabilir")
@@ -180,7 +180,7 @@ def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_use
     return user
 
 
-# 4 kısıtlı sayfa (Uyum/Devir Önerisi/Keşif/Dağıtım) → Ayarlar > Erişim kategorisindeki switch adı.
+# 4 kısıtlı sayfa (Uyum/Değişiklik Talebi/Keşif/Dağıtım) → Ayarlar > Erişim kategorisindeki switch adı.
 PAGE_SETTING_KEY = {
     "policy": "policy_all_roles",
     "proposals": "proposals_all_roles",
@@ -190,9 +190,9 @@ PAGE_SETTING_KEY = {
 
 
 def page_visible(db: Session, user: User, page: str) -> bool:
-    """Uyum/Devir Önerisi/Keşif/Dağıtım sayfa görünürlüğü. admin VE allviewer HER ZAMAN görür
+    """Uyum/Değişiklik Talebi/Keşif/Dağıtım sayfa görünürlüğü. admin VE allviewer HER ZAMAN görür
     (allviewer zaten 'her şeyi görür, düzenleyemez' diye tasarlanmış — bu 4 sayfa istisna değil;
-    domain_scope_team_ids'in admin+allviewer'ı eş tuttuğu kuralla tutarlı). Devir Önerisi'nde
+    domain_scope_team_ids'in admin+allviewer'ı eş tuttuğu kuralla tutarlı). Değişiklik Talebi'nde
     ayrıca SY üyeliği olan HER ZAMAN kendi ekibinin tekliflerini görür — onay mekanizması
     (require_team_or_admin) bu fonksiyondan tamamen BAĞIMSIZ, burada dokunulmuyor; bu yalnız
     LİSTEYİ görebilme kapısı. Bunların dışında yalnız Ayarlar > Erişim'deki ilgili switch açıksa

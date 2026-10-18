@@ -1,4 +1,4 @@
-/** Devir önerisi kaynak (via) ve öneren etiketleri — liste ve inceleme çekmecesi ortak kullanır. */
+/** Değişiklik talebi kaynak (via) ve öneren etiketleri — liste ve inceleme çekmecesi ortak kullanır. */
 import { formatAuditTime } from './auditFormat'
 
 export const VIA_LABEL: Record<string, string> = {

@@ -1,9 +1,10 @@
 """Yenileme (supersede) çekirdeği testleri.
 
 Temel ilke: fingerprint kimliktir, SKI değildir — aynı SKI'li yeni sertifika
-her zaman eklenebilir; yenileme algılama yalnız devir önerisi üretir.
+her zaman eklenebilir; yenileme algılama yalnız değişiklik talebi üretir.
 """
 
+import json
 import socket
 import ssl
 import tempfile
@@ -154,7 +155,7 @@ def test_relink_orphan_deterministic(client, auth_headers):
 
 
 def test_automatic_supersede_never_crosses_cert_type(client, auth_headers):
-    """Otomatik devir önerisi üretimi (renewal.find_predecessors) yapısal olarak yalnız
+    """Otomatik değişiklik talebi üretimi (renewal.find_predecessors) yapısal olarak yalnız
     leaf<->leaf eşleştirir. Aynı anahtarı (dolayısıyla aynı SKI'yi) paylaşan bir root
     sertifikası, mevcut bir leaf'in halefi olarak OTOMATİK ASLA önerilmemeli — SKI eşleşmesi
     en güçlü sinyal olsa bile tip kontrolü (yeni sertifika leaf değilse aday listesi boş
@@ -176,7 +177,7 @@ def test_automatic_supersede_never_crosses_cert_type(client, auth_headers):
     assert r2.json()[0]["cert_type"] == "root"
     rogue_id = r2.json()[0]["id"]
 
-    # Hiçbir devir önerisi bu root'u leaf'in halefi olarak göstermemeli
+    # Hiçbir değişiklik talebi bu root'u leaf'in halefi olarak göstermemeli
     props = _proposals(client, auth_headers)
     assert not any(p["new_cert_id"] == rogue_id for p in props)
     assert not any(p["old_cert_id"] == leaf_id for p in props)
@@ -207,7 +208,7 @@ def test_import_preview_flags_renewal_and_supersede_transfers(client, auth_heade
 
     r = _import_pem(client, auth_headers, certgen.pem(v2), extra={"supersede": "true"})
     v2_id = r.json()[0]["id"]
-    # İçe aktarma devir önerisi ÜRETMEZ (supersede etkisiz) — devir elle başlatılır
+    # İçe aktarma değişiklik talebi ÜRETMEZ (supersede etkisiz) — devir elle başlatılır
     assert not any(p["new_cert_id"] == v2_id for p in _proposals(client, auth_headers))
     assert client.post(f"/api/certificates/{v2_id}/supersede/{v1_id}",
                        headers=auth_headers).status_code == 200
@@ -331,7 +332,7 @@ def test_manual_supersede_proposes_and_approves(client, auth_headers):
 
 def test_attach_collision_creates_proposal_not_silent_transfer(client, auth_headers):
     """BAYPAS KAPATMA: domainde aynı tipte AKTİF sertifika varken elle attach doğrudan
-    eklenmez — devir önerisi üretir (detach+attach ile onay atlanmasın)."""
+    eklenmez — değişiklik talebi üretir (detach+attach ile onay atlanmasın)."""
     ca, ca_key = certgen.make_ca("Attach CA")
     a, _ = certgen.make_leaf(ca, ca_key, "attach.example.com", not_before=datetime(2026, 1, 1))
     b, _ = certgen.make_leaf(ca, ca_key, "attach.example.com", not_before=datetime(2026, 2, 1))
@@ -455,8 +456,8 @@ def test_import_chain_supersede_creates_proposal_then_approve(client, auth_heade
 
 
 def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_headers, monkeypatch):
-    """Vault senkronu devir önerisi ÜRETMEZ (yalnız envantere ekler). Yeni sertifika domainde
-    canlıda görülünce canlı doğrulama YALNIZ o domain için devir önerisi (live_seen) üretir;
+    """Vault senkronu değişiklik talebi ÜRETMEZ (yalnız envantere ekler). Yeni sertifika domainde
+    canlıda görülünce canlı doğrulama YALNIZ o domain için değişiklik talebi (live_seen) üretir;
     devri UYGULAMAZ. Devir yalnız SY onayıyla olur."""
     from app.services.providers.vault import VaultProvider
 
@@ -487,7 +488,7 @@ def test_vault_sync_proposes_livecheck_marks_evidence_then_approve(client, auth_
         assert r.json()["superseded"] == 0  # Vault senkronu öneri üretmez
         assert not [p for p in _proposals(client, auth_headers) if p["domain_id"] == domain_id]
 
-        # canlı doğrulama v2'yi sunucuda görür → mismatch + YALNIZ bu domain için devir önerisi
+        # canlı doğrulama v2'yi sunucuda görür → mismatch + YALNIZ bu domain için değişiklik talebi
         r = client.post(f"/api/domains/{domain_id}/live-check", headers=auth_headers)
         assert r.json()["live_check_status"] == "mismatch"
         props = [p for p in _proposals(client, auth_headers) if p["domain_id"] == domain_id]
@@ -527,6 +528,10 @@ def test_live_check_expired_match_is_mismatch(client, auth_headers):
         r = client.post(f"/api/domains/{domain_id}/live-check", headers=auth_headers)
         assert r.json()["live_check_status"] == "mismatch"
         assert "SÜRESİ DOLMUŞ" in (r.json()["live_check_detail"] or "")
+        # Aynı sertifika: "farklı sertifika" denmez, süresi dolmuş olarak anlatılır
+        detail = json.loads(r.json()["live_check_detail"])
+        assert detail["expired_served"] == ["expired.example.com"]
+        assert "süresi dolmuş" in detail["reason"] and "expected" not in detail
 
 
 def test_fingerprint_unique_index_enforced():
@@ -592,7 +597,7 @@ def test_import_chain_proposes_for_unrelated_active_server(client, auth_headers)
     """Domain'e ÖNCEDEN bağlı, TAMAMEN İLGİSİZ (farklı CA/subject/SKI — öncül sinyali
     paylaşmayan) bir aktif server sertifikası varken import-chain FARKLI bir leaf getirirse
     bu SESSİZCE GÖRMEZDEN GELİNMEZ: domains.py'deki 'öncül olarak yakalanmayan mevcut server
-    sertifikaları da devir önerisi olur' fallback'i (propose_attach_transfer) devreye girer."""
+    sertifikaları da değişiklik talebi olur' fallback'i (propose_attach_transfer) devreye girer."""
     old_ca, old_ca_key = certgen.make_ca("Unrelated Old CA")
     old_leaf, _ = certgen.make_leaf(old_ca, old_ca_key, "unrelated-old.example.com",
                                     not_before=datetime(2026, 1, 1))
@@ -614,13 +619,13 @@ def test_import_chain_proposes_for_unrelated_active_server(client, auth_headers)
         assert result["mapped_server"] is None, (
             "domainde zaten aktif bir server sertifikası var, yeni leaf doğrudan eklenmemeli")
         assert any("unrelated-old" in s for s in result["superseded"]), (
-            f"öncül-olmayan eski sertifika görmezden gelinmemeli, devir önerisine konu olmalı: {result}")
+            f"öncül-olmayan eski sertifika görmezden gelinmemeli, değişiklik talebine konu olmalı: {result}")
         assert any("served-new" in c for c in result["created"]), (
             f"sunucunun sunduğu yeni leaf import edilmiş olmalı: {result}")
 
         props = [p for p in _proposals(client, auth_headers)
                 if p["old_cert_id"] == old_id and p["domain_id"] == domain_id]
-        assert len(props) == 1, f"tam olarak 1 attach-devir önerisi bekleniyor: {props}"
+        assert len(props) == 1, f"tam olarak 1 attach-değişiklik talebi bekleniyor: {props}"
         assert props[0]["mapping_type"] == "server"
 
         # devir HENÜZ olmadı: eski hâlâ aktif ve domain'in TEK server eşlemesi hâlâ eski

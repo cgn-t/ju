@@ -310,7 +310,7 @@ def test_mail_type_classification_filter_and_facets(client, auth_headers):
         db.add(Notification(recipient="t2@test", channel="email",
                             subject="[JUMBO] SÜRESİ GEÇMİŞ sertifika: mht.test (-2 gün)"))
         db.add(Notification(recipient="t3@test, t4@test", channel="email",
-                            subject="[JUMBO] Onayınızı bekleyen 2 devir önerisi"))
+                            subject="[JUMBO] Onayınızı bekleyen 2 değişiklik talebi"))
         db.commit()
     finally:
         db.close()

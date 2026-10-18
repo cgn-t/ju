@@ -295,10 +295,10 @@ export default function Certificates() {
   const renewalChip = (cert: Certificate, compact = false, sx: object = {}) => {
     if (!cert.superseded_by_id) return null
     const successor = certNames.get(cert.superseded_by_id) ?? `#${cert.superseded_by_id}`
-    const state = cert.is_active ? 'Devri bekliyor' : 'Yenilendi'
+    const state = cert.is_active ? 'Yenisi onay bekliyor' : 'Yenilendi'
     return (
       <Tooltip title={cert.is_active
-        ? `Temkinli devir sürüyor — canlı doğrulama halefi (${successor}) sunucuda görünce bu kayıt pasife alınır. Halefe gitmek için tıklayın.`
+        ? `Yeni sertifikaya geçiş sürüyor — canlı doğrulama yeni sertifikayı (${successor}) sunucuda görünce bu kayıt pasife alınır. Yeni sertifikaya gitmek için tıklayın.`
         : `Bu kayıt yenilendi ve PASİFE alındı — halefi: ${successor}. Gitmek için tıklayın.`}>
         <Chip size="small" color="info" variant="outlined" clickable
               label={compact ? `${state} →` : `${state} → ${successor}`}

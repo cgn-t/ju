@@ -226,7 +226,7 @@ def test_manual_supersede_grants_go_to_each_owner_team(client, auth_headers):
 
 def test_viewer_sy_member_cannot_approve_or_reject(client, auth_headers):
     """KRİTİK güvenlik: SY ekibine KAPSAM için eklenen 'viewer' (Ekip İzleyici, salt-okur)
-    devir önerisini ONAYLAYAMAZ/REDDEDEMEZ — onay sertifika devrini uygular (yazma). Yalnız
+    değişiklik talebini ONAYLAYAMAZ/REDDEDEMEZ — onay sertifika devrini uygular (yazma). Yalnız
     editor+/admin. can_decide de False dönmeli (UI butonu gizlensin)."""
     team = _sy_team(client, auth_headers, "ViewerApproveSY")
     # viewer + SY üyesi (kapsam için) — UI'nın önerdiği yapılandırma

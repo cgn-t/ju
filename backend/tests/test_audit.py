@@ -256,7 +256,7 @@ def test_facets(client, auth_headers):
 def test_meta_labels(client, auth_headers):
     m = client.get("/api/audit/meta", headers=auth_headers).json()
     assert m["actions"]["login_failed"] == "Başarısız giriş"
-    assert m["categories"]["approval"] == "Onay & Devir"
+    assert m["categories"]["approval"] == "Onay & Değişiklik"
     assert m["fields"]["notify_days"] == "Bildirim günü"
 
 

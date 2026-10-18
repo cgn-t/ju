@@ -142,7 +142,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
         ? (await api.put(`/domains/${domain.id}`, body)).data
         : (await api.post('/domains', body)).data
       // Zincir sorgulanmış ve kullanıcı istediyse: hem yeni eklemede hem düzenlemede
-      // sertifikaları içe aktar + uç sertifikayı server bağla (mevcut server varsa devir önerisi).
+      // sertifikaları içe aktar + uç sertifikayı server bağla (mevcut server varsa değişiklik talebi).
       if (importChain && probe?.reachable && probe.certificates.length > 0) {
         try {
           const r: ChainImportResult = (await api.post(`/domains/${saved.id}/import-chain`,

@@ -7,7 +7,7 @@
   4. use_ssl → smtplib.SMTP_SSL (port 465).
   5. POST /api/settings/smtp/test — yalnız verilen adrese test maili.
   6. Günlük süresi-geçmiş hatırlatması (expired-check job'ı, smtp.auto_expired_enabled).
-  7. Zamanlanmış devir hatırlatması kuyruğa alındığında commit edilir (kaybolmaz).
+  7. Zamanlanmış değişiklik talebi hatırlatması kuyruğa alındığında commit edilir (kaybolmaz).
 """
 
 from datetime import datetime, timedelta
@@ -350,7 +350,7 @@ def test_expired_job_respects_flag_and_dedup(client, auth_headers, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 7. Zamanlanmış devir hatırlatması kuyruğa alınınca commit edilir
+# 7. Zamanlanmış değişiklik talebi hatırlatması kuyruğa alınınca commit edilir
 # ---------------------------------------------------------------------------
 
 def test_scheduled_proposal_reminder_queue_row_is_committed(client, auth_headers, monkeypatch):

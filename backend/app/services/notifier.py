@@ -294,17 +294,17 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
                      '<ol style="font-size:14px;margin:4px 0">'
                      "<li>Yeni bir sertifika alın ve kullanıldığı sunuculara yükleyin.</li>"
                      "<li>Yeni sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).</li>"
-                     "<li>'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.</li></ol>")
+                     "<li>'Değişiklik Talepleri' üzerinden yeni sertifikaya geçişi onaylayın.</li></ol>")
     elif expired:
         parts.append('<p style="font-size:14px">Lütfen JUMBO envanterini güncelleyin:</p>'
                      '<ol style="font-size:14px;margin:4px 0">'
                      "<li>Yenilenen sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).</li>"
-                     "<li>'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.</li>"
+                     "<li>'Değişiklik Talepleri' üzerinden yeni sertifikaya geçişi onaylayın.</li>"
                      "<li>Sertifika artık kullanılmıyorsa kaydı pasife alın; yetkiniz yoksa "
                      "ilgili ekiplerle iletişime geçerek pasife alınmasını sağlayın.</li></ol>")
     else:
         parts.append('<p style="font-size:14px">Yenileme sürecini başlatmanız ve yeni sertifikayı '
-                     "JUMBO'ya eklemeniz önerilir. Yerine geçecek sertifika 'Devir Önerileri' "
+                     "JUMBO'ya eklemeniz önerilir. Yerine geçecek sertifika 'Değişiklik Talepleri' "
                      "üzerinden onayınızla devreye girer.</p>")
 
     return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=doc_links)
@@ -316,7 +316,7 @@ def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], tea
         f"Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:\n"
         + "".join(f"  - {d}\n" for d in bound)
         + "\nİlgili SY ekipleri: " + (", ".join(team_list) if team_list else "—") + "\n\n"
-        "Domaininizin yerine geçecek sertifikayı JUMBO'da 'Devir Önerileri' üzerinden\n"
+        "Domaininizin yerine geçecek sertifikayı JUMBO'da 'Değişiklik Talepleri' üzerinden\n"
         "onaylamanız gerekir — JUMBO kendiliğinden bir değişiklik yapmaz."
     )
 
@@ -331,7 +331,7 @@ def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], t
         + "<ul style='margin:4px 0;font-size:14px'>" + "".join(f"<li>{_esc(d)}</li>" for d in bound) + "</ul>"
         + f'<p style="font-size:14px">İlgili SY ekipleri: {_esc(", ".join(team_list) if team_list else "—")}</p>'
         + '<p style="font-size:14px">Domaininizin yerine geçecek sertifikayı JUMBO\'da '
-          "<b>'Devir Önerileri'</b> üzerinden onaylamanız gerekir — JUMBO kendiliğinden bir "
+          "<b>'Değişiklik Talepleri'</b> üzerinden onaylamanız gerekir — JUMBO kendiliğinden bir "
           "değişiklik yapmaz.</p>"
     )
     return _mail_html_wrap("Merhabalar,", body)
@@ -924,7 +924,7 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
             f"Bitiş: {cert.valid_to:%Y-%m-%d %H:%M} UTC\nKalan: {days_left} gün\n\n"
             + _reason_block(p)
             + "\nYenileme sürecini başlatmanız ve yeni sertifikayı JUMBO'ya eklemeniz önerilir.\n"
-              "Yerine geçecek sertifika 'Devir Önerileri' üzerinden onayınızla devreye girer.\n"
+              "Yerine geçecek sertifika 'Değişiklik Talepleri' üzerinden onayınızla devreye girer.\n"
             + _doc_links_text(cfg.get("doc_links") or "")
             + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
         )
@@ -1023,7 +1023,7 @@ def send_revoked_notifications(db: Session, certs: list) -> dict:
             + "\nLütfen şu adımları izleyin:\n"
               "  1) Yeni bir sertifika alın ve kullanıldığı sunuculara yükleyin.\n"
               "  2) Yeni sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).\n"
-              "  3) 'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
+              "  3) 'Değişiklik Talepleri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
             + _doc_links_text(cfg.get("doc_links") or "")
             + "\nJUMBO Sertifika Yönetimi tarafından otomatik gönderilmiştir."
         )
@@ -1071,7 +1071,7 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
             + _reason_block(p)
             + "\nLütfen JUMBO envanterini güncelleyin:\n"
               "  1) Yenilenen sertifikayı JUMBO'ya ekleyin (SSL Sertifikalar → Yeni Ekle).\n"
-              "  2) 'Devir Önerileri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
+              "  2) 'Değişiklik Talepleri' üzerinden yeni sertifikaya geçişi onaylayın.\n"
               "  3) Sertifika artık kullanılmıyorsa kaydı pasife alın; yetkiniz yoksa ilgili\n"
               "     ekiplerle iletişime geçerek pasife alınmasını sağlayın.\n"
             + _doc_links_text(cfg.get("doc_links") or "")
@@ -1149,7 +1149,7 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
 
 
 def _proposal_location(p: TransferProposal) -> str:
-    """Bir devir önerisinin KONUM açıklaması — trust store | domain (bağlantı tipi) | mTLS
+    """Bir değişiklik talebinin KONUM açıklaması — trust store | domain (bağlantı tipi) | mTLS
     bağımlılığı | '-'. _proposal_rows'un 'Konum' satırında kullanılır."""
     if p.kind == "trusted_add":
         return f"Trust store: {p.app.app_name}" if p.app else "Uygulama trust store"
@@ -1161,7 +1161,7 @@ def _proposal_location(p: TransferProposal) -> str:
 
 
 def _proposal_label(p: TransferProposal) -> str:
-    """Tek bir devir önerisinin insan-okur ÖZETİ (bölüm başlığı) — konum bilgisi artık
+    """Tek bir değişiklik talebinin insan-okur ÖZETİ (bölüm başlığı) — konum bilgisi artık
     _proposal_rows'un ayrı 'Konum' satırında, burada yalnız eski → yeni."""
     old = p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"
     new = p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"
@@ -1172,13 +1172,13 @@ def _proposal_label(p: TransferProposal) -> str:
     return f"{old} → {new}"
 
 
-_PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Devri", "trusted_add": "Trust Store Ekleme",
+_PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Değişikliği", "trusted_add": "Trust Store Ekleme",
                          "server_add": "Eşleme Ekleme", "server_remove": "Eşleme Kaldırma"}
 _PROPOSAL_SIGNAL_LABELS = {"ski": "SubjectKeyIdentifier", "subject": "Subject"}
 
 
 def _proposal_rows(p: TransferProposal) -> list[tuple]:
-    """'Devir Önerisi Detayı' tablosu — _cert_rows/_domain_rows ile aynı alan:değer deseni."""
+    """'Değişiklik Talebi Detayı' tablosu — _cert_rows/_domain_rows ile aynı alan:değer deseni."""
     return [
         ("Eski Sertifika", p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"),
         ("Eski Sertifika Bitiş", p.old_cert.valid_to if p.old_cert else None),
@@ -1196,12 +1196,12 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
 def _proposal_reminder_text(props: list, cfg: dict) -> str:
     blocks: list[str] = []
     for i, p in enumerate(props, start=1):
-        blocks.append(f"\nDevir Önerisi {i}/{len(props)}: {_proposal_label(p)}\n"
+        blocks.append(f"\nDeğişiklik Talebi {i}/{len(props)}: {_proposal_label(p)}\n"
                      + "".join(f"  {k}: {_fmt(v)}\n" for k, v in _proposal_rows(p)))
     body = (
-        f"JUMBO'da onayınızı bekleyen {len(props)} devir önerisi var:\n"
+        f"JUMBO'da onayınızı bekleyen {len(props)} değişiklik talebi var:\n"
         + "".join(blocks)
-        + "\nLütfen JUMBO 'Devir Önerileri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
+        + "\nLütfen JUMBO 'Değişiklik Talepleri' ekranından bu önerileri gözden geçirip ONAYLAYIN veya\n"
         "REDDEDİN. Onaylanan öneriler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
         "onay kuyruğu temizlenir."
     )
@@ -1209,21 +1209,21 @@ def _proposal_reminder_text(props: list, cfg: dict) -> str:
 
 
 def _render_proposal_reminder_html(props: list, cfg: dict) -> str:
-    parts: list[str] = [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} devir önerisi</b> var:</p>",
-                        _banner(f"{len(props)} devir önerisi onayınızı bekliyor — karar "
+    parts: list[str] = [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} değişiklik talebi</b> var:</p>",
+                        _banner(f"{len(props)} değişiklik talebi onayınızı bekliyor — karar "
                                "verilene kadar hatırlatma tekrarlanır.")]
     for i, p in enumerate(props, start=1):
-        parts.append(_section(f"Devir Önerisi {i}/{len(props)}: {_proposal_label(p)}"))
+        parts.append(_section(f"Değişiklik Talebi {i}/{len(props)}: {_proposal_label(p)}"))
         parts.append(_kv_table(_proposal_rows(p)))
     parts.append(
-        '<p style="font-size:14px">Lütfen JUMBO <b>\'Devir Önerileri\'</b> ekranından bu '
+        '<p style="font-size:14px">Lütfen JUMBO <b>\'Değişiklik Talepleri\'</b> ekranından bu '
         "önerileri gözden geçirip <b>onaylayın</b> veya <b>reddedin</b>. Onaylananlar yeni "
         "sertifikayı devreye alır; reddedilenler kapanır ve onay kuyruğu temizlenir.</p>")
     return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=cfg.get("doc_links") or "")
 
 
 def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> dict:
-    """Onay kuyruğunda BEKLEYEN (status='pending') devir önerileri için ilgili SY ekiplerine
+    """Onay kuyruğunda BEKLEYEN (status='pending') değişiklik talepleri için ilgili SY ekiplerine
     hatırlatma gönderir — ekip başına TEK mail, o ekibin tüm bekleyen önerilerini listeler.
     Amaç: onay kuyruğunu temizlemek. Günlük zamanlanmış job (check_pending_proposals) ve
     POST /api/notifications/proposal-run bu fonksiyonu kullanır. `force` imza uyumu içindir;
@@ -1255,7 +1255,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             if not emails:
                 skipped += len(props)
                 continue
-            subject = f"[JUMBO] Onayınızı bekleyen {len(props)} devir önerisi"
+            subject = f"[JUMBO] Onayınızı bekleyen {len(props)} değişiklik talebi"
             body_text = _proposal_reminder_text(props, cfg)
             body_html = _render_proposal_reminder_html(props, cfg)
             ok, note, _mqid = _deliver(db, cfg, emails, subject, body_text, body_html,
@@ -1268,7 +1268,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 sent += 1
             else:
                 skipped += len(props)
-                logger.warning("Devir hatırlatması gönderilemedi: %s (%s)",
+                logger.warning("Değişiklik talebi hatırlatması gönderilemedi: %s (%s)",
                                team.name if team else team_id, note)
                 # queue KAPALIYKEN doğrudan gönderim başarısız → Mail Gönderim Geçmişi'nde
                 # görünsün diye 'failed' yaz (bkz. _dispatch_cert_mails'teki aynı desen).
@@ -1283,16 +1283,16 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             # diğer ekiplerin hatırlatmasını engelleme. Yine de geçmişte görünsün.
             db.rollback()
             team_label = getattr(db.get(Team, team_id), "name", None) or f"team_id={team_id}"
-            logger.exception("Devir hatırlatması işlenemedi (atlanıyor): %s", team_label)
+            logger.exception("Değişiklik talebi hatırlatması işlenemedi (atlanıyor): %s", team_label)
             skipped += len(props)
-            _record_dispatch_error(db, "Devir hatırlatması işlenemedi", exc, label=team_label)
+            _record_dispatch_error(db, "Değişiklik talebi hatırlatması işlenemedi", exc, label=team_label)
 
     # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
     if ownerless:
         try:
             fb = split_emails(cfg.get("fallback_address"))
             if fb:
-                subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} devir önerisi (admin onayı)"
+                subject = f"[JUMBO] Sahibi atanmamış {len(ownerless)} değişiklik talebi (admin onayı)"
                 body_text = _proposal_reminder_text(ownerless, cfg)
                 body_html = _render_proposal_reminder_html(ownerless, cfg)
                 ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, body_html,
@@ -1302,7 +1302,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                     sent += 1
                 else:
                     skipped += len(ownerless)
-                    logger.warning("Sahipsiz devir hatırlatması gönderilemedi: %s", note)
+                    logger.warning("Sahipsiz değişiklik talebi hatırlatması gönderilemedi: %s", note)
                     if not cfg.get("queue_enabled"):
                         db.add(MailQueue(to_addresses=", ".join(fb), subject=subject,
                                          body_text=body_text, body_html=body_html,
@@ -1313,36 +1313,36 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 skipped += len(ownerless)
         except Exception as exc:
             db.rollback()
-            logger.exception("Sahipsiz devir hatırlatması işlenemedi (atlanıyor)")
+            logger.exception("Sahipsiz değişiklik talebi hatırlatması işlenemedi (atlanıyor)")
             skipped += len(ownerless)
-            _record_dispatch_error(db, "Sahipsiz devir hatırlatması işlenemedi", exc,
+            _record_dispatch_error(db, "Sahipsiz değişiklik talebi hatırlatması işlenemedi", exc,
                                    label="ownerless")
 
     return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
             "message": f"{len(pending)} bekleyen öneri; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
-@audited_job("Devir onayı hatırlatması")
+@audited_job("Değişiklik talebi hatırlatması")
 def check_pending_proposals() -> dict:
-    """Zamanlanmış devir-onayı hatırlatma job'ı. `smtp.auto_proposal_reminder_enabled` KAPALIYSA
+    """Zamanlanmış değişiklik talebi hatırlatma job'ı. `smtp.auto_proposal_reminder_enabled` KAPALIYSA
     atlar (job zamanlıdır ama mail atmaz). Dış API tetiği (/notifications/proposal-run) bu
     bayraktan ETKİLENMEZ — send_pending_proposal_notifications'ı DOĞRUDAN çağırır."""
     db: Session = SessionLocal()
     try:
         cfg = get_category(db, "smtp", mask_secrets=False)
         if not cfg.get("auto_proposal_reminder_enabled", False):
-            logger.info("Devir hatırlatması: otomatik gönderim kapalı — atlandı")
+            logger.info("Değişiklik talebi hatırlatması: otomatik gönderim kapalı — atlandı")
             return {"status": "skipped"}
         result = send_pending_proposal_notifications(db, force=False)
         if result["sent"]:
-            logger.info("Devir hatırlatması: %s", result["message"])
+            logger.info("Değişiklik talebi hatırlatması: %s", result["message"])
         return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
                 "skipped": result.get("skipped")}
     except Exception as exc:
         # Öğe-bazlı hatalar send_pending_proposal_notifications içinde zaten yakalanıp
         # atlanıyor; bu yalnız döngüye girmeden ÖNCEKİ (ör. sorgu) beklenmeyen hatalar
         # için son güvenlik ağı — run_mail_queue_drain ile aynı ilke.
-        logger.exception("Devir hatırlatması job'ı başarısız")
+        logger.exception("Değişiklik talebi hatırlatması job'ı başarısız")
         return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()

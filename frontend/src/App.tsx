@@ -50,7 +50,7 @@ function Protected() {
   return <AppLayout />
 }
 
-// Uyum/Devir Önerisi/Keşif/Dağıtım: varsayılan admin+allviewer (+ Devir Önerisi'nde SY üyeleri
+// Uyum/Değişiklik Talebi/Keşif/Dağıtım: varsayılan admin+allviewer (+ Değişiklik Talebi'nde SY üyeleri
 // kendi teklifleri için), Ayarlar>Erişim'den herkese açılabilir (bkz. security.page_visible).
 // Yükleme bitmeden YÖNLENDİRME yapma — aksi halde admin'in doğrudan/refresh erişimi anlık "/"e
 // sıçrar (auth-me henüz cache'e gelmeden isLoading=false sanılırsa yanlış-negatif redirect olur).

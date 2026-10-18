@@ -34,6 +34,18 @@ const LIVE_STATUS: Record<string, { label: string; color: 'success' | 'error' | 
   not_checkable: { label: 'Kontrol edilemez (wildcard)', color: 'default' },
 }
 
+// Sunulan sertifika eşlenen kayıtla aynı ama süresi dolmuşsa "farklı" yerine bunu söyle.
+const EXPIRED_SERVED = { label: 'SÜRESİ DOLMUŞ — sunucu süresi dolmuş sertifikayı sunuyor', color: 'error' as const }
+
+function liveStatus(d: Pick<Domain, 'live_check_status' | 'live_check_detail'>) {
+  if (d.live_check_status === 'mismatch' && d.live_check_detail) {
+    try {
+      if (JSON.parse(d.live_check_detail).expired_served) return EXPIRED_SERVED
+    } catch { /* bozuk detay: genel etikete düş */ }
+  }
+  return LIVE_STATUS[d.live_check_status ?? '']
+}
+
 // "Server" eşlemesi artık tam zinciri (leaf+intermediate+root) taşıyabildiğinden her
 // satırda hangi seviye olduğu küçük bir harf-rozetiyle gösterilir (R/I/L).
 const CERT_TYPE_LETTER: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
@@ -107,7 +119,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const liveCheck = useMutation({
     mutationFn: async () => (await api.post(`/domains/${domainId}/live-check`)).data,
     onSuccess: (d: Domain) => {
-      const status = LIVE_STATUS[d.live_check_status ?? '']
+      const status = liveStatus(d)
       enqueueSnackbar(status?.label ?? 'Kontrol tamamlandı',
                       { variant: status?.color === 'success' ? 'success' : status?.color === 'error' ? 'error' : 'info' })
       invalidate()
@@ -261,7 +273,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               <Alert severity="warning" icon={<SwapHorizIcon />}
                      action={<Button color="inherit" size="small" component={RouterLink} to="/proposals">
                                Onaya git</Button>}>
-                Bu domain için <b>{domain.pending_proposals}</b> devir önerisi SY onayı bekliyor.
+                Bu domain için <b>{domain.pending_proposals}</b> değişiklik talebi SY onayı bekliyor.
               </Alert>
             )}
 
@@ -272,8 +284,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 {liveCheck.isPending ? 'Kontrol ediliyor…' : 'Şimdi Doğrula'}
               </Button>
               {domain.live_check_status && (
-                <Chip size="small" color={LIVE_STATUS[domain.live_check_status]?.color ?? 'default'}
-                      label={LIVE_STATUS[domain.live_check_status]?.label ?? domain.live_check_status} />
+                <Chip size="small" color={liveStatus(domain)?.color ?? 'default'}
+                      label={liveStatus(domain)?.label ?? domain.live_check_status} />
               )}
               {domain.live_check_at && (
                 <Typography variant="caption" color="text.secondary">
@@ -297,12 +309,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 )
               } catch { return null }
             })()}
-            {canEdit && (domain.live_check_status === 'mismatch' || domain.live_check_status === 'no_mapping') && (
+            {canEdit && ((domain.live_check_status === 'mismatch' && liveStatus(domain) !== EXPIRED_SERVED)
+                         || domain.live_check_status === 'no_mapping') && (
               <Box sx={{ border: 1, borderColor: 'warning.main', borderRadius: 1, p: 1.5 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   Sunucudaki gerçek sertifika envanterle uyuşmuyor. Canlıdaki zinciri
                   içe aktarabilirsiniz; domain boşsa <b>server</b> olarak eşlenir, zaten
-                  aktif bir sertifika varsa <b>devir önerisi</b> oluşturulur (SY onayına düşer).
+                  aktif bir sertifika varsa <b>değişiklik talebi</b> oluşturulur (SY onayına düşer).
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
                   <TextField select required label="Ortam" size="small" sx={{ minWidth: 140 }}
@@ -320,7 +333,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <FormControlLabel
                     control={<Checkbox size="small" checked={replaceOld}
                                        onChange={(e) => setReplaceOld(e.target.checked)} />}
-                    label={<Typography variant="body2">Eski kayıt için devir önerisi üret</Typography>}
+                    label={<Typography variant="body2">Eski kayıt için değişiklik talebi üret</Typography>}
                   />
                 </Stack>
                 {nameMismatch && (

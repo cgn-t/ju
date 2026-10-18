@@ -38,7 +38,7 @@ class ChainSyncResult:
     created: list[str] = field(default_factory=list)       # yeni eklenen sertifika adları
     existing: list[str] = field(default_factory=list)      # zaten kayıtlı olanlar
     mapped: dict[str, str] = field(default_factory=dict)   # cert_type -> doğrudan bağlanan sertifika adı (son işlenen)
-    superseded: list[str] = field(default_factory=list)    # devir ÖNERİSİ üretilen öncül adları
+    superseded: list[str] = field(default_factory=list)    # değişiklik TALEBİ üretilen öncül adları
     added: list[str] = field(default_factory=list)         # EKLEME önerisi üretilenler (canlı)
     removed: list[str] = field(default_factory=list)       # KALDIRMA önerisi üretilenler (canlı)
     inactive: list[str] = field(default_factory=list)      # sunulan ama envanterde PASİF olanlar — bağlanmaz
@@ -81,7 +81,7 @@ def sync_domain_chain_certs(db: Session, domain: Domain, served_chain: list[x509
         result.rows.append(row)
 
     # İş kuralı: domaine bağlı sertifika pasif olamaz. Sunucuda hâlâ duran pasif bir sertifika
-    # ne doğrudan bağlanır ne de ekleme/devir önerisi olur; yalnız raporlanır.
+    # ne doğrudan bağlanır ne de ekleme/değişiklik talebi olur; yalnız raporlanır.
     result.inactive = [r.name for r in result.rows if not r.is_active]
     served_by_type: dict[str, list[Certificate]] = {}
     for row in (r for r in result.rows if r.is_active):
@@ -180,7 +180,7 @@ def _reconcile_import(db: Session, domain: Domain, cert_type: str, seen, stale, 
       • eşleşme var (bağlılardan biri hâlâ sunuluyor) + fazladan bağlı → KALDIRMA önerisi
       • eşleşme yok + bağlı olan var → her eskiye TEK halef (_target_for) için DEVİR önerisi
       • halef seçilmeyen yeni sertifika → EKLEME önerisi
-    Eskiden her eski×yeni çifti için devir önerisi açılıyordu: aynı seviyede iki yeni sertifika
+    Eskiden her eski×yeni çifti için değişiklik talebi açılıyordu: aynı seviyede iki yeni sertifika
     (2 katmanlı ara CA) varsa iki rakip öneri doğuyor, onaydan sonra biri hiç bağlanmıyordu."""
     if not stale:
         for row in unbound:

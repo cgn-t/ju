@@ -1,4 +1,4 @@
-"""Sertifika devir önerileri — onay hattı.
+"""Sertifika değişiklik talepleri — onay hattı.
 
 JUMBO hiçbir devri kendiliğinden uygulamaz; her devir bir TransferProposal olur ve
 domain sahibi SY ekibinin (veya admin) onayını bekler. Onay = uygula (apply_proposal),
@@ -70,7 +70,7 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
 def list_proposals(status: str | None = "pending", mine: bool = False,
                    db: Session = Depends(get_db),
                    user: User = Depends(require_page_access("proposals"))):
-    """Devir önerileri. Admin VE allviewer (Genel İzleyici) hepsini görür; diğerleri yalnız
+    """Değişiklik talepleri. Admin VE allviewer (Genel İzleyici) hepsini görür; diğerleri yalnız
     üye oldukları SY ekibinin (sy_team_id) önerilerini. mine=true admin/allviewer için de
     yalnız kendi ekiplerini süzer. Görünürlük: require_page_access('proposals') — SY üyeleri
     kendi tekliflerini her zaman görür, alakasız kullanıcılar yalnız Ayarlar>Erişim açıksa
@@ -102,11 +102,11 @@ def proposal_group(proposal_id: int, db: Session = Depends(get_db),
     Erişim: yalnız bu öneriyi görebilen (admin/allviewer veya sahibi SY üyesi) grubu çekebilir."""
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     can_see_all = user.role in ("admin", "allviewer")  # GÖRÜNÜRLÜK kapsamı: admin+allviewer
     team_ids = user_team_ids(db, user)
     if not (can_see_all or (prop.sy_team_id is not None and prop.sy_team_id in team_ids)):
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     rows = (db.query(TransferProposal)
             .filter(TransferProposal.old_cert_id == prop.old_cert_id,
                     TransferProposal.new_cert_id == prop.new_cert_id,
@@ -137,7 +137,7 @@ def approve_proposal(request: Request, proposal_id: int, body: ProposalDecision 
     atomik geçişte ilerler; ikinci eşzamanlı onay 409 alır."""
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     # Atomik durum geçişi: pending değilse başkası karara bağlamıştır
     updated = (db.query(TransferProposal)
                .filter(TransferProposal.id == proposal_id,
@@ -163,7 +163,7 @@ def reject_proposal(request: Request, proposal_id: int, body: ProposalDecision |
     """Öneriyi reddeder — hiçbir mutasyon olmaz, eski sertifika bu domain için aktif kalır."""
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     updated = (db.query(TransferProposal)
                .filter(TransferProposal.id == proposal_id,
                        TransferProposal.status == "pending")
@@ -186,7 +186,7 @@ def cancel_proposal(request: Request, proposal_id: int, db: Session = Depends(ge
     gerektirmez, çünkü hiçbir devir uygulanmaz — yalnız öneri kapatılır."""
     prop = db.get(TransferProposal, proposal_id)
     if prop is None:
-        raise HTTPException(status_code=404, detail="Devir önerisi bulunamadı")
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     # YETKİ (broken-access-control önleme): iptal de bir durum mutasyonudur; sahibi olmayan bir SY
     # ekibinin editörü, başka ekibin bekleyen kararını kapatmamalı. Yalnız admin, MANUEL önerinin
     # OLUŞTURANI veya sahibi SY ekibinin üyesi iptal edebilir.

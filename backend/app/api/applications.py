@@ -132,7 +132,7 @@ def update_application(request: Request, app_id: int, body: ApplicationUpdate,
                                     detail="Uygulama sahipliğini (SY/UG ekip) yalnız admin değiştirebilir")
     # tag_ids kolon değil ilişki → setattr'dan önce ayır. None = etikete dokunma; [] = tümünü kaldır.
     tag_ids = changes.pop("tag_ids", None)
-    # mTLS bağımlılık devir önerileri sahibi (sy_team_id) = uygulamanın SY ekibi; öneri
+    # mTLS bağımlılık değişiklik talepleri sahibi (sy_team_id) = uygulamanın SY ekibi; öneri
     # oluşturulurken snapshot alınır. Uygulamanın SY ekibi sonradan değişince açık öneriler
     # eski ekipte kalırdı → yeni sahip onaylayamazdı. Değişimi uygulamadan ÖNCE tespit et.
     sy_changed = ("sy_team_id" in changes and changes["sy_team_id"] != app_row.sy_team_id)
@@ -181,7 +181,7 @@ def delete_application(request: Request, app_id: int, db: Session = Depends(get_
     if scope is not None and app_row.sy_team_id not in scope:
         raise HTTPException(status_code=404, detail="Uygulama bulunamadı")
     # FK NO ACTION (MSSQL): uygulama silinince bağımlılıkları DB-cascade ile düşer; ama bu
-    # bağımlılıklara referans veren devir önerileri önce elle silinmeli (yoksa MSSQL bloklar).
+    # bağımlılıklara referans veren değişiklik talepleri önce elle silinmeli (yoksa MSSQL bloklar).
     dep_ids = [d.id for d in db.query(AppDependency.id)
                .filter(AppDependency.app_id == app_id).all()]
     if dep_ids:
@@ -245,7 +245,7 @@ def create_dependency(request: Request, app_id: int, body: AppDependencyCreate,
         raise HTTPException(status_code=409, detail="Bu bağımlılık zaten kayıtlı")
     # Client sertifikası ELLE SEÇİLMEZ (body.client_cert_id yok sayılır): hedef domainin AKTİF
     # server sertifikası otomatik izlenir. O sertifika yenilenince uygulama sahibi SY ekibine
-    # 'client değişikliği' devir önerisi gider (mevcut renewal.propose mekanizması).
+    # 'client değişikliği' değişiklik talebi gider (mevcut renewal.propose mekanizması).
     client_cert_id = domain_server_cert_id(db, body.target_domain_id)
     dep = AppDependency(app_id=app_id, target_domain_id=body.target_domain_id,
                         client_cert_id=client_cert_id, note=body.note)
@@ -267,7 +267,7 @@ def delete_dependency(request: Request, dep_id: int, db: Session = Depends(get_d
     if not can_manage_team_resource(db, user, app_row.sy_team_id if app_row else None):
         raise HTTPException(status_code=403,
                             detail="Bu uygulamanın mTLS bağımlılığını yalnız sahibi SY ekibi veya admin yönetir")
-    # FK NO ACTION (MSSQL): bu bağımlılığa referans veren devir önerilerini önce sil
+    # FK NO ACTION (MSSQL): bu bağımlılığa referans veren değişiklik taleplerini önce sil
     db.query(TransferProposal).filter(
         TransferProposal.app_dependency_id == dep.id).delete(synchronize_session=False)
     log_action(db, user.username, "delete", "app_dependencies", dep.id,

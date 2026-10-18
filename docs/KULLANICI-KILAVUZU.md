@@ -47,9 +47,9 @@ Sertifika envanterinizin ana ekranı. İki görünüm arasında geçiş yapabili
 - Aynı sertifika (fingerprint eşleşmesi) zaten sistemdeyse mükerrer eklenmez, uyarılırsınız.
 
 **Yenilenen bir sertifikayı içe aktarırken**: JUMBO bunun eskisinin yenisi olduğunu otomatik
-anlar (aynı anahtar ya da aynı CN+CA) ve size onay için bir "devir" önerir — onaylarsanız tüm
+anlar (aynı anahtar ya da aynı CN+CA) ve onayınız için bir "değişiklik talebi" oluşturur — onaylarsanız tüm
 bağlı domain/uygulama eşlemeleri otomatik yeni sertifikaya taşınır, eski sertifika pasife
-alınır. (Bkz. §7 Devir Önerileri.)
+alınır. (Bkz. §7 Değişiklik Talepleri.)
 
 **Diğer işlemler**: PEM kopyalama/indirme, pasif sertifikaları gösterme/gizleme, kalıcı
 silme (dikkat: geri alınamaz), arama/filtre.
@@ -94,11 +94,11 @@ yönetilir.
 - **Bağımlılık ekleme/silme**: bir uygulamanın başka bir uygulamaya/sertifikaya olan
   bağımlılığını tanımlarsınız.
 - **Trust Store**: uygulamanın güvendiği (istemci olarak kabul ettiği) sertifikaları
-  buradan ekler/kaldırırsınız — bu sertifikalardan biri değişince de devir önerisi/bildirim
+  buradan ekler/kaldırırsınız — bu sertifikalardan biri değişince de değişiklik talebi/bildirim
   akışı devreye girer.
 - **Etiketler**: uygulamaları serbest metin etiketlerle sınıflandırabilirsiniz.
 
-## 7. Devir Önerileri (Proposals)
+## 7. Değişiklik Talepleri (Proposals)
 
 Bir sertifika yenilendiğinde veya bir trust store kaydı için yeni bir aday bulunduğunda,
 JUMBO bunu otomatik algılayıp **ilgili SY ekibinin onayına** sunar (sayfa Ayarlar>Erişim'de
@@ -143,7 +143,7 @@ job zinciri) görsel bir akış editöründe (DAG) tasarlayıp çalıştırabile
 
 ## 11. Bildirim E-postaları
 
-JUMBO, süresi yaklaşan/geçen sertifikalar ve devir onayı bekleyen öneriler için otomatik
+JUMBO, süresi yaklaşan/geçen sertifikalar ve onay bekleyen değişiklik talepleri için otomatik
 e-posta gönderir. Mail kimlere gider:
 
 1. Sertifikayı **oluşturan ekip**,
@@ -164,7 +164,7 @@ Mail içeriğinde ayrıca:
 - Mail tablolarının genişliği sabit değildir; mail istemcinizin okuma penceresini
   büyüttüğünüzde tablo da genişler (istemciye bağlı olarak değişebilir).
 
-Tüm mail türlerinin (süre-uyarı, süresi geçmiş, domain-only hatırlatma, devir önerisi, pasife
+Tüm mail türlerinin (süre-uyarı, süresi geçmiş, domain-only hatırlatma, değişiklik talebi, pasife
 alma) örnek görünümleri için bkz. [MAIL-BILDIRIM-ORNEKLERI.pdf](MAIL-BILDIRIM-ORNEKLERI.pdf)
 (yazdırmaya uygun) veya [MAIL-BILDIRIM-ORNEKLERI.html](MAIL-BILDIRIM-ORNEKLERI.html)
 (tarayıcıda doğrudan açılır, pencere genişletildiğinde tabloların dinamik büyümesi görülür).
@@ -192,7 +192,7 @@ Sol menüdeki sekmeler:
 | Kullanıcılar | Hesap oluşturma/düzenleme, rol atama |
 | Ekipler | SY/UG ekiplerini oluşturma ve yönetme |
 | Ekip Üyelikleri | Kullanıcı ↔ ekip ilişkisi — **veri görme kapsamını belirler** |
-| Erişim | Uyum / Devir Önerileri / Keşif / Dağıtım sayfalarının kimlere görüneceği |
+| Erişim | Uyum / Değişiklik Talepleri / Keşif / Dağıtım sayfalarının kimlere görüneceği |
 | LDAP / Active Directory | Kurumsal dizinle kimlik doğrulama ayarları |
 | E-posta (SMTP) | Bildirim maillerinin sunucu ayarları, uyarı eşiği, tekrar-önleme, kuyruk |
 | Mail Gönderim Geçmişi | §11'de anlatılan geçmiş ve detay ekranı |
@@ -213,7 +213,7 @@ Sol menüdeki sekmeler:
   olarak erişilemez durumda olabilir).
 - **Beklediğim domain/sertifikayı göremiyorum**: muhtemelen o verinin ait olduğu ekibin üyesi
   değilsinizdir — yöneticinizden Ekip Üyeliği eklemesini isteyin.
-- **Devir Önerileri / Uyum / Keşif / Dağıtım sayfasını göremiyorum**: bu sayfalar Ayarlar>
+- **Değişiklik Talepleri / Uyum / Keşif / Dağıtım sayfasını göremiyorum**: bu sayfalar Ayarlar>
   Erişim'den açılana kadar yalnız yönetici/tüm-görüntüleyiciye görünür.
 - **Bildirim maili gelmiyor**: önce mailin gerçekten gitmiş mi diye Ayarlar > Mail Gönderim
   Geçmişi'nden ilgili kaydı arayın; "Başarısız" ise hata mesajını yöneticinize iletin.

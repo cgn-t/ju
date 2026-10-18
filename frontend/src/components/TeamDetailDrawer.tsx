@@ -182,7 +182,7 @@ export default function TeamDetailDrawer({ team, onClose, onChanged }: {
             <Divider />
             <Stack direction="row">
               <Box sx={{ flexGrow: 1 }} />
-              <Tooltip title={system ? 'Sistem ekibi — silinemez' : owns ? 'Domain/uygulama sahibi ekip silinemez; önce sahipliği devredin' : ''}>
+              <Tooltip title={system ? 'Sistem ekibi — silinemez' : owns ? 'Domain/uygulama sahibi ekip silinemez; önce sahipliği başka bir ekibe aktarın' : ''}>
                 <span>
                   <Button color="error" startIcon={<DeleteIcon />} disabled={system || owns}
                           onClick={() => setConfirm({ kind: 'delete' })}>Ekibi Sil</Button>

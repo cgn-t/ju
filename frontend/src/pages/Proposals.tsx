@@ -19,7 +19,7 @@ import { useUrlId } from '../hooks/useUrlState'
 import { proposerLine, viaLabel } from '../utils/proposalLabels'
 
 export default function Proposals() {
-  useDocumentTitle('Devir Önerileri')
+  useDocumentTitle('Değişiklik Talepleri')
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const [reviewId, setReviewId] = useUrlId('review')
@@ -48,7 +48,7 @@ export default function Proposals() {
     mutationFn: async ({ id, action }: { id: number; action: 'approve' | 'reject' }) =>
       (await api.post(`/proposals/${id}/${action}`)).data,
     onSuccess: (_d, v) => {
-      enqueueSnackbar(v.action === 'approve' ? 'Devir onaylandı ve uygulandı' : 'Öneri reddedildi',
+      enqueueSnackbar(v.action === 'approve' ? 'Değişiklik onaylandı ve uygulandı' : 'Öneri reddedildi',
                       { variant: v.action === 'approve' ? 'success' : 'info' })
       setReviewId(null)
       invalidate()
@@ -60,11 +60,11 @@ export default function Proposals() {
 
   return (
     <Box>
-      <PageHeader title="Devir Önerileri"
-                  subtitle="Sertifika rotasyonlarının SY ekibi onay hattı — JUMBO yalnız önerir, devir onayla uygulanır" />
+      <PageHeader title="Değişiklik Talepleri"
+                  subtitle="Sertifika rotasyonlarının SY ekibi onay hattı — JUMBO yalnız önerir, değişiklik onayla uygulanır" />
 
       <Alert severity="info" sx={{ mb: 2 }}>
-        Bir devir önerisini yalnız domain sahibi SY ekibinin üyesi (veya admin) onaylayabilir.
+        Bir değişiklik talebini yalnız domain sahibi SY ekibinin üyesi (veya admin) onaylayabilir.
         Onayladığınızda eşleme yeni sertifikaya taşınır ve eski kayıt pasife alınır; reddederseniz
         hiçbir değişiklik olmaz.
       </Alert>
@@ -73,7 +73,7 @@ export default function Proposals() {
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Devir (Eski → Yeni)</TableCell>
+              <TableCell>Değişiklik (Eski → Yeni)</TableCell>
               <TableCell>Domain / Hedef</TableCell>
               <TableCell>Tip</TableCell>
               <TableCell>SY Ekip</TableCell>
@@ -96,7 +96,7 @@ export default function Proposals() {
             {!isError && !isLoading && rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
-                  <Typography color="text.secondary">Onay bekleyen devir önerisi yok</Typography>
+                  <Typography color="text.secondary">Onay bekleyen değişiklik talebi yok</Typography>
                 </TableCell>
               </TableRow>
             )}
@@ -165,7 +165,7 @@ export default function Proposals() {
                 </TableCell>
                 <TableCell>
                   {p.live_seen && (
-                    <Tooltip title="Yeni sertifika sunucuda canlı görüldü — devri onaylamak güvenli">
+                    <Tooltip title="Yeni sertifika sunucuda canlı görüldü — değişikliği onaylamak güvenli">
                       <Chip size="small" color="success" variant="outlined" icon={<CheckCircleIcon />}
                             label="canlıda" />
                     </Tooltip>

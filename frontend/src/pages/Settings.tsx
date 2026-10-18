@@ -239,8 +239,8 @@ function SmtpTab() {
                            onChange={(e) => setForm((f) => ({ ...f, auto_expired_enabled: e.target.checked }))} />}
           label="Günlük Süresi Geçmiş Hatırlatması (her sabah 08:05)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-          Süresi dolmuş ama JUMBO'da hâlâ <b>aktif</b> görünen sertifikaların paydaşlarına "yenisini devirle
-          bağlayın ya da pasife alın" maili gider (süre uyarısıyla aynı alıcılar ve şablon; tekrar-önleme geçerli).
+          Süresi dolmuş ama JUMBO'da hâlâ <b>aktif</b> görünen sertifikaların paydaşlarına "yenisini bağlayın
+          ya da pasife alın" maili gider (süre uyarısıyla aynı alıcılar ve şablon; tekrar-önleme geçerli).
           Kapalıyken yalnız "Süresi Geçenleri Şimdi Gönder" / dış API ile gönderilir.
         </Typography>
       </Box>
@@ -304,7 +304,7 @@ function SmtpTab() {
       </Grid>
 
       <Alert severity="info" sx={{ mt: 1 }}>
-        <b>Devir Onayı Hatırlatması:</b> Onay kuyruğunda <b>bekleyen devir önerisi</b> olan SY ekiplerine
+        <b>Değişiklik Talebi Hatırlatması:</b> Onay kuyruğunda <b>bekleyen değişiklik talebi</b> olan SY ekiplerine
         (ekip başına <b>tek mail</b>, tüm bekleyen önerilerini listeler) hatırlatma gönderir — kuyruğun temiz
         tutulması için. Açıkken her gün belirtilen saatte; kapalıyken yalnız "Şimdi Hatırlat" / dış API ile.
       </Alert>
@@ -312,7 +312,7 @@ function SmtpTab() {
         <FormControlLabel
           control={<Switch checked={form.auto_proposal_reminder_enabled === true}
                            onChange={(e) => setForm((f) => ({ ...f, auto_proposal_reminder_enabled: e.target.checked }))} />}
-          label="Günlük Devir Onayı Hatırlatması" />
+          label="Günlük Değişiklik Talebi Hatırlatması" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
           Kapalıyken zamanlanmış hatırlatma gönderilmez; <b>dış API tetiği</b> (X-API-Key / "Şimdi Hatırlat")
           çağrıldığında yine gönderim yapılır.
@@ -466,7 +466,7 @@ function MembershipsTab() {
     <Box>
       <Alert severity="info" sx={{ mb: 2 }}>
         SY ekip üyeliği <b>kapsamı</b> belirler: <b>Ekip Editörü</b> ve <b>Ekip İzleyici</b> rolündeki
-        kullanıcılar yalnız üye oldukları SY ekiplerinin domain/uygulamalarını (ve devir önerilerini)
+        kullanıcılar yalnız üye oldukları SY ekiplerinin domain/uygulamalarını (ve değişiklik taleplerini)
         görür. <b>ADMIN/VIEWER/UG üyeliği yalnız roster (bilgi) amaçlıdır — tek başına rol/yetki
         VERMEZ.</b> <b>Rolün kendisi</b> (Yönetici/Editör/İzleyici) her zaman <b>Kullanıcılar</b>
         sekmesinden atanır.
@@ -830,13 +830,13 @@ function ScanTargetDialog({ open, target, syTeams, onClose }: {
   )
 }
 
-// ---------- Erişim (sayfa görünürlüğü: Uyum/Devir Önerileri/Keşif/Dağıtım) ----------
+// ---------- Erişim (sayfa görünürlüğü: Uyum/Değişiklik Talepleri/Keşif/Dağıtım) ----------
 function AccessTab() {
   const { form, setForm, save } = useCategory('access')
 
   const SWITCHES: { key: string; label: string }[] = [
     { key: 'policy_all_roles', label: 'Uyum sayfası herkese açık' },
-    { key: 'proposals_all_roles', label: 'Devir Önerileri sayfası herkese açık' },
+    { key: 'proposals_all_roles', label: 'Değişiklik Talepleri sayfası herkese açık' },
     { key: 'discovery_all_roles', label: 'Keşif sayfası herkese açık' },
     { key: 'deployments_all_roles', label: 'Dağıtım sayfası herkese açık' },
   ]
@@ -844,10 +844,10 @@ function AccessTab() {
   return (
     <Stack spacing={3}>
       <Alert severity="info">
-        Varsayılan: Uyum, Devir Önerileri, Keşif ve Dağıtım sayfaları yalnız <b>Yönetici</b> ve
+        Varsayılan: Uyum, Değişiklik Talepleri, Keşif ve Dağıtım sayfaları yalnız <b>Yönetici</b> ve
         <b> Global İzleyici</b> rolüne görünür. Aşağıdaki anahtarları açarsanız ilgili sayfa
-        <b> tüm rollere</b> (İzleyici dahil) görünür olur. <b>Devir Önerileri istisnası:</b> bu
-        ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin bekleyen devir tekliflerini
+        <b> tüm rollere</b> (İzleyici dahil) görünür olur. <b>Değişiklik Talepleri istisnası:</b> bu
+        ayardan bağımsız olarak, bir SY ekibinin üyesi kendi ekibinin bekleyen değişiklik taleplerini
         her zaman görüp onaylayabilir — onay yetkisi bu anahtarla DEĞİŞMEZ. Dağıtımı fiilen
         <b> tetikleme</b> her durumda yalnız Yönetici'dedir; bu anahtar yalnız görüntülemeyi açar.
       </Alert>
@@ -1581,7 +1581,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'users', label: 'Kullanıcılar', desc: 'Hesaplar, roller ve takım kapsamları', wide: true, el: <UsersPanel /> },
     { key: 'teams', label: 'Ekipler', desc: 'SY/UG ekiplerini oluştur ve yönet', wide: true, el: <TeamsPanel /> },
     { key: 'memberships', label: 'Ekip Üyelikleri', desc: 'Üyelik = kullanıcının veri kapsamı', wide: true, el: <MembershipsTab /> },
-    { key: 'access', label: 'Erişim', desc: 'Uyum/Devir Önerileri/Keşif/Dağıtım sayfa görünürlüğü', el: <AccessTab /> },
+    { key: 'access', label: 'Erişim', desc: 'Uyum/Değişiklik Talepleri/Keşif/Dağıtım sayfa görünürlüğü', el: <AccessTab /> },
     { key: 'ldap', label: 'LDAP / Active Directory', desc: 'Kurumsal dizinle kimlik doğrulama', el: <LdapTab /> },
   ] },
   { title: 'Bildirimler', items: [

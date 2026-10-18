@@ -10,7 +10,7 @@ from app.services.audit import CATEGORIES, MASK
 
 CATEGORY_LABELS = {
     "changes": "Değişiklikler",
-    "approval": "Onay & Devir",
+    "approval": "Onay & Değişiklik",
     "security": "Güvenlik",
     "system": "Sistem",
 }
@@ -20,8 +20,8 @@ ACTION_LABELS = {
     "create": "Oluşturma", "update": "Güncelleme", "delete": "Silme", "import": "İçe aktarma",
     "deactivate": "Pasife alma", "adopt": "Envantere alma", "ignore": "Yok sayma",
     "vault_sync": "Vault senkronizasyonu", "duplicate_detected": "Mükerrer tespit",
-    "propose": "Devir önerisi", "approve": "Öneri onayı", "propose_reject": "Öneri reddi",
-    "propose_cancel": "Öneri iptali", "supersede_apply": "Devir uygulandı",
+    "propose": "Değişiklik talebi", "approve": "Öneri onayı", "propose_reject": "Öneri reddi",
+    "propose_cancel": "Öneri iptali", "supersede_apply": "Değişiklik uygulandı",
     "trusted_add_apply": "Trust store'a eklendi",
     "server_add_apply": "Eşleme eklendi (öneri)", "server_remove_apply": "Eşleme kaldırıldı (öneri)",
     "login": "Giriş", "login_failed": "Başarısız giriş",
@@ -49,7 +49,7 @@ TABLE_LABELS = {
     "certificates": "Sertifika", "SSLCertificates": "Sertifika", "domains": "Domain",
     "certificate_domain_map": "Domain eşlemesi", "applications": "Uygulama",
     "app_dependencies": "mTLS bağımlılığı", "app_trusted_certs": "Trust store",
-    "transfer_proposals": "Devir önerisi", "users": "Kullanıcı", "teams": "Ekip",
+    "transfer_proposals": "Değişiklik talebi", "users": "Kullanıcı", "teams": "Ekip",
     "user_teams": "Ekip üyeliği", "tags": "Etiket", "app_settings": "Ayarlar",
     "scan_targets": "Keşif hedefi", "scan_runs": "Keşif taraması",
     "discovered_certificates": "Keşfedilen sertifika", "notifications": "Bildirim",
@@ -97,7 +97,7 @@ FIELD_LABELS = {
     "file": "Dosya", "created": "Oluşturulan", "updated": "Güncellenen", "proposals": "Öneriler",
     "serial": "Seri no", "cert": "Sertifika", "app": "Uygulama", "fields": "Alanlar", "host": "Host",
     "port": "Port", "flow_name": "Akış", "trigger": "Tetikleme", "creator": "Oluşturan", "chain": "Zincir",
-    "superseded": "Devredilen", "paths": "Yollar", "params": "Parametreler", "ok": "Başarılı",
+    "superseded": "Değiştirilen", "paths": "Yollar", "params": "Parametreler", "ok": "Başarılı",
     "node_id": "Adım", "jenkins_job": "Jenkins işi", "flow_id": "Akış", "user_id": "Kullanıcı",
     "issuance_profile_id": "Sertifika profili", "auto_issuance_enabled": "Otomatik üretim",
     "issuance_zero_touch": "Zero-touch", "issuance_renew_before_days": "Yenileme (gün önce)",
