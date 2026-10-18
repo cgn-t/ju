@@ -543,4 +543,4 @@ def test_P3_mail_labels_for_new_kinds(client, h, monkeypatch):
     finally:
         db.close()
     assert labels["server_add"].startswith("Ekleme: ") and labels["server_remove"] == "Kaldırma: stray.regp3.test"
-    assert kinds == {"server_add": "Eşleme Ekleme", "server_remove": "Eşleme Kaldırma"}
+    assert kinds == {"server_add": "Bağlantı Ekleme", "server_remove": "Bağlantı Kaldırma"}

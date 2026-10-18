@@ -25,7 +25,7 @@ const FEATURES = [
   {
     icon: <WifiTetheringIcon />,
     title: 'Canlı Doğrulama',
-    desc: 'Domain’e canlı TLS bağlantısı kurup sunulan gerçek sertifikayı envanterdekiyle karşılaştırır; uyumsuzluk (drift), erişilemezlik veya eşlenmemiş sertifikayı anında yakalar.',
+    desc: 'Domain’e canlı TLS bağlantısı kurup sunulan gerçek sertifikayı envanterdekiyle karşılaştırır; sapmayı (drift), erişilemezliği veya bağlanmamış sertifikayı anında yakalar.',
   },
 ]
 

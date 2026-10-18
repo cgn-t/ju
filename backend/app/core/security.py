@@ -173,10 +173,10 @@ def require_team_or_admin(proposal_id: int, user: User = Depends(get_current_use
         raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
     if prop.sy_team_id is None:
         raise HTTPException(status_code=403,
-                            detail="Sahipsiz domain — bu öneriyi yalnız admin onaylayabilir")
+                            detail="Sahipsiz domain — bu talebi yalnız admin onaylayabilir")
     if prop.sy_team_id not in user_team_ids(db, user):
         raise HTTPException(status_code=403,
-                            detail="Bu öneriyi yalnız domain'in SY ekibi editörü veya admin onaylar")
+                            detail="Bu talebi yalnız domain'in SY ekibi editörü veya admin onaylar")
     return user
 
 

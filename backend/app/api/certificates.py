@@ -188,7 +188,7 @@ def import_preview(file: UploadFile = File(...), password: str | None = Form(Non
 def _pred_summary(p: Certificate) -> str:
     maps = ", ".join(f"{m.domain.domain} ({m.mapping_type})" for m in p.domain_mappings)
     date = f"{p.valid_to:%d.%m.%Y}" if p.valid_to else "—"
-    return f"{p.name} (bitiş {date})" + (f" — eşlemeler: {maps}" if maps else "")
+    return f"{p.name} (bitiş {date})" + (f" — bağlantılar: {maps}" if maps else "")
 
 
 def _find_file_predecessor(parsed, parsed_list):
@@ -302,7 +302,7 @@ def supersede_certificate(request: Request, new_id: int, old_id: int,
     db.commit()
     if not created:
         return {"proposed": 0, "message":
-                "Yeni öneri oluşmadı — granüller için zaten açık öneri var ya da eski "
+                "Yeni talep oluşmadı — bu bağlantılar için zaten açık talep var ya da eski "
                 "sertifikanın yeni sertifikaya taşınacak bağlantısı yok"}
     return {"proposed": len(created), "message":
             f"{len(created)} değişiklik talebi oluşturuldu — ilgili SY ekiplerinin onayı bekleniyor"}
@@ -491,7 +491,7 @@ def _ensure_deactivatable(db: Session, cert: Certificate) -> None:
         raise HTTPException(status_code=409,
                             detail=f"Bu sertifika şu domain(ler)e SERVER olarak bağlı: "
                                    f"{', '.join(names)}. Pasife almadan önce server bağlantısını "
-                                   f"halef sertifikaya devredin.")
+                                   f"Değişiklik Talebi ile yeni sertifikaya taşıyın.")
 
 
 def _cert_owner_team_ids(db: Session, cert: Certificate) -> set[int]:
@@ -582,7 +582,7 @@ def deactivate_certificate(request: Request, cert_id: int, db: Session = Depends
 def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_db),
                      user: User = Depends(require_role("editor"))):
     """Sertifikanın iptal durumunu OCSP/CRL ile CANLI denetler ve kaydeder. Global 'revocation.enabled'
-    bayrağından bağımsız çalışır (admin egress'i elle doğrulayabilsin). Dış erişim yoksa 'unknown' döner
+    bayrağından bağımsız çalışır (admin egress'i elle doğrulayabilsin). Dış erişim yoksa 'unreachable' döner
     (çökme yok). Sertifikayı pasife ALMAZ — yalnız durum yazar."""
     cert = db.get(Certificate, cert_id)
     if cert is None:
@@ -610,8 +610,8 @@ def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_d
 def revocation_run(request: Request, db: Session = Depends(get_db),
                    user: User = Depends(require_role("admin"))):
     """Tüm aktif leaf sertifikalar için iptal denetimini arka planda başlatır (gece işiyle aynı motor).
-    Dış erişim gerektirir; kapalı ağda çoğu sonuç 'unknown' olur (beklenen). Ayarlarda iptal
-    denetimi KAPALIYSA gece işi hiçbir şey yapmadan döner; "başlatıldı" deyip boşa bekletmemek
+    Dış erişim gerektirir; kapalı ağda çoğu sonuç kesin olmayan (unreachable/not_checkable) olur
+    (beklenen). Ayarlarda iptal denetimi KAPALIYSA gece işi hiçbir şey yapmadan döner; "başlatıldı" deyip boşa bekletmemek
     için burada açıkça 409 verilir. (Tek sertifikalık /revocation-check bilerek ayardan bağımsız.)"""
     if not revocation.get_config(db).get("enabled"):
         raise HTTPException(status_code=409,

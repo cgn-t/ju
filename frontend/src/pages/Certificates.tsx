@@ -203,7 +203,7 @@ export default function Certificates() {
     exportSheet('sertifikalar.xlsx',
       ['name', 'cert_type', 'serial_number', 'subject_key_identifier', 'authority_key_identifier',
        'fingerprint_sha256', 'subject', 'issuer', 'san', 'extended_key_usage',
-       'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'halef', 'internal', 'ortam', 'kaynak', 'vault_path',
+       'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'yeni_sertifika', 'internal', 'ortam', 'kaynak', 'vault_path',
        'auto_renew', 'satin_alan', 'olusturan', 'notlar', 'olusturulma', 'domainler'],
       (certs ?? []).map((c) => [c.name, c.cert_type, c.serial_number, c.subject_key_identifier,
                                 c.authority_key_identifier, c.fingerprint_sha256, c.subject,
@@ -299,7 +299,7 @@ export default function Certificates() {
     return (
       <Tooltip title={cert.is_active
         ? `Yeni sertifikaya geçiş sürüyor — canlı doğrulama yeni sertifikayı (${successor}) sunucuda görünce bu kayıt pasife alınır. Yeni sertifikaya gitmek için tıklayın.`
-        : `Bu kayıt yenilendi ve PASİFE alındı — halefi: ${successor}. Gitmek için tıklayın.`}>
+        : `Bu kayıt yenilendi ve PASİFE alındı — yeni sertifika: ${successor}. Gitmek için tıklayın.`}>
         <Chip size="small" color="info" variant="outlined" clickable
               label={compact ? `${state} →` : `${state} → ${successor}`}
               onClick={(e) => { e.stopPropagation(); setDetailId(cert.superseded_by_id!) }}
@@ -636,7 +636,7 @@ export default function Certificates() {
             <b>{deleteTarget?.name}</b> kalıcı olarak silinecek. Alt sertifikalar silinmez,
             hiyerarşiden ayrılır.
             {deleteTarget && deleteTarget.domains.length > 0 && (
-              <> Bu sertifika <b>{deleteTarget.domains.length}</b> domain eşlemesine sahip; eşlemeler de silinir.</>
+              <> Bu sertifika <b>{deleteTarget.domains.length}</b> domaine bağlı; bu bağlantılar da silinir.</>
             )}
             <br /><br />İz kaybını önlemek için silmek yerine <b>Pasife Al</b>mayı düşünün.
           </Typography>
@@ -653,10 +653,10 @@ export default function Certificates() {
         <DialogTitle>Sertifikayı Pasife Al</DialogTitle>
         <DialogContent>
           <Typography>
-            <b>{deactivateTarget?.name}</b> pasife alınacak. Domain/uygulama eşlemeleri KALIR,
+            <b>{deactivateTarget?.name}</b> pasife alınacak. Domain/uygulama bağlantıları KALIR,
             ama sertifika artık aktif sayılmaz.
             {deactivateTarget && deactivateTarget.domains.length > 0 && (
-              <> Bu sertifika <b>{deactivateTarget.domains.length}</b> domain eşlemesine sahip;
+              <> Bu sertifika <b>{deactivateTarget.domains.length}</b> domaine bağlı;
               canlıda hâlâ sunuluyorsa bu durumu gözden kaçırmayın.</>
             )}
           </Typography>

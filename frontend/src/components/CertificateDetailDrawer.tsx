@@ -31,7 +31,9 @@ interface Props {
 const REVOCATION_META: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'default' }> = {
   good: { label: 'İptal edilmemiş', color: 'success' },
   revoked: { label: 'İPTAL EDİLMİŞ', color: 'error' },
-  unknown: { label: 'Belirsiz', color: 'warning' },
+  unknown: { label: 'Bilinmiyor', color: 'warning' },
+  unreachable: { label: 'Ulaşılamadı', color: 'warning' },
+  not_checkable: { label: 'Kontrol edilemez', color: 'default' },
   null: { label: 'Denetlenmedi', color: 'default' },
 }
 
@@ -158,7 +160,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
     onSuccess: (r: { revocation_status: string }) => {
       const msg = r.revocation_status === 'revoked' ? 'Sertifika İPTAL EDİLMİŞ (revoked)'
         : r.revocation_status === 'good' ? 'İptal edilmemiş (good)'
-          : 'Durum belirlenemedi (unknown) — OCSP/CRL erişimi veya uç yok'
+          : r.revocation_status === 'unknown' ? 'Bilinmiyor (unknown) — kurum bu sertifikayı tanımıyor'
+            : r.revocation_status === 'unreachable' ? 'Ulaşılamadı — OCSP/CRL adresine erişilemedi'
+              : 'Kontrol edilemez — sertifikada iptal bilgisi yok ya da üst sertifika envanterde yok'
       enqueueSnackbar(msg, { variant: r.revocation_status === 'revoked' ? 'error'
         : r.revocation_status === 'good' ? 'success' : 'info' })
       queryClient.invalidateQueries({ queryKey: ['certificate', certId] })
@@ -242,7 +246,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   // Aktif + superseded_by = temkinli devir sürüyor (liste ile aynı adlandırma)
                   <Tooltip title={cert.is_active
                     ? 'Yeni sertifikaya geçiş sürüyor — canlı doğrulama yeni sertifikayı sunucuda görünce bu kayıt pasife alınır. Yeni sertifikaya gitmek için tıklayın.'
-                    : 'Bu sertifika yenilendi ve pasife alındı — halefine gitmek için tıklayın'}>
+                    : 'Bu sertifika yenilendi ve pasife alındı — yeni sertifikaya gitmek için tıklayın'}>
                     <Chip size="small" color="info" clickable
                           label={`${cert.is_active ? 'Yenisi onay bekliyor' : 'Yenilendi'} → ${cert.superseded_by_name ?? `#${cert.superseded_by_id}`}`}
                           onClick={() => onSelectCert?.(cert.superseded_by_id!)} />
@@ -327,8 +331,15 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   güvenilmemeli (ör. özel anahtarı çalınmış olabilir).
                 </Typography>
                 <Typography component="li" variant="caption" color="text.secondary">
-                  <b>Belirsiz (unknown)</b> — kuruma ulaşılamadı ya da iç/özel CA bu bilgiyi yayınlamıyor;
-                  çoğu zaman normaldir, bir hata değildir.
+                  <b>Bilinmiyor (unknown)</b> — kuruma ulaşıldı ama kurum bu sertifikayı tanımadığını söyledi.
+                </Typography>
+                <Typography component="li" variant="caption" color="text.secondary">
+                  <b>Ulaşılamadı</b> — kuruma (OCSP/CRL adresine) erişilemedi; kapalı ağda çoğu zaman normaldir.
+                  Daha önce iptal edilmiş görülen sertifika bu durumda da iptal edilmiş kalır.
+                </Typography>
+                <Typography component="li" variant="caption" color="text.secondary">
+                  <b>Kontrol edilemez</b> — sertifikada sorulacak adres yok (iç/özel CA'larda sık görülür) ya da
+                  soru için gereken üst sertifika envanterde yok; bir hata değildir.
                 </Typography>
                 <Typography component="li" variant="caption" color="text.secondary">
                   <b>Denetlenmedi</b> — bu sertifika için henüz sorulmadı.
@@ -365,13 +376,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                 <Divider />
                 <SectionTitle>Değişiklik Talebi Oluştur</SectionTitle>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
-                  Bu sertifikanın yerine geçecek halefi seçin. Bağlı her domain ve uygulama
-                  bağlantısı için AYRI değişiklik talebi oluşturulur; her öneri kendi sahibi SY
+                  Bu sertifikanın yerine geçecek yeni sertifikayı seçin. Bağlı her domain ve uygulama
+                  bağlantısı için AYRI değişiklik talebi oluşturulur; her talep kendi sahibi SY
                   ekibinin onayını bekler — onaysız hiçbir bağlantı taşınmaz.
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
                   <CertificatePicker options={successorOptions} value={successor}
-                                     onChange={setSuccessor} label="Halef sertifika"
+                                     onChange={setSuccessor} label="Yeni sertifika"
                                      sx={{ flexGrow: 1 }} />
                   <Button variant="outlined" onClick={() => supersede.mutate()}
                           disabled={!successor || supersede.isPending}

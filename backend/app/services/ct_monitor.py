@@ -245,7 +245,7 @@ def run_ct_scan_by_id(run_id: int) -> None:
         db.close()
 
 
-@audited_job("CT log taraması")
+@audited_job("CT log izleme")
 def run_ct_scan_job() -> dict:
     """Zamanlanmış gece işi (APScheduler). Yalnız CT izleme ETKİNSE çalışır."""
     from app.db.session import SessionLocal

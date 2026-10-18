@@ -4,7 +4,7 @@ import { formatAuditTime } from './auditFormat'
 export const VIA_LABEL: Record<string, string> = {
   import: 'İçe aktarma', manual: 'Elle', 'vault-sync': 'Vault senkron',
   'import-chain': 'Canlı zincir', 'live-check': 'Canlı doğrulama',
-  attach: 'Elle eşleme', backfill: 'Geçiş',
+  attach: 'Elle bağlama', backfill: 'Geçiş',
 }
 
 const SYSTEM_USERS = new Set(['system', ''])

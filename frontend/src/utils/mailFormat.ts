@@ -5,7 +5,7 @@ import type { MailStatus, MailType } from '../api/types'
 export const MAIL_TYPE: Record<MailType, { label: string; color: string }> = {
   expiry: { label: 'Süre uyarısı', color: 'warning.main' },
   expired: { label: 'Süresi geçmiş', color: 'error.main' },
-  revoked: { label: 'İptal edildi', color: 'error.main' },
+  revoked: { label: 'İptal edilmiş sertifika', color: 'error.main' },
   deactivated: { label: 'Pasife alma', color: 'text.secondary' },
   proposal: { label: 'Değişiklik talebi hatırlatması', color: 'info.main' },
   other: { label: 'Diğer', color: 'text.disabled' },

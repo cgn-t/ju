@@ -172,7 +172,7 @@ DEFAULTS: dict[str, dict] = {
     },
     "revocation": {
         # İptal (OCSP/CRL) denetimi. DIŞ ERİŞİM gerekir → varsayılan KAPALI; iç/özel CA'lar çoğu
-        # zaman public OCSP sunmaz → çok sayıda 'unknown' normaldir. Sertifikayı asla pasife almaz.
+        # zaman public OCSP sunmaz → çok sayıda kesin olmayan sonuç normaldir. Sertifikayı asla pasife almaz.
         "enabled": False,             # gece cron iptal denetimini aç/kapa (varsayılan KAPALI)
         "proxy_url": "",              # OCSP/CRL uçlarına ulaşmak için opsiyonel forward proxy
         "timeout_seconds": 10,        # OCSP/CRL isteği zaman aşımı (sn)

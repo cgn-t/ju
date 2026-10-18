@@ -270,8 +270,8 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   const mapKind = proposal?.kind === 'server_add' || proposal?.kind === 'server_remove'
   const isAdd = proposal?.kind === 'server_add'
   const title = proposal?.kind === 'trusted_add' ? 'Trust Store İncelemesi'
-    : isAdd ? 'Eşleme Ekleme İncelemesi'
-    : proposal?.kind === 'server_remove' ? 'Eşleme Kaldırma İncelemesi' : 'Değişiklik Talebi İncelemesi'
+    : isAdd ? 'Bağlantı Ekleme İncelemesi'
+    : proposal?.kind === 'server_remove' ? 'Bağlantı Kaldırma İncelemesi' : 'Değişiklik Talebi İncelemesi'
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}
@@ -320,7 +320,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                           kicker={isAdd ? 'CANLIDA GÖRÜLDÜ · EKLENECEK' : 'BAĞLI · CANLIDA YOK · KALDIRILACAK'} />
                 <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
                   <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                    Neden bu öneri?
+                    Neden bu talep?
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 0.5 }}>
                     {isAdd
@@ -394,8 +394,8 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                               detail={subjSame ? 'Sertifika aynı kimliği (CN) taşıyor' : 'CN farklı — birebir yenileme değil'} />
                     <Evidence ok={caSame} warn={!caSame}
                               icon={<VerifiedUserIcon fontSize="small" />}
-                              title={caSame ? 'Aynı sertifika otoritesi' : 'CA değişti'}
-                              detail={caSame ? 'Issuer aynı — güven zinciri korunuyor' : 'Farklı CA tarafından imzalanmış'} />
+                              title={caSame ? 'Aynı CA' : 'CA değişti'}
+                              detail={caSame ? 'Veren kurumun (issuer) adı aynı' : 'Farklı CA tarafından imzalanmış'} />
                     <Evidence ok={delta !== null && delta > 0}
                               icon={<EventRepeatIcon fontSize="small" />}
                               title="Geçerlilik uzuyor"
@@ -467,8 +467,8 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                     : isAdd
                       ? 'Onaylandığında sertifika bu domaine server olarak bağlanır. Reddederseniz hiçbir değişiklik olmaz.'
                       : proposal.kind === 'server_remove'
-                        ? 'Onaylandığında bu domaindeki server eşlemesi kaldırılır; sertifika pasife alınmaz. Reddederseniz hiçbir değişiklik olmaz.'
-                        : 'Onaylandığında eşleme yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir değişiklik olmaz.'}
+                        ? 'Onaylandığında bu domaindeki server bağlantısı kaldırılır; sertifika pasife alınmaz. Reddederseniz hiçbir değişiklik olmaz.'
+                        : 'Onaylandığında bağlantı yeni sertifikaya taşınır, eski kayıt pasife alınır. Reddederseniz hiçbir değişiklik olmaz.'}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, flexShrink: 0, ml: 'auto' }}>
                   <Button variant="outlined" color="error" startIcon={<CancelIcon />} disabled={deciding}
@@ -483,7 +483,7 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
               </>
             ) : (
               <Typography variant="body2" color="text.secondary">
-                Bu öneriyi yalnız domain'in SY ekibi üyesi veya admin karara bağlayabilir.
+                Bu talebi yalnız domain'in SY ekibi üyesi veya admin karara bağlayabilir.
               </Typography>
             )}
           </Box>

@@ -146,7 +146,7 @@ def approve_proposal(request: Request, proposal_id: int, body: ProposalDecision 
                         "decided_at": utcnow(),
                         "note": body.note if body else None}))
     if not updated:
-        raise HTTPException(status_code=409, detail="Bu öneri zaten karara bağlanmış")
+        raise HTTPException(status_code=409, detail="Bu talep zaten karara bağlanmış")
     db.flush()
     db.refresh(prop)
     log_action(db, user.username, "approve", "transfer_proposals", proposal_id,
@@ -171,7 +171,7 @@ def reject_proposal(request: Request, proposal_id: int, body: ProposalDecision |
                         "decided_at": utcnow(),
                         "note": body.note if body else None}))
     if not updated:
-        raise HTTPException(status_code=409, detail="Bu öneri zaten karara bağlanmış")
+        raise HTTPException(status_code=409, detail="Bu talep zaten karara bağlanmış")
     log_action(db, user.username, "propose_reject", "transfer_proposals", proposal_id,
                _audit_ctx(db, prop, body.note if body else None), request)
     db.commit()
@@ -198,7 +198,7 @@ def cancel_proposal(request: Request, proposal_id: int, db: Session = Depends(ge
             or (prop.via == "manual" and prop.created_by == user.username)
             or (prop.sy_team_id is not None and prop.sy_team_id in user_team_ids(db, user))):
         raise HTTPException(status_code=403,
-                            detail="Bu öneriyi yalnız oluşturan, sahibi SY ekibi üyesi veya admin iptal edebilir")
+                            detail="Bu talebi yalnız oluşturan, sahibi SY ekibi üyesi veya admin iptal edebilir")
     # ATOMİK durum geçişi (approve/reject ile aynı desen): yalnız hâlâ AÇIK (pending/approved)
     # ise iptal et. Eşzamanlı approve/reject ile yarışta lost-update'i önler — aksi halde
     # blind UPDATE ... WHERE id=? bir 'applied'/'rejected' kaydı 'cancelled'a ezerdi.
@@ -208,7 +208,7 @@ def cancel_proposal(request: Request, proposal_id: int, db: Session = Depends(ge
                .update({"status": "cancelled", "decided_by": user.username,
                         "decided_at": utcnow()}))
     if not updated:
-        raise HTTPException(status_code=409, detail="Yalnız açık öneriler iptal edilebilir")
+        raise HTTPException(status_code=409, detail="Yalnız açık talepler iptal edilebilir")
     log_action(db, user.username, "propose_cancel", "transfer_proposals", proposal_id,
                _audit_ctx(db, prop), request)
     db.commit()

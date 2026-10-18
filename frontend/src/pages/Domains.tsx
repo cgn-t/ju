@@ -214,7 +214,7 @@ export default function Domains() {
 
   return (
     <Box>
-      <PageHeader title="Domainler" subtitle="Domain envanteri, sertifika eşlemeleri ve canlı doğrulama" />
+      <PageHeader title="Domainler" subtitle="Domain envanteri, sertifika bağlantıları ve canlı doğrulama" />
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {[
           { label: 'Toplam Domain', value: counts.total, color: '#42a5f5', icon: <BusinessIcon fontSize="large" /> },
@@ -384,7 +384,7 @@ export default function Domains() {
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>Domain Sil</DialogTitle>
         <DialogContent>
-          <Typography><b>{deleteTarget?.domain}</b> ve sertifika eşlemeleri silinecek. Emin misiniz?</Typography>
+          <Typography><b>{deleteTarget?.domain}</b> ve sertifika bağlantıları silinecek. Emin misiniz?</Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteTarget(null)}>Vazgeç</Button>

@@ -351,7 +351,7 @@ def trigger_ct_scan(request: Request, db: Session = Depends(get_db),
     log_action(db, user.username, "ct-scan", "scan_runs", run_id, {"trigger": "manual"}, request)
     db.commit()
     threading.Thread(target=ct_monitor.run_ct_scan_by_id, args=(run_id,), daemon=True).start()
-    return {"run_id": run_id, "message": "CT taraması başlatıldı — sonuçlar bittikçe bulgulara yansır"}
+    return {"run_id": run_id, "message": "CT izleme başlatıldı — sonuçlar bittikçe bulgulara yansır"}
 
 
 @router.get("/runs", response_model=list[ScanRunOut])

@@ -7,8 +7,8 @@ export function chainImportSummary(r: ChainImportResult): string {
   if (r.existing.length) parts.push(`${r.existing.length} zaten kayıtlıydı`)
   if (r.mapped_server) parts.push(`"${r.mapped_server}" server olarak bağlandı`)
   if (r.superseded.length) parts.push(`${r.superseded.length} değişiklik talebi oluşturuldu (SY onayı bekliyor)`)
-  if (r.added?.length) parts.push(`${r.added.length} ekleme önerisi oluşturuldu (SY onayı bekliyor)`)
-  if (r.removed?.length) parts.push(`${r.removed.length} kaldırma önerisi oluşturuldu (SY onayı bekliyor)`)
+  if (r.added?.length) parts.push(`${r.added.length} ekleme talebi oluşturuldu (SY onayı bekliyor)`)
+  if (r.removed?.length) parts.push(`${r.removed.length} kaldırma talebi oluşturuldu (SY onayı bekliyor)`)
   return parts.join(', ') || 'değişiklik yok'
 }
 
