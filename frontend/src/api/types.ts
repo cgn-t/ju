@@ -155,6 +155,7 @@ export interface ImportPreview {
   renewal_of_ski?: string | null
   renewal_of_valid_to?: string | null
   renewal_of_domains?: string[]
+  renewal_of_apps?: string[]
   renewal_also?: string[]
 }
 
@@ -292,6 +293,7 @@ export interface DashboardData {
   expired_domains: number
   valid_domains: number
   total_certificates: number
+  expired_certificates: number
   sy_domain_counts: { team: string; count: number }[]
   expiring_certificates: {
     certificate_id: number

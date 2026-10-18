@@ -259,6 +259,7 @@ class ImportPreview(BaseModel):
     renewal_of_ski: str | None = None
     renewal_of_valid_to: datetime | None = None
     renewal_of_domains: list[str] = []  # "domain (server)" — devredilecek eşlemeler
+    renewal_of_apps: list[str] = []  # "uygulama (istemci sertifikası | trust store)"
     # İlk öncülün dışında devralınacaklar (import TÜM öncülleri devralır)
     renewal_also: list[str] = []
 
@@ -639,6 +640,7 @@ class DashboardOut(BaseModel):
     expired_domains: int
     valid_domains: int
     total_certificates: int
+    expired_certificates: int = 0
     sy_domain_counts: list[TeamDomainCount]
     expiring_certificates: list[ExpiringCert]
 
