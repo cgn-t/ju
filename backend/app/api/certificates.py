@@ -16,6 +16,7 @@ from app.api.schemas import (
     DeactivateResult,
     ImportPreview,
     MappedDomainOut,
+    RenewalCandidate,
     VaultSyncResult,
 )
 from app.core.certtype import cert_type_filter
@@ -181,16 +182,23 @@ def import_preview(file: UploadFile = File(...), password: str | None = Form(Non
             also.append(f"{file_pred.name} (bu dosyadaki eski nesil, "
                         f"bitiş {file_pred.valid_to:%d.%m.%Y})")
         if predecessor is not None:
-            ren = dict(
-                renewal_of_id=predecessor.id, renewal_of_name=predecessor.name,
-                renewal_signal=renewal.renewal_signal(
-                    predecessor, subject_key_identifier=parsed.subject_key_identifier,
+            candidates = [RenewalCandidate(
+                id=p.id, name=p.name,
+                signal=renewal.renewal_signal(
+                    p, subject_key_identifier=parsed.subject_key_identifier,
                     subject=parsed.subject, issuer=parsed.issuer),
-                renewal_of_ski=predecessor.subject_key_identifier,
-                renewal_of_valid_to=predecessor.valid_to,
-                renewal_of_domains=[f"{m.domain.domain} ({m.mapping_type})"
-                                    for m in predecessor.domain_mappings],
-                renewal_of_apps=_pred_app_bindings(db, predecessor))
+                subject_key_identifier=p.subject_key_identifier, valid_to=p.valid_to,
+                domains=[f"{m.domain.domain} ({m.mapping_type})" for m in p.domain_mappings],
+                apps=_pred_app_bindings(db, p)) for p in preds]
+            first = candidates[0]
+            ren = dict(
+                renewal_of_id=first.id, renewal_of_name=first.name,
+                renewal_signal=first.signal,
+                renewal_of_ski=first.subject_key_identifier,
+                renewal_of_valid_to=first.valid_to,
+                renewal_of_domains=first.domains,
+                renewal_of_apps=first.apps,
+                renewal_candidates=candidates)
         elif file_pred is not None:
             same_ski = (parsed.subject_key_identifier
                         and file_pred.subject_key_identifier == parsed.subject_key_identifier)
