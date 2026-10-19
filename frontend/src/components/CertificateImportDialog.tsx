@@ -1,16 +1,18 @@
 import CloudUploadIcon from '@mui/icons-material/CloudUpload'
 import {
   Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControlLabel, MenuItem, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs,
-  TextField, Tooltip, Typography,
+  FormControlLabel, MenuItem, Radio, RadioGroup, Stack, Tab, Table, TableBody, TableCell, TableHead,
+  TableRow, Tabs, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate, ImportPreview, Team } from '../api/types'
+import type { Certificate, ImportPreview, RenewalCandidate, Team } from '../api/types'
 import { MONO_FONT, nodeColors } from '../theme'
 import ConfirmSaveDialog, { type ConfirmItem } from './ConfirmSaveDialog'
+
+const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('tr-TR') : '—')
 
 interface Props {
   open: boolean
@@ -53,13 +55,15 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   // Yenileme bulunan sertifikalardan, kullanıcının değişiklik talebi açılmasını İSTEMEDİKLERİ
   // (varsayılan: hepsi işaretli — öneri olarak sunulur, kullanıcı kaldırabilir)
   const [skipProposals, setSkipProposals] = useState<Set<string>>(new Set())
+  // Birden çok olası öncül varsa kullanıcının seçtiği eski sertifika (yeni sertifika anahtarıyla)
+  const [chosenPreds, setChosenPreds] = useState<Record<string, number>>({})
 
   const reset = () => {
     setFile(null); setPfxPassword(''); setPreview(null); setNotes(''); setPurchasedBy('')
     setIsInternal(false); setEnvironment(''); setManualName(''); setManualPem('')
     setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setManualEnvironment('')
     setCreator(''); setTab(0)
-    setConfirmOpen(false); setSkipProposals(new Set())
+    setConfirmOpen(false); setSkipProposals(new Set()); setChosenPreds({})
   }
 
   const close = () => { reset(); onClose() }
@@ -89,11 +93,29 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
   // renewal_of_id yoksa bile renewal_of_name dolu olabilir (aynı dosyadaki eski nesil)
   const renewals = preview?.filter((p) => !p.already_exists && p.renewal_of_name) ?? []
-  // Değişiklik talebi önerilebilecekler: öncülü envanterde kayıtlı VE taşınacak bağlantısı olanlar
-  const hasBindings = (p: ImportPreview) =>
-    !!p.renewal_of_id && ((p.renewal_of_domains?.length ?? 0) + (p.renewal_of_apps?.length ?? 0)) > 0
   const proposalKey = (p: ImportPreview) => p.fingerprint_sha256 ?? p.serial_number
-  const wantsProposal = (p: ImportPreview) => hasBindings(p) && !skipProposals.has(proposalKey(p))
+  const candidates = (p: ImportPreview): RenewalCandidate[] => p.renewal_candidates?.length
+    ? p.renewal_candidates
+    : p.renewal_of_id
+      ? [{ id: p.renewal_of_id, name: p.renewal_of_name ?? '', signal: p.renewal_signal ?? 'subject',
+           subject_key_identifier: p.renewal_of_ski, valid_to: p.renewal_of_valid_to,
+           domains: p.renewal_of_domains ?? [], apps: p.renewal_of_apps ?? [] }]
+      : []
+  const candBound = (c: RenewalCandidate) => c.domains.length + c.apps.length > 0
+  // Aynı CN + aynı CA'lı birden çok eski sertifika varsa hangisinin yerine geçildiğini Jumbo
+  // bilemez: liste gösterilir, kullanıcı seçmeden talep açılmaz
+  const needsChoice = (p: ImportPreview) => candidates(p).length > 1 && candidates(p).some(candBound)
+  // Talebin açılacağı eski sertifika: seçim gerekiyorsa seçilen, yoksa tek öncül
+  const targetPred = (p: ImportPreview): RenewalCandidate | undefined => needsChoice(p)
+    ? candidates(p).find((c) => c.id === chosenPreds[proposalKey(p)])
+    : candidates(p)[0]
+  // Değişiklik talebi önerilebilecekler: öncülü envanterde kayıtlı VE taşınacak bağlantısı olanlar
+  const hasBindings = (p: ImportPreview) => needsChoice(p)
+    || (!!p.renewal_of_id && ((p.renewal_of_domains?.length ?? 0) + (p.renewal_of_apps?.length ?? 0)) > 0)
+  const wantsProposal = (p: ImportPreview) => {
+    const t = targetPred(p)
+    return hasBindings(p) && !skipProposals.has(proposalKey(p)) && !!t && candBound(t)
+  }
   const toggleProposal = (p: ImportPreview, on: boolean) => setSkipProposals((prev) => {
     const next = new Set(prev)
     if (on) next.delete(proposalKey(p)); else next.add(proposalKey(p))
@@ -107,8 +129,12 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         { label: 'Sertifika', value: p.name },
         { label: 'Bitiş (ValidTo)', value: (p.valid_to || '').slice(0, 10) || '—', highlight: true },
         ...(wantsProposal(p)
-          ? [{ label: 'Değişiklik talebi', value: `${p.renewal_of_name} bağlantıları için açılacak` }]
-          : []),
+          ? [{ label: 'Değişiklik talebi', value: needsChoice(p)
+            ? `${targetPred(p)!.name} (bitiş ${fmtDate(targetPred(p)!.valid_to)}) bağlantıları için açılacak`
+            : `${targetPred(p)!.name} bağlantıları için açılacak` }]
+          : needsChoice(p) && !skipProposals.has(proposalKey(p))
+            ? [{ label: 'Değişiklik talebi', value: 'Açılmayacak — eski sertifika seçilmedi', highlight: true }]
+            : []),
       ])
     : [{ label: 'Sertifika', value: manualName || '(PEM içeriğinden)' },
        { label: 'Tarihler', value: manualPem ? 'PEM içinden otomatik okunacak' : '—', highlight: true }]
@@ -133,7 +159,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         if (!newCert) continue
         try {
           proposed += (await api.post<{ proposed: number }>(
-            `/certificates/${newCert.id}/supersede/${p.renewal_of_id}`)).data.proposed
+            `/certificates/${newCert.id}/supersede/${targetPred(p)!.id}`)).data.proposed
         } catch (e) {
           failures.push(`${p.name}: ${apiErrorMessage(e)}`)
         }
@@ -304,52 +330,113 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                     <Stack spacing={1}>
                       {renewals.map((p) => (
                         <Box key={p.fingerprint_sha256 ?? p.serial_number}>
-                          <Stack direction="row" spacing={0.75} useFlexGap
-                                 sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                            <Chip size="small" label="ESKİ" sx={{ fontWeight: 700 }} />
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.renewal_of_name}</Typography>
-                            <Typography variant="caption" sx={{ fontFamily: MONO_FONT }} color="text.secondary">
-                              {p.renewal_of_ski ?? 'SKI yok'}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              bitiş {p.renewal_of_valid_to
-                                ? new Date(p.renewal_of_valid_to).toLocaleDateString('tr-TR') : '—'}
-                            </Typography>
-                            <Typography variant="body2" color="info.main" sx={{ px: 0.5 }}>→</Typography>
-                            <Chip size="small" color="info" label="YENİ" sx={{ fontWeight: 700 }} />
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              bitiş {new Date(p.valid_to).toLocaleDateString('tr-TR')}
-                            </Typography>
-                          </Stack>
-                          <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25 }}>
-                            {p.renewal_signal === 'ski'
-                              ? 'Tespit: SubjectKeyIdentifier birebir aynı — aynı anahtar yeniden sertifikalandırılmış (yenileme — aynı anahtar).'
-                              : 'Tespit: aynı CN + aynı üretici CA, geçerlilik başlangıcı daha yeni — yeniden anahtarlama, yani yeni anahtarla alınmış sertifika (tipik Vault rotasyonu).'}
-                          </Typography>
-                          <Typography variant="caption" component="div"
-                                      color={p.renewal_of_domains?.length ? 'warning.main' : 'text.secondary'}>
-                            {p.renewal_of_domains?.length
-                              ? `Eskinin bağlı olduğu domainler: ${p.renewal_of_domains.join(', ')}`
-                              : 'Eskisi hiçbir domaine bağlı değil.'}
-                          </Typography>
-                          {(p.renewal_of_apps?.length ?? 0) > 0 && (
-                            <Typography variant="caption" component="div" color="warning.main">
-                              Eskinin bağlı olduğu uygulamalar: {p.renewal_of_apps!.join(', ')}
-                            </Typography>
-                          )}
-                          {hasBindings(p) && (
-                            <FormControlLabel sx={{ mt: 0.5 }}
-                              control={<Checkbox size="small" checked={wantsProposal(p)}
-                                                 onChange={(e) => toggleProposal(p, e.target.checked)} />}
-                              label={<Typography variant="body2">
-                                Bu bağlantıların yeni sertifikaya taşınması için <strong>değişiklik talebi oluştur</strong>
-                              </Typography>} />
-                          )}
-                          {(p.renewal_also?.length ?? 0) > 0 && (
-                            <Typography variant="caption" component="div" color="warning.main">
-                              Diğer olası öncüller: {p.renewal_also!.join(' • ')}
-                            </Typography>
+                          {needsChoice(p) ? (
+                            <>
+                              <Stack direction="row" spacing={0.75} useFlexGap
+                                     sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Chip size="small" color="info" label="YENİ" sx={{ fontWeight: 700 }} />
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  bitiş {fmtDate(p.valid_to)}
+                                </Typography>
+                              </Stack>
+                              <Typography variant="body2" color="warning.main" sx={{ mt: 0.5 }}>
+                                Bu ada ve CA'ya sahip {candidates(p).length} eski sertifika var. Yeni sertifika
+                                hangisinin yerine geçiyor? Değişiklik talebi yalnız seçtiğiniz sertifikanın
+                                bağlantıları için açılır.
+                              </Typography>
+                              <RadioGroup value={chosenPreds[proposalKey(p)] ?? ''}
+                                          onChange={(e) => setChosenPreds((prev) => (
+                                            { ...prev, [proposalKey(p)]: Number(e.target.value) }))}>
+                                {candidates(p).map((c) => (
+                                  <FormControlLabel key={c.id} value={c.id} sx={{ alignItems: 'flex-start', mt: 0.25 }}
+                                    control={<Radio size="small" sx={{ pt: 0.25 }} />}
+                                    label={
+                                      <Box>
+                                        <Typography variant="body2">
+                                          <strong>{c.name}</strong> — bitiş {fmtDate(c.valid_to)}{' '}
+                                          <Typography component="span" variant="caption"
+                                                      sx={{ fontFamily: MONO_FONT }} color="text.secondary">
+                                            {c.subject_key_identifier ?? 'SKI yok'}
+                                          </Typography>
+                                        </Typography>
+                                        <Typography variant="caption" component="div"
+                                                    color={candBound(c) ? 'warning.main' : 'text.secondary'}>
+                                          {candBound(c)
+                                            ? `Bağlantılar: ${[...c.domains, ...c.apps].join(', ')}`
+                                            : 'Hiçbir domaine veya uygulamaya bağlı değil'}
+                                        </Typography>
+                                      </Box>
+                                    } />
+                                ))}
+                              </RadioGroup>
+                              <FormControlLabel sx={{ mt: 0.5 }}
+                                control={<Checkbox size="small" checked={!skipProposals.has(proposalKey(p))}
+                                                   onChange={(e) => toggleProposal(p, e.target.checked)} />}
+                                label={<Typography variant="body2">
+                                  Seçilen sertifikanın bağlantılarının yeni sertifikaya taşınması için <strong>değişiklik talebi oluştur</strong>
+                                </Typography>} />
+                              {!skipProposals.has(proposalKey(p)) && !targetPred(p) && (
+                                <Typography variant="caption" component="div" color="error.main">
+                                  Eski sertifikayı seçmezseniz yalnız yeni sertifika eklenir, talep açılmaz.
+                                </Typography>
+                              )}
+                              {!!targetPred(p) && !candBound(targetPred(p)!) && (
+                                <Typography variant="caption" component="div" color="text.secondary">
+                                  Seçilen sertifikanın taşınacak bağlantısı yok; talep açılmaz.
+                                </Typography>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <Stack direction="row" spacing={0.75} useFlexGap
+                                     sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                <Chip size="small" label="ESKİ" sx={{ fontWeight: 700 }} />
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.renewal_of_name}</Typography>
+                                <Typography variant="caption" sx={{ fontFamily: MONO_FONT }} color="text.secondary">
+                                  {p.renewal_of_ski ?? 'SKI yok'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  bitiş {p.renewal_of_valid_to
+                                    ? new Date(p.renewal_of_valid_to).toLocaleDateString('tr-TR') : '—'}
+                                </Typography>
+                                <Typography variant="body2" color="info.main" sx={{ px: 0.5 }}>→</Typography>
+                                <Chip size="small" color="info" label="YENİ" sx={{ fontWeight: 700 }} />
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.name}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  bitiş {new Date(p.valid_to).toLocaleDateString('tr-TR')}
+                                </Typography>
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.25 }}>
+                                {p.renewal_signal === 'ski'
+                                  ? 'Tespit: SubjectKeyIdentifier birebir aynı — aynı anahtar yeniden sertifikalandırılmış (yenileme — aynı anahtar).'
+                                  : 'Tespit: aynı CN + aynı üretici CA, geçerlilik başlangıcı daha yeni — yeniden anahtarlama, yani yeni anahtarla alınmış sertifika (tipik Vault rotasyonu).'}
+                              </Typography>
+                              <Typography variant="caption" component="div"
+                                          color={p.renewal_of_domains?.length ? 'warning.main' : 'text.secondary'}>
+                                {p.renewal_of_domains?.length
+                                  ? `Eskinin bağlı olduğu domainler: ${p.renewal_of_domains.join(', ')}`
+                                  : 'Eskisi hiçbir domaine bağlı değil.'}
+                              </Typography>
+                              {(p.renewal_of_apps?.length ?? 0) > 0 && (
+                                <Typography variant="caption" component="div" color="warning.main">
+                                  Eskinin bağlı olduğu uygulamalar: {p.renewal_of_apps!.join(', ')}
+                                </Typography>
+                              )}
+                              {hasBindings(p) && (
+                                <FormControlLabel sx={{ mt: 0.5 }}
+                                  control={<Checkbox size="small" checked={wantsProposal(p)}
+                                                     onChange={(e) => toggleProposal(p, e.target.checked)} />}
+                                  label={<Typography variant="body2">
+                                    Bu bağlantıların yeni sertifikaya taşınması için <strong>değişiklik talebi oluştur</strong>
+                                  </Typography>} />
+                              )}
+                              {(p.renewal_also?.length ?? 0) > 0 && (
+                                <Typography variant="caption" component="div" color="warning.main">
+                                  Diğer olası öncüller: {p.renewal_also!.join(' • ')}
+                                </Typography>
+                              )}
+                            </>
                           )}
                         </Box>
                       ))}

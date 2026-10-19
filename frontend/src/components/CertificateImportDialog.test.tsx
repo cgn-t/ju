@@ -77,3 +77,68 @@ describe('Sertifika içe aktarma — değişiklik talebi önerisi', () => {
     expect(apiPost).not.toHaveBeenCalledWith('/certificates/9/supersede/7')
   })
 })
+
+// Aynı CN + aynı CA'lı iki eski sertifika: Jumbo hangisinin yerine geçildiğini bilemez
+const AMBIGUOUS: ImportPreview = {
+  ...RENEWAL, renewal_signal: 'subject', renewal_of_domains: ['localhost:9441 (server)'], renewal_of_apps: [],
+  renewal_also: ['devir-test.jumbo.local (bitiş 13.10.2026) — bağlantılar: localhost:9446 (server)'],
+  renewal_candidates: [
+    { id: 7, name: 'devir-test.jumbo.local', signal: 'subject', subject_key_identifier: 'AA',
+      valid_to: '2027-08-14T00:00:00Z', domains: ['localhost:9441 (server)'], apps: [] },
+    { id: 8, name: 'devir-test.jumbo.local', signal: 'subject', subject_key_identifier: 'CC',
+      valid_to: '2026-10-13T00:00:00Z', domains: ['localhost:9446 (server)'], apps: ['OdemeApp (istemci sertifikası)'] },
+  ],
+} as ImportPreview
+
+describe('Sertifika içe aktarma — birden çok olası eski sertifika', () => {
+  beforeEach(() => {
+    apiGet.mockReset(); apiPost.mockReset()
+    apiGet.mockResolvedValue({ data: [{ id: 3, name: 'Test SY Ekibi', type: 'SY' }] })
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === '/certificates/import/preview') return { data: [AMBIGUOUS] }
+      if (url === '/certificates/import') return { data: [{ id: 9, fingerprint_sha256: 'FP-NEW' }] }
+      if (url === '/certificates/9/supersede/8') return { data: { proposed: 2 } }
+      throw new Error(`beklenmeyen istek: ${url}`)
+    })
+  })
+
+  async function open() {
+    renderPage(<CertificateImportDialog open onClose={() => {}} />, { url: '/certificates' })
+    const input = document.querySelector('input[type=file]') as HTMLInputElement
+    await userEvent.upload(input, new File(['pem'], 'yeni.pem'))
+    await screen.findByText(/2 eski sertifika var/)
+    await pick(/Oluşturan Ekip/, 'Test SY Ekibi')
+    await pick(/Ortam/, 'Test')
+  }
+
+  it('eski sertifikaları listeler, hiçbiri seçili gelmez; seçilmeden talep açılmaz', async () => {
+    await open()
+    const radios = screen.getAllByRole('radio')
+    expect(radios).toHaveLength(2)
+    radios.forEach((r) => expect(r).not.toBeChecked())
+    expect(screen.getByText('Bağlantılar: localhost:9446 (server), OdemeApp (istemci sertifikası)')).toBeInTheDocument()
+    expect(screen.queryByText(/Diğer olası öncüller/)).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'İçe Aktar' }))
+    expect(await screen.findByText('Açılmayacak — eski sertifika seçilmedi')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Onaylıyorum, İçe Aktar' }))
+
+    expect(await screen.findByText('1 sertifika eklendi')).toBeInTheDocument()
+    expect(apiPost).not.toHaveBeenCalledWith(expect.stringContaining('/supersede/'))
+  })
+
+  it('seçilen eski sertifika için talep açar', async () => {
+    await open()
+    await userEvent.click(screen.getAllByRole('radio')[1])
+
+    await userEvent.click(screen.getByRole('button', { name: 'İçe Aktar' }))
+    expect(await screen.findByText('devir-test.jumbo.local (bitiş 13.10.2026) bağlantıları için açılacak'))
+      .toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Onaylıyorum, İçe Aktar' }))
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/certificates/9/supersede/8'))
+    expect(apiPost).not.toHaveBeenCalledWith('/certificates/9/supersede/7')
+    expect(await screen.findByText(
+      '1 sertifika eklendi — 2 değişiklik talebi oluşturuldu (SY onayı bekliyor)')).toBeInTheDocument()
+  })
+})

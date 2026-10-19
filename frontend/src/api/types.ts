@@ -166,6 +166,18 @@ export interface ImportPreview {
   renewal_of_domains?: string[]
   renewal_of_apps?: string[]
   renewal_also?: string[]
+  // Envanterdeki tüm olası öncüller (en olası önce); birden çoksa talep için kullanıcı seçer
+  renewal_candidates?: RenewalCandidate[]
+}
+
+export interface RenewalCandidate {
+  id: number
+  name: string
+  signal: 'ski' | 'subject'
+  subject_key_identifier?: string | null
+  valid_to?: string | null
+  domains: string[]
+  apps: string[]
 }
 
 export interface MappedCert {

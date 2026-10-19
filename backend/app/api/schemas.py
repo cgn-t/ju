@@ -242,6 +242,17 @@ class DeactivateResult(BaseModel):
     message: str
 
 
+class RenewalCandidate(BaseModel):
+    """İçe aktarma önizlemesinde olası öncül: yeni sertifikanın yerine geçebileceği eski kayıt."""
+    id: int
+    name: str
+    signal: str  # "ski" | "subject"
+    subject_key_identifier: str | None = None
+    valid_to: datetime | None = None
+    domains: list[str] = []  # "domain (server)"
+    apps: list[str] = []  # "uygulama (istemci sertifikası | trust store)"
+
+
 class ImportPreview(BaseModel):
     """Import edilen dosyadan çıkarılan alanların önizlemesi."""
     name: str
@@ -271,6 +282,9 @@ class ImportPreview(BaseModel):
     renewal_of_apps: list[str] = []  # "uygulama (istemci sertifikası | trust store)"
     # İlk öncülün dışında devralınacaklar (import TÜM öncülleri devralır)
     renewal_also: list[str] = []
+    # Envanterdeki TÜM olası öncüller (en olası önce). Birden çoksa arayüz değişiklik talebi
+    # için doğru eskiyi kullanıcıya seçtirir (aynı CN + aynı CA'lı birden çok sertifika olabilir)
+    renewal_candidates: list[RenewalCandidate] = []
 
 
 # ---- Domains ----
