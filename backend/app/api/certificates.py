@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.api.schemas import (
     CertificateChainOut,
     CertificateCreate,
+    ChainCheckFinding,
     CertificateOut,
     CertificateUpdate,
     CertRefOut,
@@ -24,7 +25,7 @@ from app.db.models import (
     Team, TransferProposal, User,
 )
 from app.db.session import get_db
-from app.services import cert_parser, notifier, renewal, revocation
+from app.services import cert_parser, chain_repair, notifier, renewal, revocation
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
@@ -70,6 +71,26 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
         q = q.filter(Certificate.is_active == is_active)  # MSSQL: BIT = 1/0 (IS 1 geçersiz)
     return [_to_out(c) for c in
             q.order_by(Certificate.cert_type, Certificate.name).offset(offset).limit(limit).all()]
+
+
+@router.get("/chain-check", response_model=list[ChainCheckFinding])
+def chain_check(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Zincir Kontrolü (değiştirmez): tür, üst sertifika ve anahtar kimliği farkları."""
+    return chain_repair.check(db)
+
+
+@router.post("/chain-check/apply", response_model=list[ChainCheckFinding])
+def chain_check_apply(request: Request, db: Session = Depends(get_db),
+                      user: User = Depends(require_role("admin"))):
+    """Zincir Kontrolü farklarını düzeltir; her düzeltme işlem kaydına yazılır."""
+    applied = chain_repair.apply(db)
+    for f in applied:
+        log_action(db, user.username, "chain_repair", "certificates", f["certificate_id"],
+                   {"name": f["name"], "field": chain_repair.KIND_LABEL[f["kind"]],
+                    "old": f["current"], "new": f["expected"]},
+                   request)
+    db.commit()
+    return applied
 
 
 @router.get("/{cert_id}", response_model=CertificateOut)
@@ -587,6 +608,8 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                                 detail="Sertifikayı yalnız admin pasife alabilir/aktifleştirebilir")
         if changes["is_active"] is False:  # pasife alma → server bağı engeller (deactivate ile aynı kural)
             _ensure_deactivatable(db, cert)
+    if changes.get("parent_id") is not None:
+        _ensure_valid_parent(db, cert, changes["parent_id"])
     diff = label_ids(db, diff_fields(cert, changes))
     for key, value in changes.items():
         setattr(cert, key, value)
@@ -594,6 +617,21 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                {"name": cert.name, "changes": diff}, request)
     db.commit()
     return _to_out(cert)
+
+
+def _ensure_valid_parent(db: Session, cert: Certificate, parent_id: int) -> None:
+    """Elle verilen üst sertifika: kendisi olamaz, zinciri kendi içine döndüremez."""
+    parent = db.get(Certificate, parent_id)
+    if parent is None:
+        raise HTTPException(status_code=400, detail="Seçilen üst sertifika bulunamadı")
+    seen: set[int] = set()
+    cur = parent
+    while cur is not None and cur.id not in seen:
+        if cur.id == cert.id:
+            raise HTTPException(status_code=400,
+                                detail="Bir sertifika kendisinin ya da kendi alt sertifikasının altına bağlanamaz")
+        seen.add(cur.id)
+        cur = cur.parent
 
 
 @router.post("/{cert_id}/deactivate", response_model=DeactivateResult)
@@ -670,7 +708,8 @@ def delete_certificate(request: Request, cert_id: int, db: Session = Depends(get
     cert = db.get(Certificate, cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
-    for child in cert.children:
+    children = list(cert.children)
+    for child in children:
         child.parent_id = None
     # Kendine referanslı halef bağını boşalt: bu cert'i "yerine geçen" gösteren kayıtlar
     # (MSSQL self-FK'de ON DELETE SET NULL'a izin vermez → DB boşaltmaz, elle yapılır)
@@ -688,5 +727,9 @@ def delete_certificate(request: Request, cert_id: int, db: Session = Depends(get
                 "domains": [f"{m.domain.domain} ({m.mapping_type})"
                             for m in cert.domain_mappings if m.domain]}, request)
     db.delete(cert)
+    db.flush()
+    # Çocuklar üstsüz kalmasın: aynı anahtarlı başka bir CA kaydı (yenilenmiş ara CA) varsa ona bağlanır
+    for child in children:
+        child.parent_id = cert_parser.resolve_parent(db, child, exclude_id=cert.id)
     db.commit()
     return {"ok": True}

@@ -31,7 +31,7 @@ ACTION_LABELS = {
     "scan": "Keşif taraması", "test": "Bağlantı testi", "job_summary": "Zamanlanmış iş",
     "trigger": "Tetikleme", "rerun": "Yeniden çalıştırma", "retry": "Adım tekrarı",
     "cancel": "İptal", "ct-scan": "CT izleme", "mail_retry": "Mail yeniden kuyruğa",
-    "name_mismatch_ok": "Adres uyumsuzluğu onayı",
+    "name_mismatch_ok": "Adres uyumsuzluğu onayı", "chain_repair": "Zincir düzeltme",
 }
 
 # İşlem rengi (UI çip) — kategori renginden bağımsız, işlemin doğasına göre
@@ -39,7 +39,7 @@ ACTION_TONE = {
     "create": "success", "import": "success", "adopt": "success", "approve": "success",
     "supersede_apply": "success", "trusted_add_apply": "success", "add_member": "success",
     "server_add_apply": "success", "server_remove_apply": "warning",
-    "update": "info", "propose": "info", "vault_sync": "info",
+    "update": "info", "propose": "info", "vault_sync": "info", "chain_repair": "info",
     "delete": "error", "login_failed": "error", "propose_reject": "error", "remove_member": "error",
     "deactivate": "warning", "propose_cancel": "warning", "cancel": "warning",
     "duplicate_detected": "warning", "ignore": "warning", "name_mismatch_ok": "warning",
