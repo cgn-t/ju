@@ -71,6 +71,31 @@ oc expose svc/jumbo                            # OpenShift: dış erişim için 
 - **Sürücü**: MSSQL bağlantısı **pymssql** ile (FreeTDS pip wheel'inde gömülü) → imajda ayrı ODBC
   sürücüsü / Microsoft deposu / imza kurulumu YOK. Prod'da ek sürücü işi gerekmez.
 
+### GitHub'dan imaj (ghcr.io)
+`.github/workflows/image.yml` main'e her birleştirmede (ve Actions sekmesinden **Run workflow** ile elle)
+imajı derleyip GitHub Container Registry'ye gönderir:
+```
+ghcr.io/cgn-t/jumbo:<backend/VERSION>   # örn. ghcr.io/cgn-t/jumbo:3.8.12
+ghcr.io/cgn-t/jumbo:latest
+ghcr.io/cgn-t/jumbo:<commit kısa SHA>
+```
+Paket ilk gönderimde **private** olur. OpenShift'in çekebilmesi için iki yol var:
+- **Pull secret (önerilen):** GitHub'da `read:packages` izinli bir token (classic PAT) oluşturun, sonra
+  ```bash
+  oc create secret docker-registry ghcr-pull --docker-server=ghcr.io \
+     --docker-username=<github-kullanici> --docker-password=<token>
+  oc secrets link default ghcr-pull --for=pull
+  ```
+- **Ya da** GitHub'da paketi *Package settings → Change visibility → Public* yapın (secret gerekmez).
+
+Sonra Deployment'taki imajı sürüm etiketiyle verin (`latest` yerine sabit sürüm önerilir):
+```bash
+oc set image deployment/jumbo jumbo=ghcr.io/cgn-t/jumbo:3.8.12
+# ya da ImageStream ile:  oc import-image jumbo:3.8.12 --from=ghcr.io/cgn-t/jumbo:3.8.12 --confirm
+```
+OpenShift ghcr.io'ya doğrudan erişemiyorsa (kapalı ağ): imajı `skopeo copy` / `oc image mirror` ile
+şirket içi registry'ye aktarın.
+
 ## Şema (MSSQL)
 - **Taze DB**: uygulama açılışta `create_all` + `ensure_new_columns` + `ensure_indexes` ile şemayı KENDİ kurar.
   Elle kurmak istersen: `schema-mssql.sql` (repo kökü; models'ten üretilmiş tam DDL).

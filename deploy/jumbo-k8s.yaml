@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: jumbo            # TEK container: web + api aynı imajda
-          image: jumbo:latest
+          image: ghcr.io/cgn-t/jumbo:latest   # GitHub Actions üretir (deploy/README.md); prod için sabit sürüm etiketi önerilir
           ports: [{ containerPort: 8080 }]   # ön kapı (önyüz); 9080 frontend içseldir
           env:
             # MSSQL bağlantısı parça-parça (kod bunlardan pymssql URL kurar). Host/user/db/port
