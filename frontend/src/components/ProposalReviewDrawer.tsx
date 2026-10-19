@@ -119,6 +119,37 @@ function CompareRow({ f }: { f: Field }) {
   )
 }
 
+/** Tek sertifikanın alan satırı (EKLE / KALDIR talebi): alan | değer. Karşılaştırma tablosuyla aynı
+ *  alanlar ve görünüm, yalnız tek sütun — karşılaştırılacak ikinci sertifika yok. */
+function DetailRow({ f }: { f: SingleField }) {
+  const text = f.render === 'date' ? fmtDate(f.val) : (f.val || '—')
+  return (
+    <Box sx={{
+      display: 'grid', gridTemplateColumns: '24px 132px 1fr', gap: 1.25, alignItems: 'start',
+      py: 1, px: 1, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' },
+    }}>
+      <Box />
+      <Typography variant="caption" color="text.secondary" sx={{ pt: 0.25, fontWeight: 600 }}>
+        {f.label}
+      </Typography>
+      <Tooltip title={f.render === 'date' ? fmtDateTime(f.val) : (f.val || '')} placement="top-start">
+        <Typography sx={{
+          fontFamily: f.mono ? MONO_FONT : undefined, fontSize: f.mono ? 11.5 : 13,
+          wordBreak: 'break-all', lineHeight: 1.4, color: 'text.primary',
+        }}>
+          {text}
+        </Typography>
+      </Tooltip>
+    </Box>
+  )
+}
+
+interface SingleField { label: string; val?: string | null; mono?: boolean; render?: 'date' }
+
+/** Anahtar özeti: "RSA 2048" / "EC P-256"; bilinmiyorsa boş. */
+const keyLabel = (c: Certificate) =>
+  [c.public_key_type, c.key_curve || (c.key_size ? String(c.key_size) : null)].filter(Boolean).join(' ') || null
+
 /** ESKİ / YENİ kimlik kartı — devrin iki ucunu görsel olarak ayırır. */
 function CertCard({ cert, tone, kicker }: {
   cert?: Certificate; tone: 'old' | 'new'; kicker: string
@@ -167,12 +198,14 @@ function CertCard({ cert, tone, kicker }: {
 }
 
 /** Karşılaştırma tablosunda alan grubu başlığı: eşleşmeli (kimlik) vs benzersiz (değişir). */
-function GroupHeader({ label, tone }: { label: string; tone: 'match' | 'unique' }) {
+function GroupHeader({ label, tone }: { label: string; tone: 'match' | 'unique' | 'plain' }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, pt: 1.5, pb: 0.5 }}>
       {tone === 'match'
         ? <CheckCircleIcon sx={{ fontSize: 15, color: 'success.main' }} />
-        : <FingerprintIcon sx={{ fontSize: 16, color: 'warning.main' }} />}
+        : tone === 'plain'
+          ? <VerifiedUserIcon sx={{ fontSize: 15, color: 'text.disabled' }} />
+          : <FingerprintIcon sx={{ fontSize: 16, color: 'warning.main' }} />}
       <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: 0.3, color: 'text.secondary' }}>
         {label}
       </Typography>
@@ -261,6 +294,26 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
     { label: 'Bitiş', kind: 'expect-change', oldVal: oldCert.valid_to, newVal: newCert.valid_to, same: oldCert.valid_to === newCert.valid_to, render: 'date' },
   ] : []
 
+  // EKLE / KALDIR talebi: tek sertifika — yenileme karşılaştırmasındaki alanlar, aynı sırada
+  const single = newCert
+  const singleIdentity: SingleField[] = single ? [
+    { label: 'Subject (CN)', val: single.subject, mono: true },
+    { label: 'SAN', val: single.san },
+    { label: 'Issuer (CA)', val: single.issuer, mono: true },
+    { label: 'SKI (anahtar)', val: single.subject_key_identifier, mono: true },
+    { label: 'AKI', val: single.authority_key_identifier, mono: true },
+  ] : []
+  const singleUnique: SingleField[] = single ? [
+    { label: 'SHA-256 parmak izi', val: single.fingerprint_sha256, mono: true },
+    { label: 'Serial', val: single.serial_number, mono: true },
+    { label: 'Başlangıç', val: single.valid_from, render: 'date' },
+    { label: 'Bitiş', val: single.valid_to, render: 'date' },
+    { label: 'Anahtar', val: keyLabel(single) },
+    { label: 'İmza algoritması', val: single.signature_hash },
+  ] : []
+  // Sertifikanın şu anki diğer bağlantıları — talebin etkisini anlamak için
+  const otherDomains = (single?.domains ?? []).filter((d) => !(d.domain_id === proposal?.domain_id && d.mapping_type === 'server'))
+
   const identityFields = fields.filter((f) => f.kind === 'expect-same')
   const uniqueFields = fields.filter((f) => f.kind === 'expect-change')
   const fpChanged = !!oldCert && !!newCert && normHex(oldCert.fingerprint_sha256) !== normHex(newCert.fingerprint_sha256)
@@ -343,6 +396,48 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                   <Stack spacing={0.75} sx={{ mt: 0.5 }}>
                     {scopeItems.map((p) => <ScopeRow key={p.id} p={p} current={p.id === proposal.id} />)}
                   </Stack>
+                </Box>
+
+                {/* Sertifika detayı — yenileme karşılaştırmasıyla aynı alanlar, tek sertifika */}
+                <Box>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Sertifika Detayı
+                  </Typography>
+                  <Box sx={{
+                    display: 'grid', gridTemplateColumns: '24px 132px 1fr', gap: 1.25,
+                    px: 1, pb: 0.5, borderBottom: '1px solid', borderColor: 'divider',
+                  }}>
+                    <Box />
+                    <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 700 }}>ALAN</Typography>
+                    <Typography variant="caption" color={isAdd ? 'info.main' : 'text.disabled'} sx={{ fontWeight: 700 }}>
+                      {isAdd ? 'EKLENECEK SERTİFİKA' : 'KALDIRILACAK SERTİFİKA'}
+                    </Typography>
+                  </Box>
+                  <GroupHeader tone="plain" label="KİMLİK" />
+                  <Stack divider={<Divider flexItem />} sx={{ mt: 0.25 }}>
+                    {singleIdentity.map((f) => <DetailRow key={f.label} f={f} />)}
+                  </Stack>
+                  <GroupHeader tone="unique" label="BENZERSİZ · bu sertifikaya özgü" />
+                  <Stack divider={<Divider flexItem />} sx={{ mt: 0.25 }}>
+                    {singleUnique.map((f) => <DetailRow key={f.label} f={f} />)}
+                  </Stack>
+                  <Box sx={{ px: 1, pt: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                      Diğer bağlantıları
+                    </Typography>
+                    {otherDomains.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                        Başka domaine bağlı değil.
+                      </Typography>
+                    ) : (
+                      <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75, mt: 0.5 }}>
+                        {otherDomains.map((d) => (
+                          <Chip key={`${d.domain_id}-${d.mapping_type}`} size="small" variant="outlined"
+                                label={`${d.domain} (${mappingTypeLabel(d.mapping_type)})`} sx={{ height: 22 }} />
+                        ))}
+                      </Stack>
+                    )}
+                  </Box>
                 </Box>
               </Stack>
             ) : (
