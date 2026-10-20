@@ -202,6 +202,9 @@ export interface ChainProbeCert {
   days_left?: number | null
   already_exists: boolean
   existing_id?: number | null
+  issuer_name?: string | null
+  cross_signed_root?: boolean
+  extra_chain?: boolean
 }
 
 export interface ChainProbeResult {
