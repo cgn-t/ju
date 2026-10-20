@@ -40,7 +40,7 @@ from app.db.models import (
     User,
 )
 from app.db.session import get_db
-from app.services import cert_parser, renewal
+from app.services import cert_parser, renewal, trust_anchors
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
 from app.services.chain_sync import sync_domain_chain_certs
 from app.services.dependencies import fill_unwatched_dependencies
@@ -273,7 +273,8 @@ def probe_chain(body: ChainProbeRequest, db: Session = Depends(get_db),
         return ChainProbeOut(reachable=False, host=host, port=port, error=describe_connection_error(exc, host, port))
 
     certs = []
-    for parsed in (cert_parser.parse_x509(c) for c in chain):
+    browser_end = trust_anchors.first_cross_signed_root(chain)
+    for i, (raw, parsed) in enumerate((c, cert_parser.parse_x509(c)) for c in chain):
         existing = cert_parser.find_existing(db, parsed)
         certs.append(ChainProbeCert(
             name=parsed.name,
@@ -285,6 +286,9 @@ def probe_chain(body: ChainProbeRequest, db: Session = Depends(get_db),
             days_left=_days_left(parsed.valid_to),
             already_exists=existing is not None,
             existing_id=existing.id if existing else None,
+            issuer_name=trust_anchors.common_name(raw.issuer),
+            cross_signed_root=trust_anchors.is_cross_signed_public_root(raw),
+            extra_chain=browser_end is not None and i > browser_end,
         ))
     return ChainProbeOut(reachable=True, host=host, port=port, certificates=certs,
                          name_warning=host_name_warning(host, chain[0]))

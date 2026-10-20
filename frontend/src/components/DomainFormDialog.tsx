@@ -1,7 +1,7 @@
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
-  DialogTitle, FormControlLabel, Grid, MenuItem, Paper, TextField, Typography,
+  DialogTitle, FormControlLabel, Grid, MenuItem, Paper, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -270,15 +270,37 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
                               sx={{ bgcolor: nodeColors[c.cert_type], color: 'rgba(0,0,0,0.87)',
                                     fontWeight: 700, width: 26, flexShrink: 0 }} />
                         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-                          <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>{c.name}</Typography>
+                          <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}
+                                      color={c.extra_chain ? 'text.secondary' : undefined}>{c.name}</Typography>
                           <SkiText value={c.subject_key_identifier} />
                         </Box>
+                        {c.cross_signed_root && !c.extra_chain && (
+                          <Tooltip title={`Kök sertifikanın ${c.issuer_name ?? 'başka bir CA'} tarafından imzalanmış kopyası. Bu kopya teknik olarak ara sertifikadır; tarayıcılar kökün kendisini güven listesinde bulur.`}>
+                            <Chip size="small" color="info" variant="outlined" label="Çapraz imzalı kök" />
+                          </Tooltip>
+                        )}
+                        {c.extra_chain && (
+                          <Tooltip title="Tarayıcılar bu sertifikayı kullanmaz; sunucu eski cihazlar için gönderiyor.">
+                            <Chip size="small" variant="outlined" label="Ek zincir" />
+                          </Tooltip>
+                        )}
                         <Chip size="small" color={daysLeftColor(c.days_left)} label={daysLeftLabel(c.days_left)} />
                         {c.already_exists
                           ? <Chip size="small" color="warning" variant="outlined" label="DB'de kayıtlı" />
                           : <Chip size="small" color="success" variant="outlined" label="Yeni" />}
                       </Box>
                     ))}
+                    {probe.certificates.filter((c) => c.cross_signed_root).slice(0, 1).map((c) => {
+                      const extra = probe.certificates.filter((x) => x.extra_chain).length
+                      return (
+                        <Alert key="cross" severity="info" sx={{ py: 0, mt: 1 }}>
+                          Sunucu, <b>{c.name}</b> kök sertifikasının {c.issuer_name} tarafından imzalanmış
+                          kopyasını gönderiyor; bu kopya ara sertifika (I) olarak görünür. Tarayıcılar kökü kendi
+                          güven listesinde bulduğu için zinciri {c.name} kökünde bitirir
+                          {extra > 0 && <>; altındaki {extra} sertifika eski cihazlar için gönderilen ek zincirdir</>}.
+                        </Alert>
+                      )
+                    })}
                     {probe.certificates.some((c) => c.already_exists) && (
                       <Alert severity="warning" sx={{ py: 0, mt: 1 }}>
                         &quot;DB&apos;de kayıtlı&quot; işaretli sertifikalar zaten envanterde — tekrar eklenmez,

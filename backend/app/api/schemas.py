@@ -365,6 +365,9 @@ class ChainProbeCert(BaseModel):
     days_left: int | None = None
     already_exists: bool = False
     existing_id: int | None = None
+    issuer_name: str | None = None
+    cross_signed_root: bool = False  # genel bir kökün başka CA imzalı kopyası (tarayıcı burada durur)
+    extra_chain: bool = False        # çapraz imzalı kopyadan sonra gelen, tarayıcının kullanmadığı sertifika
 
 
 class ChainProbeOut(BaseModel):
