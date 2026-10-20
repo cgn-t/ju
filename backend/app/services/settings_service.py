@@ -281,11 +281,37 @@ def get_category(db: Session, category: str, mask_secrets: bool = True) -> dict:
                 try:
                     raw = f.decrypt(raw.encode()).decode()
                 except InvalidToken:
+                    # Değer başka bir FERNET_KEY ile şifrelenmiş (ör. yeni kurulumda anahtar değişti)
+                    logger.warning("'%s' çözülemedi: FERNET_KEY, değer kaydedilirken kullanılan "
+                                   "anahtarla aynı değil — değer boş kabul edildi.", row.key)
                     raw = ""
             else:
+                logger.warning("'%s' şifreli saklanıyor ama FERNET_KEY tanımlı değil — değer boş "
+                               "kabul edildi.", row.key)
                 raw = ""
         result[field] = json.loads(raw) if raw else raw
     return result
+
+
+def secret_state(db: Session, key: str) -> str:
+    """Hassas bir ayarın okunabilirlik durumu (değeri döndürmez):
+      "missing"       → hiç kaydedilmemiş ya da boş
+      "no_key"        → şifreli kayıtlı ama FERNET_KEY tanımlı değil
+      "undecryptable" → şifreli kayıtlı ama mevcut FERNET_KEY ile çözülemiyor (anahtar farklı)
+      "ok"            → okunabiliyor"""
+    row = db.get(AppSetting, key)
+    if row is None or not row.value:
+        return "missing"
+    if not row.is_encrypted:
+        return "ok" if json.loads(row.value) else "missing"
+    f = _fernet()
+    if not f:
+        return "no_key"
+    try:
+        f.decrypt(row.value.encode())
+    except InvalidToken:
+        return "undecryptable"
+    return "ok"
 
 
 def save_category(db: Session, category: str, values: dict) -> None:

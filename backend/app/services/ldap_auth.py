@@ -8,7 +8,7 @@ from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy.orm import Session
 
-from app.services.settings_service import get_category
+from app.services.settings_service import get_category, secret_state
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,26 @@ def _connect(server: Server, cfg: dict, user: str | None, password: str | None) 
     return conn
 
 
+_BIND_PASSWORD_PROBLEMS = {
+    "missing": "Bind şifresi kayıtlı değil. Ayarlar > LDAP'ta Bind Şifresi'ni girip Kaydet'e basın.",
+    "no_key": "Bind şifresi okunamadı: uygulamada FERNET_KEY tanımlı değil. Kurulumda eski "
+              "FERNET_KEY değerini verin ya da Bind Şifresi'ni yeniden girip Kaydet'e basın.",
+    "undecryptable": "Bind şifresi okunamadı: kayıtlı şifre farklı bir FERNET_KEY ile şifrelenmiş "
+                     "(kurulumdaki FERNET_KEY eskisiyle aynı değil). Kurulumda eski FERNET_KEY "
+                     "değerini verin ya da Bind Şifresi'ni yeniden girip Kaydet'e basın.",
+}
+
+
+def _bind_password_problem(db: Session, cfg: dict) -> str | None:
+    """Bind DN tanımlı ama şifresi boş geldiyse nedenini söyler. Aksi halde ldap3 yalnız
+    'password is mandatory in simple bind' der ve asıl sebep (kayıtsız şifre ya da değişen
+    FERNET_KEY yüzünden çözülemeyen şifre) görünmez."""
+    if not cfg.get("bind_dn") or cfg.get("bind_password"):
+        return None
+    state = secret_state(db, "ldap.bind_password")
+    return _BIND_PASSWORD_PROBLEMS.get(state, _BIND_PASSWORD_PROBLEMS["missing"])
+
+
 def test_connection(db: Session) -> tuple[bool, str]:
     """Settings sayfasındaki 'bağlantıyı test et' için: bind hesabıyla bağlanmayı dener."""
     cfg = get_category(db, "ldap", mask_secrets=False)
@@ -98,6 +118,10 @@ def test_connection(db: Session) -> tuple[bool, str]:
     logger.info("LDAP bağlantı testi: sunucu=%s:%s | bind_dn=%s",
                 cfg.get("server"), cfg.get("port") or 636, cfg.get("bind_dn"))
     logger.debug("LDAP test TLS=%s", _tls_desc(cfg))
+    problem = _bind_password_problem(db, cfg)
+    if problem:
+        logger.error("LDAP bağlantı testi yapılamadı: %s", problem)
+        return False, f"Bağlantı hatası: {problem}"
     try:
         conn = _connect(_server(cfg), cfg, cfg.get("bind_dn"), cfg.get("bind_password"))
         conn.unbind()
@@ -126,6 +150,10 @@ def authenticate(db: Session, username: str, password: str) -> LdapResult:
     if not password:
         return LdapResult(False, error="Kullanıcı adı veya şifre hatalı")
     logger.info("LDAP giriş denemesi: kullanıcı=%s", username)
+    problem = _bind_password_problem(db, cfg)
+    if problem:
+        logger.error("LDAP doğrulama yapılamadı (kullanıcı=%s): %s", username, problem)
+        return LdapResult(False, error="Kullanıcı adı veya şifre hatalı")
     try:
         server = _server(cfg)
         user_attr = cfg.get("user_attr") or "sAMAccountName"
