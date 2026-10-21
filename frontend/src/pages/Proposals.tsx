@@ -18,6 +18,8 @@ import { mappingTypeLabel, MONO_FONT } from '../theme'
 import { useUrlId } from '../hooks/useUrlState'
 import { proposerLine, viaLabel } from '../utils/proposalLabels'
 
+const fmtDay = (v?: string | null) => (v ? new Date(v).toLocaleDateString('tr-TR') : '—')
+
 export default function Proposals() {
   useDocumentTitle('Değişiklik Talepleri')
   const { enqueueSnackbar } = useSnackbar()
@@ -33,7 +35,7 @@ export default function Proposals() {
   // Aynı devrin (old→new cert) tüm bekleyen domain önerileri — çekmecede "Kapsam" için.
   const reviewGroup = reviewProposal
     ? (proposals ?? []).filter((p) => p.old_cert_id === reviewProposal.old_cert_id
-        && p.new_cert_id === reviewProposal.new_cert_id)
+        && p.new_cert_id === reviewProposal.new_cert_id && p.kind === reviewProposal.kind)
     : []
 
   const invalidate = () => {
@@ -103,7 +105,7 @@ export default function Proposals() {
             {rows.map((p) => (
               <TableRow key={p.id} hover>
                 <TableCell>
-                  <Tooltip title={p.kind === 'server_add' || p.kind === 'server_remove'
+                  <Tooltip title={p.kind === 'server_add' || p.kind === 'server_remove' || p.kind === 'date_fix'
                     ? 'Talebi incele' : 'Eski ve yeni sertifikayı karşılaştır'}>
                     <Box onClick={() => setReviewId(p.id)}
                          sx={{
@@ -111,7 +113,15 @@ export default function Proposals() {
                            cursor: 'pointer', borderRadius: 1, mx: -0.5, px: 0.5, py: 0.25,
                            '&:hover': { bgcolor: 'action.hover' },
                          }}>
-                      {p.kind === 'server_add' || p.kind === 'server_remove' ? (
+                      {p.kind === 'date_fix' ? (
+                        <>
+                          <Chip size="small" sx={{ fontWeight: 700 }} color="info" label="TARİH" />
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.new_cert_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            bitiş {fmtDay(p.record_valid_to)} → {fmtDay(p.cert_valid_to)}
+                          </Typography>
+                        </>
+                      ) : p.kind === 'server_add' || p.kind === 'server_remove' ? (
                         <>
                           <Chip size="small" sx={{ fontWeight: 700 }}
                                 color={p.kind === 'server_add' ? 'success' : 'warning'}
@@ -145,6 +155,8 @@ export default function Proposals() {
                 <TableCell>
                   {p.kind === 'trusted_add'
                     ? <Chip size="small" color="secondary" variant="outlined" label="trusted (ekle)" />
+                    : p.kind === 'date_fix'
+                    ? <Chip size="small" color="info" variant="outlined" label="tarih güncelleme" />
                     : (p.mapping_type && <Chip size="small" variant="outlined" label={mappingTypeLabel(p.mapping_type)} />)}
                 </TableCell>
                 <TableCell>

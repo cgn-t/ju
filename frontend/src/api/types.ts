@@ -110,7 +110,7 @@ export interface TransferProposal {
   app_dependency_id?: number | null
   app_id?: number | null
   app_name?: string | null
-  kind?: 'transfer' | 'trusted_add' | 'server_add' | 'server_remove'
+  kind?: 'transfer' | 'trusted_add' | 'server_add' | 'server_remove' | 'date_fix'
   sy_team_id?: number | null
   sy_team_name?: string | null
   status: 'pending' | 'approved' | 'applied' | 'rejected' | 'cancelled'
@@ -124,6 +124,11 @@ export interface TransferProposal {
   decided_at?: string | null
   note?: string | null
   can_decide: boolean
+  /** date_fix: kayıttaki tarihler ve sertifikanın kendisindeki tarihler */
+  record_valid_from?: string | null
+  record_valid_to?: string | null
+  cert_valid_from?: string | null
+  cert_valid_to?: string | null
 }
 
 export interface CertificateChain {

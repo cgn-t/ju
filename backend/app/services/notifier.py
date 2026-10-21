@@ -17,6 +17,7 @@ from app.db.models import (AppDependency, Application, ApplicationTrustedCert, C
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
 from app.db.session import SessionLocal
+from app.services import cert_parser
 from app.services.audit import audited_job
 from app.services.settings_service import get_category
 
@@ -1153,6 +1154,8 @@ def _proposal_location(p: TransferProposal) -> str:
     bağımlılığı | '-'. _proposal_rows'un 'Konum' satırında kullanılır."""
     if p.kind == "trusted_add":
         return f"Trust store: {p.app.app_name}" if p.app else "Uygulama trust store"
+    if p.kind == "date_fix":
+        return f"{p.domain.domain} (canlı doğrulamada görüldü)" if p.domain else "-"
     if p.domain is not None:
         return f"{p.domain.domain} ({_mapping_label(p.mapping_type)})"
     if p.app_dependency_id is not None:
@@ -1169,16 +1172,31 @@ def _proposal_label(p: TransferProposal) -> str:
         return f"Ekleme: {new}"
     if p.kind == "server_remove":
         return f"Kaldırma: {old}"
+    if p.kind == "date_fix":
+        return f"Tarih güncelleme: {new}"
     return f"{old} → {new}"
 
 
 _PROPOSAL_KIND_LABELS = {"transfer": "Sertifika Değişikliği", "trusted_add": "Trust Store Ekleme",
-                         "server_add": "Bağlantı Ekleme", "server_remove": "Bağlantı Kaldırma"}
+                         "server_add": "Bağlantı Ekleme", "server_remove": "Bağlantı Kaldırma",
+                         "date_fix": "Tarih Güncelleme"}
 _PROPOSAL_SIGNAL_LABELS = {"ski": "SubjectKeyIdentifier", "subject": "Subject"}
 
 
 def _proposal_rows(p: TransferProposal) -> list[tuple]:
     """'Değişiklik Talebi Detayı' tablosu — _cert_rows/_domain_rows ile aynı alan:değer deseni."""
+    if p.kind == "date_fix":
+        pem = cert_parser.pem_dates(p.new_cert.pem_certificate) if p.new_cert else None
+        return [
+            ("Sertifika", p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"),
+            ("Kayıttaki Bitiş", p.new_cert.valid_to if p.new_cert else None),
+            ("Sertifikadaki Bitiş", pem[1] if pem else None),
+            ("Konum", _proposal_location(p)),
+            ("Talep Türü", _PROPOSAL_KIND_LABELS["date_fix"]),
+            ("Kaynak", p.via),
+            ("Oluşturulma Tarihi", p.created_at),
+            ("Not", p.note),
+        ]
     return [
         ("Eski Sertifika", p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"),
         ("Eski Sertifika Bitiş", p.old_cert.valid_to if p.old_cert else None),

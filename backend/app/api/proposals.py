@@ -21,7 +21,7 @@ from app.core.security import (
 )
 from app.db.models import Application, Certificate, Domain, TransferProposal, User
 from app.db.session import get_db
-from app.services import renewal
+from app.services import cert_parser, renewal
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/proposals", tags=["proposals"])
@@ -53,7 +53,12 @@ def _to_out(db: Session, p: TransferProposal, team_ids: set[int], is_admin: bool
     # Karar yetkisi = admin VEYA (editor-tier VE öneri SY ekibinin üyesi). viewer/allviewer
     # SY üyesi olsa bile onaylayamaz (require_team_or_admin ile birebir aynı kural).
     can = is_admin or (is_editor and p.sy_team_id is not None and p.sy_team_id in team_ids)
-    return TransferProposalOut(
+    dates = {}
+    if p.kind == "date_fix" and new is not None:
+        pem = cert_parser.pem_dates(new.pem_certificate)
+        dates = dict(record_valid_from=new.valid_from, record_valid_to=new.valid_to,
+                     cert_valid_from=pem[0] if pem else None, cert_valid_to=pem[1] if pem else None)
+    return TransferProposalOut(**dates,
         id=p.id, old_cert_id=p.old_cert_id, old_cert_name=old.name if old else None,
         new_cert_id=p.new_cert_id, new_cert_name=new.name if new else None,
         domain_id=p.domain_id, domain_name=dom.domain if dom else None,

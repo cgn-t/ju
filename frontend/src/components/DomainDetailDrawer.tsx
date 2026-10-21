@@ -305,6 +305,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     {d.reason && <Field label="Not" value={d.reason} />}
                     {d.name_warning && d.name_warning !== d.reason && <Field label="Uyarı" value={d.name_warning} />}
                     {d.chain_warning && d.chain_warning !== d.reason && <Field label="Zincir uyarısı" value={d.chain_warning} />}
+                    {d.date_note && <Field label="Tarih farkı" value={d.date_note} />}
                   </Box>
                 )
               } catch { return null }
