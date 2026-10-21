@@ -350,6 +350,30 @@ def parse_pem_text(pem_text: str) -> list[ParsedCertificate]:
     return parse_upload(pem_text.encode())
 
 
+def pem_dates(text: str | None) -> tuple[datetime, datetime] | None:
+    """Kayıttaki sertifika içeriğinin (PEM ya da prod'un zırhsız base64 DER biçimi) gerçek
+    başlangıç/bitiş tarihleri (UTC, naive). Okunamazsa None."""
+    if not text or not text.strip():
+        return None
+    try:
+        if "-----BEGIN" in text:
+            cert = x509.load_pem_x509_certificate(text.strip().encode())
+        else:
+            cert = x509.load_der_x509_certificate(base64.b64decode("".join(text.split()), validate=True))
+    except Exception:
+        return None
+    return (cert.not_valid_before_utc.replace(tzinfo=None),
+            cert.not_valid_after_utc.replace(tzinfo=None))
+
+
+def same_second(a: datetime | None, b: datetime | None) -> bool:
+    """Tarih eşitliği saniye hassasiyetinde (MSSQL DATETIME milisaniyeyi yuvarlar; X.509
+    tarihleri zaten saniyeliktir)."""
+    if a is None or b is None:
+        return a is b
+    return a.replace(microsecond=0) == b.replace(microsecond=0)
+
+
 def find_existing(db: Session, parsed: ParsedCertificate) -> Certificate | None:
     """Mükerrer kontrolü: SHA-256 fingerprint sertifikanın gerçek kimliğidir.
 

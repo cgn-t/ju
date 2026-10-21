@@ -24,6 +24,7 @@ ACTION_LABELS = {
     "propose_cancel": "Talep iptali", "supersede_apply": "Değişiklik uygulandı",
     "trusted_add_apply": "Trust store'a eklendi",
     "server_add_apply": "Bağlantı eklendi (talep)", "server_remove_apply": "Bağlantı kaldırıldı (talep)",
+    "date_fix_apply": "Tarih güncellendi (talep)",
     "login": "Giriş", "login_failed": "Başarısız giriş",
     "add_member": "Ekibe üye ekleme", "remove_member": "Ekipten üye çıkarma",
     "live_check_run": "Canlı doğrulama", "notify": "Bildirim çalıştırma",
@@ -38,7 +39,7 @@ ACTION_LABELS = {
 ACTION_TONE = {
     "create": "success", "import": "success", "adopt": "success", "approve": "success",
     "supersede_apply": "success", "trusted_add_apply": "success", "add_member": "success",
-    "server_add_apply": "success", "server_remove_apply": "warning",
+    "server_add_apply": "success", "server_remove_apply": "warning", "date_fix_apply": "success",
     "update": "info", "propose": "info", "vault_sync": "info", "chain_repair": "info",
     "delete": "error", "login_failed": "error", "propose_reject": "error", "remove_member": "error",
     "deactivate": "warning", "propose_cancel": "warning", "cancel": "warning",

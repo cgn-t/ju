@@ -28,7 +28,8 @@ from app.db.models import (
     Domain,
     TransferProposal,
 )
-from app.services.audit import log_action
+from app.services import cert_parser
+from app.services.audit import diff_fields, log_action
 
 
 def find_predecessors(db: Session, *, cert_type: str, fingerprint_sha256: str | None,
@@ -267,6 +268,34 @@ def propose_server_mapping(db: Session, kind: str, cert: Certificate, domain: Do
     return prop
 
 
+def propose_date_fix(db: Session, cert: Certificate, domain: Domain, *, username: str,
+                     request: Request | None, via: str) -> TransferProposal:
+    """Canlı doğrulamanın TARİH GÜNCELLEME talebi: sunucudaki sertifika envanterdeki kayıtla
+    AYNI (fingerprint eşit) ama kayıttaki başlangıç/bitiş tarihi sertifikanınkinden farklı
+    (ör. eski uygulama kayda yeni sertifikanın PEM'ini yazıp tarihi güncellememiş).
+    Onaylanınca tarihler PEM'den yeniden okunur (apply_proposal). Talep SERTİFİKA başınadır:
+    sertifika çok domainde sunulsa da tek açık talep olur (ilk görüldüğü domainin SY'sine).
+    Granül server_add/server_remove ile çakışmasın diye mapping_type boş bırakılır.
+    Açık ya da REDDEDİLMİŞ tarih talebi varsa yenisi açılmaz, o talep döner."""
+    db.flush()
+    prior = (db.query(TransferProposal)
+             .filter(TransferProposal.kind == "date_fix",
+                     TransferProposal.old_cert_id == cert.id,
+                     TransferProposal.status.in_(("pending", "approved", "rejected"))).first())
+    if prior is not None:
+        return prior
+    prop = TransferProposal(
+        old_cert_id=cert.id, new_cert_id=cert.id, domain_id=domain.id, mapping_type=None,
+        kind="date_fix", sy_team_id=domain.sy_team_id, status="pending", via=via, live_seen=True,
+        live_seen_at=utcnow(), created_by=username)
+    db.add(prop)
+    db.flush()
+    log_action(db, username, "propose", "transfer_proposals", cert.id,
+               {"kind": "date_fix", "cert_id": cert.id, "cert_name": cert.name,
+                "domain": domain.domain, "via": via}, request)
+    return prop
+
+
 def propose_attach_transfer(db: Session, new_cert: Certificate, old_cert: Certificate,
                             domain: Domain, mapping_type: str, *, username: str,
                             request: Request | None, via: str = "attach",
@@ -351,6 +380,22 @@ def apply_proposal(db: Session, prop: TransferProposal, username: str,
         log_action(db, username, f"{prop.kind}_apply", "certificate_domain_map", new_cert.id,
                    {"proposal_id": prop.id, "cert_name": new_cert.name,
                     "domain": dom.domain if dom else None, "mapping_type": "server"}, request)
+        return
+
+    # TARİH GÜNCELLEME: devir DEĞİL — kaydın başlangıç/bitiş tarihi PEM'den yeniden okunur.
+    if prop.kind == "date_fix":
+        dates = cert_parser.pem_dates(new_cert.pem_certificate)
+        if dates is None:
+            prop.status = "cancelled"
+            prop.note = "Geçersiz: kayıtta okunabilir sertifika içeriği yok — tarih güncellenmedi"
+            return
+        diff = diff_fields(new_cert, {"valid_from": dates[0], "valid_to": dates[1]})
+        new_cert.valid_from, new_cert.valid_to = dates
+        prop.status = "applied"
+        prop.applied_at = utcnow()
+        db.flush()
+        log_action(db, username, "date_fix_apply", "certificates", new_cert.id,
+                   {"proposal_id": prop.id, "name": new_cert.name, "changes": diff}, request)
         return
 
     # TRUSTED EKLEME: devir DEĞİL — yeni cert'i uygulamanın trust store'una EKLE, eskiyi KORU
@@ -470,6 +515,7 @@ def _maybe_deactivate_old(db: Session, old_cert: Certificate) -> None:
     db.flush()
     open_count = (db.query(TransferProposal)
                   .filter(TransferProposal.old_cert_id == old_cert.id,
+                          TransferProposal.kind != "date_fix",  # tarih talebi devir değildir
                           TransferProposal.status.in_(("pending", "approved"))).count())
     if open_count > 0:
         return

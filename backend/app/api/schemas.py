@@ -402,7 +402,7 @@ class TransferProposalOut(ORMModel):
     app_dependency_id: int | None = None
     app_id: int | None = None
     app_name: str | None = None            # trusted_add: hedef uygulama
-    kind: str = "transfer"                 # transfer | trusted_add | server_add | server_remove
+    kind: str = "transfer"                 # transfer | trusted_add | server_add | server_remove | date_fix
     sy_team_id: int | None = None
     sy_team_name: str | None = None
     status: str
@@ -416,6 +416,11 @@ class TransferProposalOut(ORMModel):
     decided_at: IstanbulDateTime | None = None
     note: str | None = None
     can_decide: bool = False   # bu isteği yapan kullanıcı onaylayabilir mi
+    # date_fix: kayıttaki tarihler ve sertifikanın kendisindeki (PEM) tarihler
+    record_valid_from: datetime | None = None
+    record_valid_to: datetime | None = None
+    cert_valid_from: datetime | None = None
+    cert_valid_to: datetime | None = None
 
 
 class ProposalDecision(BaseModel):

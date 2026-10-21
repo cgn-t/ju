@@ -309,7 +309,9 @@ def check_domain(db: Session, domain: Domain) -> Domain:
                 continue  # bu tip domaine hiç eşlenmemiş — karşılaştırılamaz, mismatch sayılmaz
             if served.fingerprint_sha256 in pool:
                 matched = pool[served.fingerprint_sha256]
-                if matched.valid_to is not None and matched.valid_to < checked_at:
+                # Süre, sunulan sertifikanın KENDİ tarihine göre (fingerprint aynı → aynı
+                # sertifika). Kayıttaki tarih farklıysa aşağıda tarih güncelleme talebi açılır.
+                if served.valid_to < checked_at:
                     # Eşleşiyor ama süresi dolmuş — bunu yeşil göstermek yanıltıcı olur
                     levels[served.cert_type] = {"status": "mismatch", "matched_certificate": matched.name,
                                                 "reason": "SÜRESİ DOLMUŞ"}
@@ -406,10 +408,43 @@ def check_domain(db: Session, domain: Domain) -> Domain:
             detail["proposed_add"] = sync.added
         if sync.removed:
             detail["proposed_remove"] = sync.removed
+        date_diffs = _propose_date_fixes(db, domain, served_list)
+        if date_diffs:
+            detail["date_mismatch"] = date_diffs
+            state = {"pending": "tarih güncelleme talebi SY onayında",
+                     "approved": "tarih güncelleme talebi onaylandı",
+                     "rejected": "tarih güncelleme talebi reddedilmişti"}
+            detail["date_note"] = "Kayıttaki tarih sertifikanın kendisinden farklı: " + "; ".join(
+                f"{d['name']} (kayıtta bitiş {d['record_valid_to']}, sertifikada "
+                f"{d['cert_valid_to']}) — {state.get(d['proposal_status'], d['proposal_status'])}"
+                for d in date_diffs)
 
     domain.live_check_detail = json.dumps(detail, ensure_ascii=False)
     domain.live_check_at = checked_at
     return domain
+
+
+def _propose_date_fixes(db: Session, domain: Domain, served_list: list) -> list[dict]:
+    """Sunulan sertifika envanterde (fingerprint ile) varsa ve kaydın başlangıç/bitiş tarihi
+    sertifikanın kendisinden farklıysa TARİH GÜNCELLEME talebi açar (onaysız hiçbir şey
+    değişmez). Örn. eski uygulama kayda yeni sertifikanın PEM'ini yazıp tarihi güncellememiş."""
+    from app.services.cert_parser import same_second
+    from app.services.renewal import propose_date_fix
+
+    def fmt(dt):
+        return dt.strftime("%d.%m.%Y") if dt else "—"
+
+    diffs: list[dict] = []
+    for served in served_list:
+        row = (db.query(Certificate)
+               .filter(Certificate.fingerprint_sha256 == served.fingerprint_sha256).first())
+        if row is None or (same_second(row.valid_from, served.valid_from)
+                           and same_second(row.valid_to, served.valid_to)):
+            continue
+        prop = propose_date_fix(db, row, domain, username="system", request=None, via="live-check")
+        diffs.append({"name": row.name, "record_valid_to": fmt(row.valid_to),
+                      "cert_valid_to": fmt(served.valid_to), "proposal_status": prop.status})
+    return diffs
 
 
 def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> list[str]:
@@ -436,6 +471,7 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
         props = (db.query(TransferProposal)
                  .filter(TransferProposal.new_cert_id == served_cert.id,
                          TransferProposal.domain_id == domain.id,
+                         TransferProposal.kind != "date_fix",  # devir değil, kanıt listesine girmez
                          TransferProposal.status == "pending").all())
         for p in props:
             if not p.live_seen:

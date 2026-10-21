@@ -322,7 +322,16 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   // Canlı doğrulamanın EKLEME / KALDIRMA önerisi: tek sertifika, karşılaştırma yok
   const mapKind = proposal?.kind === 'server_add' || proposal?.kind === 'server_remove'
   const isAdd = proposal?.kind === 'server_add'
+  // Canlı doğrulamanın TARİH GÜNCELLEME talebi: aynı sertifika, kayıttaki tarih farklı
+  const dateKind = proposal?.kind === 'date_fix'
+  const dateFields: Field[] = proposal && dateKind ? [
+    { label: 'Başlangıç', kind: 'expect-change', oldVal: proposal.record_valid_from, newVal: proposal.cert_valid_from,
+      same: fmtDateTime(proposal.record_valid_from) === fmtDateTime(proposal.cert_valid_from), render: 'date' },
+    { label: 'Bitiş', kind: 'expect-change', oldVal: proposal.record_valid_to, newVal: proposal.cert_valid_to,
+      same: fmtDateTime(proposal.record_valid_to) === fmtDateTime(proposal.cert_valid_to), render: 'date' },
+  ] : []
   const title = proposal?.kind === 'trusted_add' ? 'Trust Store İncelemesi'
+    : dateKind ? 'Tarih Güncelleme İncelemesi'
     : isAdd ? 'Bağlantı Ekleme İncelemesi'
     : proposal?.kind === 'server_remove' ? 'Bağlantı Kaldırma İncelemesi' : 'Değişiklik Talebi İncelemesi'
 
@@ -366,6 +375,44 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                 <Skeleton variant="rounded" height={120} />
                 <Skeleton variant="rounded" height={90} />
                 <Skeleton variant="rounded" height={280} />
+              </Stack>
+            ) : dateKind ? (
+              <Stack spacing={2.5}>
+                <CertCard cert={newCert} tone="new" kicker="CANLIDA AYNI SERTİFİKA · TARİHİ GÜNCELLENECEK" />
+                <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Neden bu talep?
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    Canlı doğrulama <strong>{proposal.domain_name}</strong> adresinde bu sertifikanın
+                    <strong> aynısını</strong> gördü (parmak izi aynı), ancak envanterdeki kayıtta yazan tarih
+                    sertifikanın kendisindeki tarihten farklı. Kayıt büyük olasılıkla eski uygulamadan kalma:
+                    kayda yeni sertifika yazılmış, tarihi güncellenmemiş.
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 1.5 }}>
+                    <Evidence ok={proposal.live_seen}
+                              icon={<TravelExploreIcon fontSize="small" />}
+                              title="Canlı doğrulamadan geldi"
+                              detail={`Kaynak: ${viaLabel(proposal.via, proposal.created_by)} · Öneren: ${proposerLine(proposal.created_by, proposal.created_at, proposal.created_by_name)}`} />
+                  </Box>
+                </Box>
+                <Box>
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Tarih Karşılaştırması
+                  </Typography>
+                  <Box sx={{
+                    display: 'grid', gridTemplateColumns: '24px 132px 1fr 1fr', gap: 1.25,
+                    px: 1, pb: 0.5, borderBottom: '1px solid', borderColor: 'divider',
+                  }}>
+                    <Box />
+                    <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 700 }}>ALAN</Typography>
+                    <Typography variant="caption" color="text.disabled" sx={{ fontWeight: 700 }}>KAYITTA</Typography>
+                    <Typography variant="caption" color="info.main" sx={{ fontWeight: 700 }}>SERTİFİKADA (YENİ DEĞER)</Typography>
+                  </Box>
+                  <Stack divider={<Divider flexItem />} sx={{ mt: 0.25 }}>
+                    {dateFields.map((f) => <CompareRow key={f.label} f={f} />)}
+                  </Stack>
+                </Box>
               </Stack>
             ) : mapKind ? (
               <Stack spacing={2.5}>
@@ -557,7 +604,9 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
               <>
                 <Typography variant="caption" color="text.secondary"
                             sx={{ flex: '1 1 220px', minWidth: 0 }}>
-                  {proposal.kind === 'trusted_add'
+                  {dateKind
+                    ? 'Onaylandığında kaydın başlangıç ve bitiş tarihi sertifikanın kendisinden okunarak düzeltilir; bağlantılara dokunulmaz. Reddederseniz hiçbir değişiklik olmaz.'
+                    : proposal.kind === 'trusted_add'
                     ? 'Onaylandığında yeni sertifika uygulamanın trust store\'una eklenir; eski trusted sertifika KALIR (eski kaldırılmaz, pasife alınmaz). Reddederseniz hiçbir değişiklik olmaz.'
                     : isAdd
                       ? 'Onaylandığında sertifika bu domaine server olarak bağlanır. Reddederseniz hiçbir değişiklik olmaz.'
