@@ -12,6 +12,7 @@ from app.api.schemas import (
     ChainCheckFinding,
     CertificateOut,
     CertificateUpdate,
+    CertExtrasOut,
     CertRefOut,
     DeactivateResult,
     ImportPreview,
@@ -28,6 +29,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.services import cert_parser, chain_repair, notifier, renewal, revocation
 from app.services.audit import diff_fields, label_ids, log_action, snapshot
+from app.services.cert_extras import pem_extras
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
 
@@ -110,6 +112,8 @@ def get_certificate(cert_id: int, db: Session = Depends(get_db), _: User = Depen
                    .filter(Certificate.superseded_by_id == cert.id)
                    .order_by(Certificate.valid_to.desc()).all()
     ]
+    extras = pem_extras(cert.pem_certificate)
+    out.extras = CertExtrasOut(**extras) if extras else None
     return out
 
 

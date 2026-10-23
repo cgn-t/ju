@@ -245,7 +245,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 <Box sx={GRID4}>
                   <InfoCard title="Common Name (CN)" onClick={() => setTab('certs')}
                             value={server?.name ?? 'Bağlanmamış'}
-                            sub={server ? [CERT_TYPE_FULL[server.cert_type], envLabel(leaf?.environment)].filter(Boolean).join(' · ') : 'Server sertifikası yok'} />
+                            sub={server ? [CERT_TYPE_FULL[server.cert_type], envLabel(leaf?.environment), leaf?.extras?.validation_type].filter(Boolean).join(' · ') : 'Server sertifikası yok'} />
                   <InfoCard title="Issuer (CA)" value={server ? dnPart(server.issuer, 'CN') ?? '—' : '—'}
                             sub={dnPart(server?.issuer, 'O') ?? undefined} />
                   <InfoCard title="Public Key" value={keyText(leaf)}
@@ -290,6 +290,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                       <CopyField label="SHA-256 Fingerprint" value={leaf.fingerprint_sha256} />
                       <CopyField label="Subject" value={leaf.subject} />
                       <CopyField label="Issuer" value={leaf.issuer} />
+                      {leaf.extras && <CopyField label="SPKI Pin (SHA-256, base64)" value={leaf.extras.spki_pin_sha256} />}
                     </Box>
                   </Box>
                 )}

@@ -183,6 +183,21 @@ class CertRefOut(BaseModel):
     is_active: bool
 
 
+class CertExtrasOut(BaseModel):
+    """PEM'den okunan, DB'de kolonu olmayan teknik bilgiler (yalnız tekil GET doldurur)."""
+    spki_pin_sha256: str
+    signature_algorithm: str | None = None
+    validation_type: str | None = None      # EV|OV|DV|IV|None (politika OID'inden)
+    policy_oids: list[str] = []
+    ocsp_urls: list[str] = []
+    ca_issuers_urls: list[str] = []
+    crl_urls: list[str] = []
+    key_usage: list[str] = []
+    basic_constraints_ca: bool | None = None
+    basic_constraints_path_length: int | None = None
+    sct_count: int | None = None
+
+
 class CertificateOut(CertificateBase, ORMModel):
     id: int
     source: str
@@ -206,6 +221,7 @@ class CertificateOut(CertificateBase, ORMModel):
     # Yenileme zinciri bağlantıları — N+1 olmaması için yalnız tekil GET doldurur
     superseded_by_name: str | None = None
     supersedes: list[CertRefOut] = []
+    extras: CertExtrasOut | None = None
 
 
 class CertificateChainOut(BaseModel):

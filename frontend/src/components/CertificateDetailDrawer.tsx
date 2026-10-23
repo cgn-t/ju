@@ -17,8 +17,8 @@ import { useAuth } from '../auth/AuthContext'
 import CertificatePicker from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import {
-  CERT_TYPE_FULL, ChainArrow, ChainCertCard, CopyField, dnPart, fmtDate, GRID3, GRID4, InfoCard, keyText,
-  REVOCATION, SectionBox, ValidityCard,
+  basicConstraintsText, CERT_TYPE_FULL, ChainArrow, ChainCertCard, CopyField, dnPart, fmtDate, GRID3, GRID4, InfoCard, keyText,
+  REVOCATION, RevocationEndpoints, SectionBox, VALIDATION_LABEL, ValidityCard,
 } from './DetailCards'
 import {
   daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, MONO_FONT, nodeColors,
@@ -147,6 +147,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   }
 
   const revo = REVOCATION[cert?.revocation_status ?? 'null'] ?? REVOCATION.null
+  const ex = cert?.extras
   const sans = (cert?.san ?? '').split(',').map((x) => x.trim()).filter(Boolean)
   const chainList = chain ? [...chain.ancestors].reverse() : []   // uçtan köke: önce üst, sonra kök
 
@@ -245,6 +246,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <InfoCard title="Kaynak" value={sourceLabel(cert.source)} sub={cert.vault_path ?? undefined} />
                   <InfoCard title="Oluşturan Ekip" value={cert.creator || '—'} onClick={() => setTab('corporate')} />
                   <InfoCard title="Satın Alım Yapan" value={cert.purchased_by || '—'} onClick={() => setTab('corporate')} />
+                  <InfoCard title="Validation Type" value={ex?.validation_type ?? '—'}
+                            sub={ex?.validation_type ? VALIDATION_LABEL[ex.validation_type].split(' — ')[1] : 'Politika bilgisinde doğrulama tipi yok'} />
+                  <InfoCard title="Certificate Transparency" value={ex ? (ex.sct_count ? `${ex.sct_count} SCT` : 'SCT yok') : '—'}
+                            color={ex && !ex.sct_count && cert.cert_type === 'leaf' && !cert.is_internal ? 'warning' : 'default'}
+                            sub={ex ? (ex.sct_count ? 'Herkese açık CT loglarına kayıtlı' : 'İç CA için normal; public sertifikada tarayıcı reddedebilir') : undefined} />
+                  <InfoCard title="Key Usage" value={ex?.key_usage.length ? ex.key_usage.join(', ') : '—'} onClick={() => setTab('technical')} />
+                  <InfoCard title="Basic Constraints" value={basicConstraintsText(ex)} onClick={() => setTab('technical')} />
                 </Box>
                 <SectionBox title="Kimlik">
                   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
@@ -252,6 +260,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     <CopyField label="SHA-256 Fingerprint" value={cert.fingerprint_sha256} />
                     <CopyField label="Subject" value={cert.subject} />
                     <CopyField label="Issuer" value={cert.issuer} />
+                    {ex && <CopyField label="SPKI Pin (SHA-256, base64)" value={ex.spki_pin_sha256} />}
                   </Box>
                 </SectionBox>
               </Stack>
@@ -326,15 +335,24 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <CopyField label="SHA-256 Fingerprint" value={cert.fingerprint_sha256} />
                   <CopyField label="SubjectKeyIdentifier" value={cert.subject_key_identifier} />
                   <CopyField label="AuthorityKeyIdentifier" value={cert.authority_key_identifier} />
+                  {ex && <CopyField label="SPKI Pin (SHA-256, base64)" value={ex.spki_pin_sha256} />}
                 </Box>
                 <Box sx={GRID3}>
                   <InfoCard title="ValidFrom" value={fmtDate(cert.valid_from)} />
                   <InfoCard title="ValidTo" value={fmtDate(cert.valid_to)} />
-                  <InfoCard title="Public Key / Signature" value={keyText(cert)} sub={cert.signature_hash ?? undefined} />
+                  <InfoCard title="Public Key" value={keyText(cert)} />
+                  <InfoCard title="Signature Algorithm" value={ex?.signature_algorithm ?? cert.signature_hash ?? '—'} />
                   <InfoCard title="ExtendedKeyUsage" value={cert.extended_key_usage || '—'} />
                   <InfoCard title="Internal" value={cert.is_internal ? 'Evet' : 'Hayır'} />
                   <InfoCard title="Otomatik Yenileme" value={cert.auto_renew ? 'Açık' : 'Kapalı'} />
+                  <InfoCard title="Key Usage" value={ex?.key_usage.length ? ex.key_usage.join(', ') : '—'} />
+                  <InfoCard title="Basic Constraints" value={basicConstraintsText(ex)} />
+                  <InfoCard title="Validation Type" value={ex?.validation_type ?? '—'}
+                            sub={ex?.validation_type ? VALIDATION_LABEL[ex.validation_type] : undefined} />
+                  <InfoCard title="Certificate Transparency" value={ex ? `${ex.sct_count ?? 0} SCT` : '—'} />
+                  <InfoCard title="Certificate Policies" value={ex?.policy_oids.length ? ex.policy_oids.join(', ') : '—'} />
                 </Box>
+                <RevocationEndpoints extras={ex} />
                 <SectionBox title={`SubjectAltName (SAN) — ${sans.length}`}>
                   <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{sans.length ? sans.join(', ') : '—'}</Typography>
                 </SectionBox>
@@ -373,6 +391,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     ) : <Typography variant="caption" color="text.secondary">Kontrol için düzenleme yetkisi gerekir</Typography>}
                   </Box>
                 </Box>
+                <RevocationEndpoints extras={ex} />
             <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'action.hover' }}>
               <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0 }}>
                 Bir sertifika, son kullanma tarihi gelmeden de <b>iptal</b> edilebilir (ör. özel anahtarı

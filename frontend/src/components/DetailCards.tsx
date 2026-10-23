@@ -9,7 +9,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule'
 import { Box, Button, ButtonBase, Chip, CircularProgress, Collapse, IconButton, Stack, Tooltip, Typography } from '@mui/material'
 import { useSnackbar } from 'notistack'
 import { type ReactNode, useState } from 'react'
-import type { Certificate } from '../api/types'
+import type { Certificate, CertExtras } from '../api/types'
 import { daysLeftColor, daysLeftLabel, MONO_FONT } from '../theme'
 
 export type Tone = 'success' | 'error' | 'warning' | 'info' | 'default'
@@ -202,7 +202,7 @@ export function CopyField({ label, value }: { label: string; value?: string | nu
   const { enqueueSnackbar } = useSnackbar()
   return (
     <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      {label && <Typography variant="caption" color="text.secondary">{label}</Typography>}
       <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
         <Typography variant="body2" sx={{ fontFamily: MONO_FONT, fontSize: 12.5, wordBreak: 'break-all', flexGrow: 1 }}>
           {value || '—'}
@@ -297,5 +297,47 @@ export function SectionBox({ title, action, children }: { title: string; action?
       </Stack>
       {children}
     </Box>
+  )
+}
+
+export const VALIDATION_LABEL: Record<string, string> = {
+  EV: 'EV — kurumun kimliği ayrıntılı doğrulanmış (Extended Validation)',
+  OV: 'OV — kurum doğrulanmış (Organization Validation)',
+  DV: 'DV — yalnız alan adı sahipliği doğrulanmış (Domain Validation)',
+  IV: 'IV — kişi doğrulanmış (Individual Validation)',
+}
+
+export function basicConstraintsText(e?: CertExtras | null) {
+  if (!e || e.basic_constraints_ca === null || e.basic_constraints_ca === undefined) return '—'
+  if (!e.basic_constraints_ca) return 'CA:FALSE'
+  return `CA:TRUE${e.basic_constraints_path_length !== null && e.basic_constraints_path_length !== undefined ? `, pathLen:${e.basic_constraints_path_length}` : ''}`
+}
+
+// OCSP / CRL / CA Issuers adres listesi (kopyalanabilir). Kapalı ağda hangi adrese izin
+// verilmesi gerektiğini görmek için.
+export function UrlList({ label, urls }: { label: string; urls: string[] }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      {urls.length === 0 ? <Typography variant="body2">—</Typography> : urls.map((u) => (
+        <Box key={u}><CopyField label="" value={u} /></Box>
+      ))}
+    </Box>
+  )
+}
+
+export function RevocationEndpoints({ extras }: { extras?: CertExtras | null }) {
+  if (!extras) return null
+  return (
+    <SectionBox title="İptal kontrol adresleri">
+      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' } }}>
+        <UrlList label="OCSP" urls={extras.ocsp_urls} />
+        <UrlList label="CRL Distribution Points" urls={extras.crl_urls} />
+        <UrlList label="CA Issuers" urls={extras.ca_issuers_urls} />
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+        İptal Durumu "Ulaşılamadı" görünüyorsa, Jumbo sunucusunun bu adreslere (genelde http/80) erişimine izin verilmesi gerekir.
+      </Typography>
+    </SectionBox>
   )
 }
