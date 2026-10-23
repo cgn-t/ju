@@ -9,9 +9,13 @@ sınırlarını (tanımlı portlar, max_hosts, eşzamanlılık) uygular (bkz. se
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.api.paging import MAX_PAGE_SIZE
+from app.core.textmatch import ci_like
 from app.api.schemas import (
+    DiscoveryPage,
     DiscoveredCertificateDetail,
     DiscoveredCertificateOut,
     ScanRunOut,
@@ -117,6 +121,49 @@ def list_findings(status: str | None = Query(None), only_new: bool = False,
     matched = _matched_map(db, findings)
     teams = _team_map(db, findings)
     return [_finding_out(f, matched, teams) for f in findings]
+
+
+_FINDING_STATUSES = ("new", "in_inventory", "adopted", "ignored")
+
+
+@router.get("/findings/page", response_model=DiscoveryPage)
+def page_findings(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+                  status: str | None = Query(None), origin: str | None = Query(None),
+                  q: str | None = None,
+                  db: Session = Depends(get_db),
+                  _: User = Depends(require_page_access("discovery"))):
+    """Keşif bulguları — sayfalı. counts = durum kartları (tüm bulgular üzerinden, eskisi gibi)."""
+    counts = {st: 0 for st in _FINDING_STATUSES}
+    for st, n in (db.query(DiscoveredCertificate.status, func.count(DiscoveredCertificate.id))
+                  .group_by(DiscoveredCertificate.status).all()):
+        counts[st] = n
+    counts["total"] = sum(counts[st] for st in _FINDING_STATUSES)
+    has_ct = db.query(DiscoveredCertificate.id).filter(DiscoveredCertificate.origin == "ct").first() is not None
+    query = db.query(DiscoveredCertificate)
+    if status in _FINDING_STATUSES:
+        query = query.filter(DiscoveredCertificate.status == status)
+    if origin:
+        query = query.filter(DiscoveredCertificate.origin == origin)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(ci_like(DiscoveredCertificate.host, like) | ci_like(DiscoveredCertificate.name, like)
+                             | ci_like(DiscoveredCertificate.issuer, like))
+    total = query.count()
+    last = max(0, (total - 1) // size) if total else 0
+    page = min(page, last)
+    findings = (query.order_by(DiscoveredCertificate.last_seen_at.desc(), DiscoveredCertificate.id.desc())
+                .offset(page * size).limit(size).all())
+    matched = _matched_map(db, findings)
+    teams = _team_map(db, findings)
+    return DiscoveryPage(items=[_finding_out(f, matched, teams) for f in findings], total=total,
+                         page=page, size=size, counts=counts, has_ct=has_ct)
+
+
+@router.get("/findings/counts")
+def finding_counts(db: Session = Depends(get_db), _: User = Depends(require_page_access("discovery"))):
+    """Menü rozeti için hafif sayaç (envanterde olmayan = new)."""
+    n = db.query(func.count(DiscoveredCertificate.id)).filter(DiscoveredCertificate.status == "new").scalar()
+    return {"new": n or 0}
 
 
 @router.get("/findings/{finding_id}", response_model=DiscoveredCertificateDetail)

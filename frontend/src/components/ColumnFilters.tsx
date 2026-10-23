@@ -4,7 +4,7 @@ import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined'
 import SearchIcon from '@mui/icons-material/Search'
 import {
-  Box, Divider, IconButton, InputAdornment, MenuItem, MenuList, Popover, TableCell,
+  Box, Divider, IconButton, InputAdornment, MenuItem, MenuList, Popover, TableCell, TableSortLabel,
   TextField, Tooltip, Typography,
 } from '@mui/material'
 import { useMemo, useState } from 'react'
@@ -16,7 +16,7 @@ import { includesFolded } from '../utils/textMatch'
  * Tek yerde tanımlı, tüm tablolarda yeniden kullanılır. İki tür kolon:
  *   • 'text'   → "içeren metin" arama kutusu (iç temizle ✕)
  *   • 'status' → sabit seçenek listesi (seçili işareti + facet kayıt sayıları)
- * Filtreleme istemci-taraflı; sayfa kendi satır listesini `matches` ile süzer.
+ * Filtreleme istemci-taraflı (`matches`) ya da sunucu-taraflı (`params` → `f_<kolon>` sorgu parametreleri).
  */
 
 export interface StatusOpt { value: string; label: string }
@@ -38,6 +38,8 @@ export interface ColumnFilterState<T> {
   matches: (row: T) => boolean
   defs: ColDef<T>[]
   menu: { key: string; anchor: HTMLElement } | null
+  /** Sunucu-taraflı listeler için: varsayılan olmayan değerler `f_<kolon>` adıyla. */
+  params: Record<string, string>
   set: (key: string, value: string) => void
   open: (key: string, anchor: HTMLElement) => void
   close: () => void
@@ -80,8 +82,9 @@ export function useColumnFilters<T>(
     if (d.kind === 'status') return v === 'all' || d.get(row) === v
     return !v || includesFolded(String(d.get(row) ?? ''), v)
   })
+  const serverParams = Object.fromEntries(defs.filter((d) => active(d.key)).map((d) => [`f_${d.key}`, values[d.key]]))
   return {
-    values, active, anyActive, matches, defs, menu,
+    values, active, anyActive, matches, defs, menu, params: serverParams,
     set: (key, value) => write({ [key]: value }),
     clearAll: () => write(init),
     open: (key, anchor) => setMenu({ key, anchor }),
@@ -90,14 +93,21 @@ export function useColumnFilters<T>(
 }
 
 /** Başlık hücresi: kolon adı + huni (filtre) ikonu. Filtre aktifse dolu/renkli huni. */
+export interface ColSort { active: boolean; direction: 'asc' | 'desc'; onClick: () => void }
+
 export function ColHeaderCell<T>(
-  { def, cf, sx }: { def: ColDef<T>; cf: ColumnFilterState<T>; sx?: object },
+  { def, cf, sx, sort }: { def: ColDef<T>; cf: ColumnFilterState<T>; sx?: object; sort?: ColSort },
 ) {
   const on = cf.active(def.key)
   return (
-    <TableCell align={def.align} sx={sx}>
+    <TableCell align={def.align} sx={sx} sortDirection={sort?.active ? sort.direction : false}>
       <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25, whiteSpace: 'nowrap' }}>
-        {def.label}
+        {sort ? (
+          <TableSortLabel active={sort.active} direction={sort.active ? sort.direction : 'asc'}
+                          onClick={sort.onClick}>
+            {def.label}
+          </TableSortLabel>
+        ) : def.label}
         <Tooltip title="Sütunu filtrele">
           <IconButton size="small" onClick={(e) => cf.open(def.key, e.currentTarget)}
                       sx={{ p: '2px', color: on ? 'primary.main' : 'text.disabled',

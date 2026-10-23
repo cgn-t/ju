@@ -4,11 +4,16 @@ from app.core.timeutil import utcnow
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from sqlalchemy.orm import Session, defer, joinedload
 
 from app.api.schemas import (
     CertificateChainOut,
     CertificateCreate,
+    CertificateGroupStat,
+    CertificateOption,
+    CertificatePage,
+    CertificateTreeRow,
     ChainCheckFinding,
     CertificateOut,
     CertificateUpdate,
@@ -20,8 +25,9 @@ from app.api.schemas import (
     RenewalCandidate,
     VaultSyncResult,
 )
-from app.core.certtype import cert_type_filter
-from app.core.security import require_role, user_team_ids
+from app.api.paging import MAX_PAGE_SIZE, contains, count_by, fold_search, page_slice, validity_bucket
+from app.core.certtype import cert_type_filter, normalize_cert_type
+from app.core.security import ROLE_LEVELS, require_role, user_team_ids
 from app.db.models import (
     AppDependency, Application, ApplicationTrustedCert, Certificate, CertificateDomainMap, Domain,
     Team, TransferProposal, User,
@@ -76,6 +82,189 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
             q.order_by(Certificate.cert_type, Certificate.name).offset(offset).limit(limit).all()]
 
 
+_LIGHT_SKIP = {"pem_certificate", "extras", "domains", "supersedes", "days_left", "superseded_by_name",
+               "can_edit", "chain_added", "domain_count"}
+_LIST_DOMAIN_CAP = 50   # Root/Intermediate yüzlerce domaine bağlı olabilir; liste satırı ilk 50'yi taşır
+_SOURCES = ("manual", "vault", "live", "discovery", "ct")
+_KNOWN_SRC = {"vault", "live", "discovery", "ct"}
+_TYPE_SORT = {"intermediate": 0, "leaf": 1, "root": 2}   # eski ORDER BY cert_type ile aynı sıra
+
+
+def _light_out(cert: Certificate, domains: list[MappedDomainOut],
+               names: dict[int, str], cap: int | None = _LIST_DOMAIN_CAP) -> CertificateOut:
+    """PEM'siz liste kaydı. ORM nesnesindeki PEM ertelendiği (defer) için okunmaz — binlerce
+    sertifikada her satırın PEM'ini taşımak listeyi şişiriyordu."""
+    data = {f: getattr(cert, f) for f in CertificateOut.model_fields if f not in _LIGHT_SKIP}
+    out = CertificateOut.model_validate(data)
+    out.days_left = _days_left(cert.valid_to)
+    out.domain_count = len(domains)
+    out.domains = domains[:cap] if cap else domains
+    if cert.superseded_by_id:
+        out.superseded_by_name = names.get(cert.superseded_by_id)
+    return out
+
+
+@router.get("/page", response_model=CertificatePage)
+def page_certificates(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+                      all: bool = False, q: str | None = None, is_active: bool | None = True,
+                      f_name: str | None = None, f_ski: str | None = None,
+                      f_saniss: str | None = None, f_source: str | None = None,
+                      f_environment: str | None = None, f_valid: str | None = None,
+                      collapsed: str | None = None, collapse_all: bool = False,
+                      expanded: str | None = None,
+                      db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
+    """SSL Sertifikaları listesi — sunucu tarafında arama, kolon filtresi ve sayfalama.
+    Kolon filtresi yoksa satırlar ZİNCİR AĞACI sırasında (Root → Intermediate → Leaf) ve
+    derinlikleriyle gelir; kapatılan düğümlerin (collapsed / collapse_all + expanded) altları
+    sayfalamadan önce çıkarılır. Kolon filtresi varsa eşleşenler düz liste olarak gelir.
+    PEM gövdesi listede yok (detay penceresi tekil GET ile alır)."""
+    base = db.query(Certificate).options(defer(Certificate.pem_certificate))
+    if q:
+        like = f"%{q}%"
+        base = base.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                           | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
+                           | ci_like(Certificate.subject_key_identifier, like))
+    if is_active is not None:
+        base = base.filter(Certificate.is_active == is_active)  # MSSQL: BIT = 1/0
+    certs = sorted(base.all(), key=lambda c: (_TYPE_SORT.get(normalize_cert_type(c.cert_type), 9), fold_search(c.name)))
+    names = dict(db.query(Certificate.id, Certificate.name).all())
+    links: dict[int, int] = dict(db.query(CertificateDomainMap.certificate_id, func.count())
+                                 .group_by(CertificateDomainMap.certificate_id).all())
+
+    def src(c): return c.source if c.source in _KNOWN_SRC else "manual"
+    def env(c): return c.environment or "none"
+    def val(c): return validity_bucket(_days_left(c.valid_to))
+
+    facets = {"source": count_by(certs, src, _SOURCES),
+              "environment": count_by(certs, env, ("prod", "test", "none")),
+              "valid": count_by(certs, val, ("valid", "expiring", "expired", "none"))}
+    flat = any((f_name, f_ski, f_saniss)) or any(
+        v not in (None, "", "all") for v in (f_source, f_environment, f_valid))
+
+    ids = {c.id for c in certs}
+    by_id = {c.id: c for c in certs}
+    children: dict[int | None, list[Certificate]] = {}
+    for c in certs:
+        key = c.parent_id if c.parent_id in ids and c.parent_id != c.id else None
+        children.setdefault(key, []).append(c)
+
+    rows: list[tuple[Certificate, int, int]] = []   # (sertifika, derinlik, kök id)
+    if flat:
+        for c in certs:
+            if (contains(c.name, f_name) and contains(c.subject_key_identifier, f_ski)
+                    and contains(c.san or c.issuer, f_saniss)
+                    and f_source in (None, "", "all", src(c))
+                    and f_environment in (None, "", "all", env(c))
+                    and f_valid in (None, "", "all", val(c))):
+                rows.append((c, 0, c.id))
+    else:
+        closed = {int(x) for x in (collapsed or "").split(",") if x.strip().isdigit()}
+        opened = {int(x) for x in (expanded or "").split(",") if x.strip().isdigit()}
+
+        def is_closed(cid: int) -> bool:
+            return (cid not in opened) if collapse_all else (cid in closed)
+
+        shown: set[int] = set()
+
+        def walk(parent: int | None, depth: int, root: int | None) -> None:
+            for c in children.get(parent, []):
+                if c.id in shown:
+                    continue
+                shown.add(c.id)
+                r = root if root is not None else c.id
+                rows.append((c, depth, r))
+                if children.get(c.id) and not is_closed(c.id):
+                    walk(c.id, depth + 1, r)
+                else:
+                    # kapalı dalın altındakiler listede yok ama tekrar kök olarak da görünmesin
+                    stack = list(children.get(c.id, []))
+                    while stack:
+                        x = stack.pop()
+                        if x.id not in shown:
+                            shown.add(x.id)
+                            stack.extend(children.get(x.id, []))
+        walk(None, 0, None)
+        for c in certs:   # döngüdeki kayıtlar (A→B→A) hiçbir dala düşmez; kaybolmasınlar
+            if c.id not in shown:
+                rows.append((c, 0, c.id))
+
+    # Kart görünümü özetleri: her kökün TÜM üyeleri (kapalı dallar dahil)
+    groups: dict[int, CertificateGroupStat] = {}
+
+    def subtree(root_id: int) -> list[Certificate]:
+        out, stack, seen = [], [root_id], set()
+        while stack:
+            x = stack.pop()
+            if x in seen or x not in by_id:
+                continue
+            seen.add(x)
+            out.append(by_id[x])
+            stack.extend(ch.id for ch in children.get(x, []))
+        return out
+
+    total = len(rows)
+    if all:
+        chosen, page, size = rows, 0, max(total, 1)
+    else:
+        chosen, page = page_slice(rows, page, size)
+    if not flat:
+        for rid in {r for _, _, r in chosen}:
+            members = subtree(rid)
+            days = [d for d in (_days_left(m.valid_to) for m in members) if d is not None]
+            groups[rid] = CertificateGroupStat(members=len(members),
+                                               domain_links=sum(links.get(m.id, 0) for m in members),
+                                               worst_days=min(days) if days else None)
+    page_ids = [c.id for c, _, _ in chosen]
+    mapped: dict[int, list[MappedDomainOut]] = {}
+    if page_ids:
+        for m in (db.query(CertificateDomainMap).options(joinedload(CertificateDomainMap.domain))
+                  .filter(CertificateDomainMap.certificate_id.in_(page_ids)).all()):
+            mapped.setdefault(m.certificate_id, []).append(
+                MappedDomainOut(domain_id=m.domain_id, domain=m.domain.domain, mapping_type=m.mapping_type))
+    items = [CertificateTreeRow(cert=_light_out(c, mapped.get(c.id, []), names, None if all else _LIST_DOMAIN_CAP),
+                                depth=depth,
+                                has_children=bool(children.get(c.id)), root_id=r,
+                                root_name=names.get(r, ""))
+             for c, depth, r in chosen]
+    return CertificatePage(items=items, total=total, page=page, size=size, facets=facets,
+                           counts={"total": len(certs)}, groups=groups)
+
+
+@router.get("/options", response_model=list[CertificateOption])
+def certificate_options(q: str | None = None, cert_type: str | None = None,
+                        is_active: bool | None = None, limit: int = Query(50, ge=1, le=200),
+                        include: list[int] | None = Query(None),
+                        db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
+    """Sertifika seçicileri için hafif ARAMA ucu (ad, SKI, Serial Number, SAN). Tüm envanteri
+    (PEM'leriyle) indirmek yerine yazdıkça en fazla `limit` kayıt döner. `include` ile seçili
+    kayıt(lar) her zaman listede gelir."""
+    cols = (Certificate.id, Certificate.name, Certificate.cert_type, Certificate.is_active,
+            Certificate.environment, Certificate.valid_to, Certificate.subject_key_identifier,
+            Certificate.serial_number, Certificate.san)
+    query = db.query(*cols)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                             | ci_like(Certificate.subject_key_identifier, like)
+                             | ci_like(Certificate.san, like))
+    if cert_type:
+        query = query.filter(cert_type_filter(Certificate.cert_type, cert_type))
+    if is_active is not None:
+        query = query.filter(Certificate.is_active == is_active)
+    rows = query.order_by(Certificate.name).limit(limit).all()
+    if include:
+        have = {r[0] for r in rows}
+        rows += db.query(*cols).filter(Certificate.id.in_([i for i in include if i not in have] or [-1])).all()
+
+    def opt(r):
+        san = r[8]
+        return CertificateOption(id=r[0], name=r[1], cert_type=normalize_cert_type(r[2]), is_active=bool(r[3]),
+                                 environment=r[4], valid_to=r[5], days_left=_days_left(r[5]),
+                                 subject_key_identifier=r[6], serial_number=r[7],
+                                 san=(san[:300] + "…") if san and len(san) > 300 else san)
+    return [opt(r) for r in rows]
+
+
 @router.get("/chain-check", response_model=list[ChainCheckFinding])
 def chain_check(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
     """Zincir Kontrolü (değiştirmez): tür, üst sertifika ve anahtar kimliği farkları."""
@@ -97,11 +286,19 @@ def chain_check_apply(request: Request, db: Session = Depends(get_db),
 
 
 @router.get("/{cert_id}", response_model=CertificateOut)
-def get_certificate(cert_id: int, db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
+def get_certificate(cert_id: int, db: Session = Depends(get_db), user: User = Depends(require_role("viewer"))):
     cert = db.get(Certificate, cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
     out = _to_out(cert)
+    # Düzenleme penceresi yalnız PUT'un kabul edeceği kullanıcıya açılsın (aynı kural)
+    if ROLE_LEVELS.get(user.role, -1) < ROLE_LEVELS["editor"]:
+        out.can_edit = False
+    elif user.role == "admin":
+        out.can_edit = True
+    else:
+        owners = _cert_owner_team_ids(db, cert)
+        out.can_edit = not owners or bool(owners & user_team_ids(db, user))
     # Yenileme zinciri iki yönlü gezilebilsin: halefin adı + devraldığı öncüller
     if cert.superseded_by_id:
         successor = db.get(Certificate, cert.superseded_by_id)

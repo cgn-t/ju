@@ -8,10 +8,13 @@ tek mutasyon kapısı. Reddet/İptal önerileri kapatır, hiçbir mutasyon yapma
 from datetime import datetime
 from app.core.timeutil import utcnow
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func
+from sqlalchemy.orm import Session, aliased
 
-from app.api.schemas import ProposalDecision, TransferProposalOut
+from app.api.paging import MAX_PAGE_SIZE
+from app.api.schemas import ProposalDecision, ProposalPage, TransferProposalOut
+from app.core.textmatch import ci_like
 from app.core.security import (
     ROLE_LEVELS,
     require_page_access,
@@ -95,6 +98,121 @@ def list_proposals(status: str | None = "pending", mine: bool = False,
     # onay yetkisi yalnız admin/editor-tier'a aittir (bkz. _can_decide, require_team_or_admin).
     return [_to_out(db, p, team_ids, user.role == "admin", _can_decide(user)) for p in rows
             if db.get(Certificate, p.old_cert_id) and db.get(Certificate, p.new_cert_id)]
+
+
+_STATUSES = ("pending", "approved", "applied", "rejected", "cancelled")
+_KINDS = ("transfer", "date_fix", "server_add", "server_remove", "trusted_add")
+
+
+def _visible(db: Session, user: User, mine: bool = False):
+    """list_proposals ile aynı görünürlük + yetim (sertifikası silinmiş) taleplerin dışlanması."""
+    can_see_all = user.role in ("admin", "allviewer")
+    team_ids = user_team_ids(db, user)
+    old_c, new_c = aliased(Certificate), aliased(Certificate)
+    q = (db.query(TransferProposal)
+         .join(old_c, old_c.id == TransferProposal.old_cert_id)
+         .join(new_c, new_c.id == TransferProposal.new_cert_id))
+    if not can_see_all or mine:
+        q = q.filter(TransferProposal.sy_team_id.in_(team_ids or {-1}))
+    return q, team_ids, old_c, new_c
+
+
+@router.get("/page", response_model=ProposalPage)
+def page_proposals(page: int = Query(0, ge=0), size: int = Query(25, ge=1, le=MAX_PAGE_SIZE),
+                   status: str = "pending", kind: str | None = None,
+                   domain_id: int | None = None, sy_team_id: int | None = None,
+                   via: str | None = None, live_seen: bool | None = None,
+                   decidable: bool = False, mine: bool = False, q: str | None = None,
+                   sort: str = "created_at", dir: str = "desc",
+                   db: Session = Depends(get_db),
+                   user: User = Depends(require_page_access("proposals"))):
+    """Değişiklik Talepleri — filtreli ve sayfalı liste. Filtreler: durum (pending|approved|
+    applied|rejected|cancelled|all), tür, domain, SY ekip, kaynak (via), canlıda görüldü,
+    yalnız karar verebileceklerim, metin araması (domain, sertifika ve uygulama adı).
+    counts = durum sekmelerinin sayıları (durum hariç diğer filtrelerle); facets.kind = tür sayıları.
+    Görünürlük ve can_decide kuralı list_proposals ile birebir aynı."""
+    base, team_ids, old_c, new_c = _visible(db, user, mine)
+    if domain_id is not None:
+        base = base.filter(TransferProposal.domain_id == domain_id)
+    if sy_team_id is not None:
+        base = base.filter(TransferProposal.sy_team_id == sy_team_id)
+    if via:
+        base = base.filter(TransferProposal.via == via)
+    if live_seen is not None:
+        base = base.filter(TransferProposal.live_seen == live_seen)
+    if decidable:
+        if user.role != "admin":
+            if not _can_decide(user):
+                base = base.filter(TransferProposal.id == -1)
+            else:
+                base = base.filter(TransferProposal.sy_team_id.in_(team_ids or {-1}))
+    if q:
+        like = f"%{q.strip()}%"
+        dom_ids = db.query(Domain.id).filter(ci_like(Domain.domain, like))
+        app_ids = db.query(Application.id).filter(ci_like(Application.app_name, like))
+        base = base.filter(ci_like(old_c.name, like) | ci_like(new_c.name, like)
+                           | TransferProposal.domain_id.in_(dom_ids)
+                           | TransferProposal.app_id.in_(app_ids))
+    # Durum sekmeleri: diğer filtreler uygulanmış, durum filtresi uygulanmamış
+    counts = {st: 0 for st in _STATUSES}
+    for st, n in (base.with_entities(TransferProposal.status, func.count(TransferProposal.id))
+                  .group_by(TransferProposal.status).all()):
+        counts[st] = n
+    counts["all"] = sum(counts[st] for st in _STATUSES)
+    if status != "all":
+        base = base.filter(TransferProposal.status == (status if status in _STATUSES else "pending"))
+    kinds = {k: 0 for k in _KINDS}
+    for k, n in (base.with_entities(TransferProposal.kind, func.count(TransferProposal.id))
+                 .group_by(TransferProposal.kind).all()):
+        kinds[k or "transfer"] = kinds.get(k or "transfer", 0) + n
+    kinds["all"] = sum(kinds.values())
+    if kind:
+        base = base.filter(TransferProposal.kind == kind)
+    total = base.count()
+    last = max(0, (total - 1) // size) if total else 0
+    page = min(page, last)
+    if sort == "domain":
+        order = Domain.domain
+        base = base.outerjoin(Domain, Domain.id == TransferProposal.domain_id)
+    else:
+        order = TransferProposal.created_at
+    order = order.desc() if dir == "desc" else order.asc()
+    rows = base.order_by(order, TransferProposal.id.desc()).offset(page * size).limit(size).all()
+    is_editor = _can_decide(user)
+    items = [_to_out(db, p, team_ids, user.role == "admin", is_editor) for p in rows]
+    domain_name = None
+    if domain_id is not None:
+        d = db.get(Domain, domain_id)
+        domain_name = d.domain if d else None
+    return ProposalPage(items=items, total=total, page=page, size=size, counts=counts,
+                        facets={"kind": kinds}, domain_name=domain_name)
+
+
+@router.get("/counts")
+def proposal_counts(db: Session = Depends(get_db),
+                    user: User = Depends(require_page_access("proposals"))):
+    """Menü rozeti için hafif sayaç: bekleyen (görünen) ve bu kullanıcının karar verebileceği."""
+    base, team_ids, _, _ = _visible(db, user)
+    base = base.filter(TransferProposal.status == "pending")
+    visible = base.count()
+    if user.role == "admin":
+        decidable = visible
+    elif _can_decide(user):
+        decidable = base.filter(TransferProposal.sy_team_id.in_(team_ids or {-1})).count()
+    else:
+        decidable = 0
+    return {"pending": visible, "decidable": decidable}
+
+
+@router.get("/{proposal_id}", response_model=TransferProposalOut)
+def get_proposal(proposal_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(require_page_access("proposals"))):
+    """Tek talep (sayfada görünmeyen bir talebin inceleme penceresi doğrudan açılabilsin)."""
+    base, team_ids, _, _ = _visible(db, user)
+    prop = base.filter(TransferProposal.id == proposal_id).first()
+    if prop is None:
+        raise HTTPException(status_code=404, detail="Değişiklik talebi bulunamadı")
+    return _to_out(db, prop, team_ids, user.role == "admin", _can_decide(user))
 
 
 @router.get("/{proposal_id}/group", response_model=list[TransferProposalOut])

@@ -9,7 +9,7 @@ from app.core.timeutil import utcnow
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.api.schemas import (
     ChainImportOut,
@@ -17,14 +17,19 @@ from app.api.schemas import (
     ChainProbeOut,
     ChainProbeRequest,
     DomainCreate,
+    DomainOption,
     DomainOut,
+    DomainPage,
     DomainUpdate,
     MappedCertOut,
     MappingCreate,
 )
+from app.api.paging import (MAX_PAGE_SIZE, any_contains, contains, count_by, fold_search,
+                             page_slice, sort_rows, validity_bucket)
 from app.api.trigger_auth import EXTERNAL_ACTOR, external_cooldown, trigger_actor
 from app.core.certtype import cert_type_filter, normalize_cert_type
 from app.core.security import (
+    ROLE_LEVELS,
     can_manage_team_resource,
     domain_scope_team_ids,
     require_role,
@@ -180,6 +185,115 @@ def list_domains(search: str | None = None,
                    .filter(TransferProposal.status == "pending")
                    .group_by(TransferProposal.domain_id).all())
     return [_to_out(d, precomputed_pending=pending.get(d.id, 0)) for d in domains]
+
+
+_DOMAIN_STATUSES = ("valid", "expiring", "expired", "nocert")
+_DOMAIN_SORTS = ("domain", "sy", "ug", "server", "client", "email")
+
+
+def _status_of(days: int | None) -> str:
+    """Domain tablosundaki durum kovası (frontend certStatus ile aynı: ≤30 gün = yaklaşan)."""
+    b = validity_bucket(days)
+    return "nocert" if b == "none" else b
+
+
+@router.get("/page", response_model=DomainPage)
+def page_domains(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+                 all: bool = False,
+                 q: str | None = None, status: str | None = None, sy: str | None = None,
+                 sort: str = "domain", dir: str = "asc",
+                 f_domain: str | None = None, f_sy: str | None = None, f_ug: str | None = None,
+                 f_server: str | None = None, f_client: str | None = None,
+                 f_email: str | None = None,
+                 db: Session = Depends(get_db), user: User = Depends(require_role("viewer"))):
+    """Domain listesi — SUNUCU tarafında arama, durum/kolon filtresi, sıralama ve sayfalama.
+    2.000+ domainde tüm kayıtları ilişkileriyle döndürmek sayfayı yavaşlatıyordu; burada önce
+    hafif bir projeksiyon süzülür, yalnız istenen sayfa tam yüklenir. `all=true` (Excel İndir)
+    sayfalamayı kapatır. Kapsam (RBAC) list_domains ile aynı; arama aynı alanlarda (domain,
+    sertifika sahibi, dış firma) Türkçe harf/aksan duyarsız."""
+    base = db.query(Domain).options(
+        load_only(Domain.id, Domain.domain, Domain.cert_owner, Domain.external_company,
+                  Domain.sy_team_id, Domain.ug_team_id, Domain.ug_team_name),
+        joinedload(Domain.sy_team), joinedload(Domain.ug_team))
+    scope = domain_scope_team_ids(db, user)
+    if scope is not None:
+        base = base.filter(Domain.sy_team_id.in_(scope or {-1}))
+    light = base.all()
+
+    # Eşlenen sertifikaların en yakın bitişi — _to_out ile aynı kural (server/client ayrı, pasif dahil)
+    from sqlalchemy import func
+    min_to: dict[tuple[int, str], datetime] = {}
+    for dom_id, mtype, vt in (db.query(CertificateDomainMap.domain_id, CertificateDomainMap.mapping_type,
+                                       func.min(Certificate.valid_to))
+                              .join(Certificate, Certificate.id == CertificateDomainMap.certificate_id)
+                              .group_by(CertificateDomainMap.domain_id, CertificateDomainMap.mapping_type)):
+        if vt is not None:
+            min_to[(dom_id, "server" if mtype == "server" else "client")] = vt
+
+    rows = []
+    for d in light:
+        sd = _days_left(min_to.get((d.id, "server")))
+        cd = _days_left(min_to.get((d.id, "client")))
+        rows.append({
+            "id": d.id, "domain": d.domain, "cert_owner": d.cert_owner, "ext": d.external_company,
+            "sy": d.sy_team.name if d.sy_team else None,
+            "ug": d.ug_team_name or (d.ug_team.name if d.ug_team else None),
+            "email": d.sy_team.email if d.sy_team else None,
+            "server": sd, "client": cd,
+            "status": _status_of(sd if sd is not None else cd),
+            "server_st": _status_of(sd), "client_st": _status_of(cd),
+        })
+    if q:
+        rows = [r for r in rows if any_contains((r["domain"], r["cert_owner"], r["ext"]), q)]
+    counts = count_by(rows, lambda r: r["status"], _DOMAIN_STATUSES)
+    counts["total"] = counts.pop("all")
+    if status in _DOMAIN_STATUSES:
+        rows = [r for r in rows if r["status"] == status]
+    if sy:
+        rows = [r for r in rows if r["sy"] == sy]
+    # Kolon-başı (huni) sayaçları kolon filtreleri UYGULANMADAN önceki kümeden
+    facets = {"server": count_by(rows, lambda r: r["server_st"], _DOMAIN_STATUSES),
+              "client": count_by(rows, lambda r: r["client_st"], _DOMAIN_STATUSES)}
+    for key, needle in (("domain", f_domain), ("sy", f_sy), ("ug", f_ug), ("email", f_email)):
+        if needle:
+            rows = [r for r in rows if contains(r[key], needle)]
+    if f_server in _DOMAIN_STATUSES:
+        rows = [r for r in rows if r["server_st"] == f_server]
+    if f_client in _DOMAIN_STATUSES:
+        rows = [r for r in rows if r["client_st"] == f_client]
+
+    sort = sort if sort in _DOMAIN_SORTS else "domain"
+    desc = dir == "desc"
+    if sort in ("server", "client"):
+        rows = sort_rows(rows, lambda r: r[sort], desc, empty=lambda r: r[sort] is None)
+    else:
+        rows = sort_rows(rows, lambda r: fold_search(r[sort]), desc, empty=lambda r: not r[sort])
+
+    total = len(rows)
+    if all:
+        chosen, page, size = rows, 0, max(total, 1)
+    else:
+        chosen, page = page_slice(rows, page, size)
+    ids = [r["id"] for r in chosen]
+    full = {d.id: d for d in _query(db).filter(Domain.id.in_(ids or [-1])).all()} if ids else {}
+    pending = dict(db.query(TransferProposal.domain_id, func.count())
+                   .filter(TransferProposal.status == "pending",
+                           TransferProposal.domain_id.in_(ids or [-1]))
+                   .group_by(TransferProposal.domain_id).all()) if ids else {}
+    items = [_to_out(full[i], precomputed_pending=pending.get(i, 0)) for i in ids if i in full]
+    return DomainPage(items=items, total=total, page=page, size=size, counts=counts, facets=facets)
+
+
+@router.get("/options", response_model=list[DomainOption])
+def domain_options(db: Session = Depends(get_db), user: User = Depends(require_role("viewer"))):
+    """Seçiciler (uygulama formu vb.) için hafif domain listesi: id + ad. Kapsam list_domains ile aynı."""
+    q = db.query(Domain.id, Domain.domain, Domain.sy_team_id)
+    scope = domain_scope_team_ids(db, user)
+    if scope is not None:
+        q = q.filter(Domain.sy_team_id.in_(scope or {-1}))
+    rows = q.all()
+    return [DomainOption(id=i, domain=n, sy_team_id=t)
+            for i, n, t in sorted(rows, key=lambda r: fold_search(r[1]))]
 
 
 CSV_TEAM_FIELDS = {"sy": "SY", "ug": "UG"}
@@ -377,7 +491,10 @@ def get_domain(domain_id: int, db: Session = Depends(get_db),
     scope = domain_scope_team_ids(db, user)
     if scope is not None and domain.sy_team_id not in scope:
         raise HTTPException(status_code=404, detail="Domain bulunamadı")
-    return _to_out(domain, db)
+    out = _to_out(domain, db)
+    # Düzenleme (PUT) kuralı: editör+ ve kapsam içinde (kapsam yukarıda zaten doğrulandı)
+    out.can_edit = ROLE_LEVELS.get(user.role, -1) >= ROLE_LEVELS["editor"]
+    return out
 
 
 

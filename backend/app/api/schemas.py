@@ -222,6 +222,8 @@ class CertificateOut(CertificateBase, ORMModel):
     superseded_by_name: str | None = None
     supersedes: list[CertRefOut] = []
     extras: CertExtrasOut | None = None
+    can_edit: bool | None = None  # tekil GET: oturumdaki kullanıcı bu sertifikayı düzenleyebilir mi
+    domain_count: int | None = None  # sayfalı liste: bağlı domain sayısı (domains en fazla 50 kayıt taşır)
 
 
 class CertificateChainOut(BaseModel):
@@ -360,6 +362,7 @@ class DomainOut(DomainBase, ORMModel):
     live_check_detail: str | None = None
     live_check_at: IstanbulDateTime | None = None
     pending_proposals: int = 0  # bu domain için onay bekleyen değişiklik talebi sayısı
+    can_edit: bool | None = None  # tekil GET: oturumdaki kullanıcı bu domaini düzenleyebilir mi
 
 
 class MappingCreate(BaseModel):
@@ -887,3 +890,69 @@ class DeploymentRunSummaryOut(ORMModel):
 
 class DeploymentRunOut(DeploymentRunSummaryOut):
     steps: list[DeploymentRunStepOut] = []
+
+
+# ---- Sunucu-taraflı sayfalı listeler ----
+class PageMeta(BaseModel):
+    total: int                 # filtrelerden sonra kalan kayıt sayısı (tüm sayfalar)
+    page: int                  # 0'dan başlar; aralık dışı istek son sayfaya çekilir
+    size: int
+    counts: dict[str, int] = {}                  # üst kartlar / sekme sayaçları
+    facets: dict[str, dict[str, int]] = {}       # kolon-başı (huni) filtre seçenek sayaçları
+
+
+class DomainPage(PageMeta):
+    items: list[DomainOut]
+
+
+class DomainOption(BaseModel):
+    id: int
+    domain: str
+    sy_team_id: int | None = None
+
+
+class CertificateOption(BaseModel):
+    """Sertifika seçicileri için hafif kayıt (PEM yok)."""
+    id: int
+    name: str
+    cert_type: str
+    is_active: bool
+    environment: str | None = None
+    valid_to: datetime | None = None
+    days_left: int | None = None
+    subject_key_identifier: str | None = None
+    serial_number: str | None = None
+    san: str | None = None
+
+
+class CertificateTreeRow(BaseModel):
+    cert: CertificateOut       # pem_certificate / extras boş gelir (liste hafif kalsın)
+    depth: int
+    has_children: bool = False
+    root_id: int
+    root_name: str
+
+
+class CertificateGroupStat(BaseModel):
+    members: int
+    domain_links: int
+    worst_days: int | None = None
+
+
+class CertificatePage(PageMeta):
+    items: list[CertificateTreeRow]
+    groups: dict[int, CertificateGroupStat] = {}   # kart görünümü: sayfadaki köklerin özeti
+
+
+class ApplicationPage(PageMeta):
+    items: list[ApplicationOut]
+
+
+class DiscoveryPage(PageMeta):
+    items: list[DiscoveredCertificateOut]
+    has_ct: bool = False
+
+
+class ProposalPage(PageMeta):
+    items: list[TransferProposalOut]
+    domain_name: str | None = None     # domain filtresi verildiyse çipte gösterilecek ad

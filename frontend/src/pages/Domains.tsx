@@ -15,25 +15,27 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   Box, Button, Card, CardActions, CardContent, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, Grid, IconButton, InputAdornment, Link, MenuItem, Paper, Skeleton,
+  DialogTitle, Grid, IconButton, InputAdornment, LinearProgress, Link, MenuItem, Paper, Skeleton,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography,
 } from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Domain } from '../api/types'
+import type { Domain, DomainPage } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import DomainDetailDrawer from '../components/DomainDetailDrawer'
 import DomainFormDialog from '../components/DomainFormDialog'
+import ListPagination from '../components/ListPagination'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel } from '../theme'
 import { exportSheet } from '../utils/exportSheet'
+import { useDebounced, usePaging } from '../hooks/usePaging'
 import { useUrlId, useUrlParams, useUrlPatch, useUrlState } from '../hooks/useUrlState'
 
 type StatusFilter = 'all' | 'valid' | 'expiring' | 'expired' | 'nocert'
@@ -43,13 +45,17 @@ function domainStatus(d: Domain): StatusFilter {
   return certStatus(days)
 }
 
-// Tek bir "kalan gün" değerinin durumu — kolon (server/client) filtresinde kullanılır.
+// Tek bir "kalan gün" değerinin durumu — kart kenar rengi için (filtre/sayaç sunucuda).
 function certStatus(days: number | null | undefined): StatusFilter {
   if (days === null || days === undefined) return 'nocert'
   if (days < 0) return 'expired'
   if (days <= 30) return 'expiring'
   return 'valid'
 }
+
+// Sıralanabilir kolonlar (sunucu tarafında sıralanır)
+const SORTABLE = ['domain', 'sy', 'ug', 'server', 'client', 'email'] as const
+type SortKey = (typeof SORTABLE)[number]
 
 const STATUS_OPTS = [
   { value: 'all', label: 'Tümü' },
@@ -86,17 +92,36 @@ export default function Domains() {
   const patchUrl = useUrlPatch()
   const syFilter = searchParams.get('sy')
   const excelInput = useRef<HTMLInputElement>(null)
+  const [sort, setSort] = useUrlState<SortKey>('sort', 'domain', SORTABLE)
+  const [dir, setDir] = useUrlState<'asc' | 'desc'>('dir', 'asc', ['asc', 'desc'])
+  const toggleSort = (key: SortKey) => {
+    if (sort === key) setDir(dir === 'asc' ? 'desc' : 'asc')
+    else { setSort(key); setDir('asc') }
+  }
 
-  const { data: domains, isLoading, isError, error, refetch } = useQuery<Domain[]>({
-    queryKey: ['domains', search],
-    queryFn: async () => (await api.get('/domains', { params: { search: search || undefined } })).data,
+  // Arama / filtre / sıralama → sunucu sorgusu. Metin girişleri gecikmeli (her tuşta istek yok).
+  const filterParams = useDebounced(JSON.stringify({
+    q: search.trim() || undefined, status: status === 'all' ? undefined : status,
+    sy: syFilter || undefined, sort, dir, ...cf.params,
+  }))
+  const paging = usePaging(filterParams)
+
+  // 2.000+ domainde tüm listeyi çekmek sayfayı yavaşlatıyordu: sunucu yalnız görünen sayfayı döner.
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<DomainPage>({
+    queryKey: ['domains', 'page', filterParams, paging.page, paging.size],
+    queryFn: async () => (await api.get('/domains/page', {
+      params: { ...JSON.parse(filterParams), page: paging.page, size: paging.size },
+    })).data,
+    placeholderData: keepPreviousData,
   })
+  const items = data?.items ?? []
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => api.delete(`/domains/${id}`),
     onSuccess: () => {
       enqueueSnackbar('Domain silindi', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['domains'] })
+      queryClient.invalidateQueries({ queryKey: ['domain-options'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       setDeleteTarget(null)
     },
@@ -149,19 +174,17 @@ export default function Domains() {
     ])
   }
 
-  const filtered = useMemo(
-    () => (domains ?? []).filter((d) =>
-      (status === 'all' || domainStatus(d) === status) &&
-      (!syFilter || d.sy_team?.name === syFilter)),
-    [domains, status, syFilter],
-  )
-
-  // Kolon-başı (huni) filtreleri genel arama/durum filtresinin ÜSTÜNE uygulanır.
-  const tableRows = useMemo(() => filtered.filter(cf.matches), [filtered, cf.values])
-  // CSV/sayaç: tablo görünümünde kolon filtreleri de dâhil "görünen" set.
-  const visibleRows = view === 'table' ? tableRows : filtered
-
-  const handleExport = () => {
+  const handleExport = async () => {
+    // Filtrelenen TÜM kayıtlar (yalnız görünen sayfa değil) — sunucudan tek seferde alınır
+    let visibleRows: Domain[]
+    try {
+      visibleRows = (await api.get<DomainPage>('/domains/page', {
+        params: { ...JSON.parse(filterParams), all: true },
+      })).data.items
+    } catch (e) {
+      enqueueSnackbar(apiErrorMessage(e), { variant: 'error' })
+      return
+    }
     // DB'deki tüm domain kolonları + türetilen alanlar — eksiksiz dışa aktarım
     exportSheet('domainler.xlsx',
       ['domain', 'external_address', 'sy', 'ug', 'cert_owner', 'external_company',
@@ -178,15 +201,13 @@ export default function Domains() {
                            d.live_check_status, d.live_check_at]))
   }
 
-  const counts = useMemo(() => {
-    const all = domains ?? []
-    return {
-      total: all.length,
-      expired: all.filter((d) => domainStatus(d) === 'expired').length,
-      expiring: all.filter((d) => domainStatus(d) === 'expiring').length,
-      valid: all.filter((d) => domainStatus(d) === 'valid').length,
-    }
-  }, [domains])
+  // Üst kartlar: aramayla eşleşen tüm domainler üzerinden (sunucu sayar)
+  const counts = {
+    total: data?.counts.total ?? 0,
+    expired: data?.counts.expired ?? 0,
+    expiring: data?.counts.expiring ?? 0,
+    valid: data?.counts.valid ?? 0,
+  }
 
   const actions = (d: Domain) => (
     <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25, whiteSpace: 'nowrap' }}>
@@ -217,13 +238,14 @@ export default function Domains() {
       <PageHeader title="Domainler" subtitle="Domain envanteri, sertifika bağlantıları ve canlı doğrulama" />
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {[
-          { label: 'Toplam Domain', value: counts.total, color: '#42a5f5', icon: <BusinessIcon fontSize="large" /> },
-          { label: 'Süresi Dolmuş', value: counts.expired, color: '#ef5350', icon: <ErrorOutlineIcon fontSize="large" /> },
-          { label: 'Yaklaşan (≤30g)', value: counts.expiring, color: '#ffa726', icon: <WarningAmberIcon fontSize="large" /> },
-          { label: 'Geçerli', value: counts.valid, color: '#66bb6a', icon: <VerifiedIcon fontSize="large" /> },
+          { label: 'Toplam Domain', value: counts.total, color: '#42a5f5', icon: <BusinessIcon fontSize="large" />, status: 'all' as const },
+          { label: 'Süresi Dolmuş', value: counts.expired, color: '#ef5350', icon: <ErrorOutlineIcon fontSize="large" />, status: 'expired' as const },
+          { label: 'Yaklaşan (≤30g)', value: counts.expiring, color: '#ffa726', icon: <WarningAmberIcon fontSize="large" />, status: 'expiring' as const },
+          { label: 'Geçerli', value: counts.valid, color: '#66bb6a', icon: <VerifiedIcon fontSize="large" />, status: 'valid' as const },
         ].map((s) => (
           <Grid key={s.label} size={{ xs: 6, md: 3 }}>
-            <StatCard icon={s.icon} label={s.label} value={s.value} color={s.color} />
+            <StatCard icon={s.icon} label={s.label} value={s.value} color={s.color}
+                      onClick={() => setStatus(s.status)} />
           </Grid>
         ))}
       </Grid>
@@ -256,7 +278,7 @@ export default function Domains() {
         )}
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" color="text.secondary">
-          {visibleRows.length} / {counts.total} domain
+          {data?.total ?? 0} / {counts.total} domain
         </Typography>
         <Tooltip title="Görünen listeyi Excel (.xlsx) olarak indirir">
           <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon />}
@@ -291,13 +313,14 @@ export default function Domains() {
         </ToggleButtonGroup>
       </Box>
 
+      <LinearProgress sx={{ mb: 0.5, height: 2, visibility: isFetching && !isLoading ? 'visible' : 'hidden' }} />
       {isError ? (
         <QueryError error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
         <Skeleton variant="rounded" height={400} />
       ) : view === 'cards' ? (
         <Grid container spacing={2}>
-          {filtered.map((d) => {
+          {items.map((d) => {
             const st = domainStatus(d)
             return (
               <Grid key={d.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
@@ -329,7 +352,7 @@ export default function Domains() {
               </Grid>
             )
           })}
-          {filtered.length === 0 && (
+          {items.length === 0 && (
             <Grid size={{ xs: 12 }}>
               <Paper sx={{ p: 6, textAlign: 'center' }}>
                 <Typography color="text.secondary">Filtreyle eşleşen domain yok</Typography>
@@ -342,12 +365,16 @@ export default function Domains() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {COLS.map((c) => <ColHeaderCell key={c.key} def={c} cf={cf} />)}
+                {COLS.map((c) => (
+                  <ColHeaderCell key={c.key} def={c} cf={cf}
+                                 sort={{ active: sort === c.key, direction: dir,
+                                         onClick: () => toggleSort(c.key as SortKey) }} />
+                ))}
                 <TableCell align="right">İşlemler</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {tableRows.map((d) => (
+              {items.map((d) => (
                 <TableRow key={d.id} hover>
                   <TableCell sx={{ fontWeight: 600 }}>
                     <Link component="button" underline="hover" color="inherit" onClick={() => setDetailId(d.id)}
@@ -371,7 +398,7 @@ export default function Domains() {
                   <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>{actions(d)}</TableCell>
                 </TableRow>
               ))}
-              {tableRows.length === 0 && (
+              {items.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7}>
                     <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
@@ -385,7 +412,12 @@ export default function Domains() {
         </Paper>
       )}
 
-      <ColumnFilterMenu cf={cf} facetRows={filtered} />
+      {!isError && !isLoading && (
+        <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                        onPage={paging.setPage} onSize={paging.setSize} unit="domain" />
+      )}
+
+      <ColumnFilterMenu cf={cf} facetCounts={data?.facets} />
 
       <DomainFormDialog open={formOpen} onClose={() => setFormOpen(false)} domain={editTarget} />
       <DomainDetailDrawer domainId={detailId} onClose={() => setDetailId(null)} />

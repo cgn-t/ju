@@ -67,6 +67,8 @@ export interface Certificate {
   revocation_detail?: string | null
   // PEM'den okunan ek bilgiler — yalnız tekil GET doldurur
   extras?: CertExtras | null
+  can_edit?: boolean | null   // yalnız tekil GET: bu kullanıcı düzenleyebilir mi
+  domain_count?: number | null // sayfalı liste: bağlı domain sayısı (domains en fazla 50 kayıt)
 }
 
 export interface CertExtras {
@@ -278,6 +280,7 @@ export interface Domain {
   live_check_detail?: string | null
   live_check_at?: string | null
   pending_proposals?: number
+  can_edit?: boolean | null   // yalnız tekil GET: bu kullanıcı düzenleyebilir mi
 }
 
 export interface AppDependency {
@@ -626,3 +629,41 @@ export interface DeploymentRunSummary {
 export interface DeploymentRun extends DeploymentRunSummary {
   steps: DeploymentRunStep[]
 }
+
+// ---- Sunucu-taraflı sayfalı listeler ----
+export interface PageMeta {
+  total: number
+  page: number
+  size: number
+  counts: Record<string, number>
+  facets: Record<string, Record<string, number>>
+}
+export interface DomainPage extends PageMeta { items: Domain[] }
+export interface DomainOption { id: number; domain: string; sy_team_id?: number | null }
+export interface CertificateOption {
+  id: number
+  name: string
+  cert_type: 'root' | 'intermediate' | 'leaf'
+  is_active: boolean
+  environment?: 'prod' | 'test' | null
+  valid_to?: string | null
+  days_left?: number | null
+  subject_key_identifier?: string | null
+  serial_number?: string | null
+  san?: string | null
+}
+export interface CertificateTreeRow {
+  cert: Certificate
+  depth: number
+  has_children: boolean
+  root_id: number
+  root_name: string
+}
+export interface CertificateGroupStat { members: number; domain_links: number; worst_days?: number | null }
+export interface CertificatePage extends PageMeta {
+  items: CertificateTreeRow[]
+  groups: Record<string, CertificateGroupStat>
+}
+export interface ApplicationPage extends PageMeta { items: Application[] }
+export interface DiscoveryPage extends PageMeta { items: DiscoveredCertificate[]; has_ct: boolean }
+export interface ProposalPage extends PageMeta { items: TransferProposal[]; domain_name?: string | null }

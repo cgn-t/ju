@@ -8,22 +8,25 @@ import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import {
   Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid,
-  IconButton, InputAdornment, MenuItem, Paper, Skeleton, Stack, Table, TableBody, TableCell,
+  IconButton, InputAdornment, LinearProgress, MenuItem, Paper, Skeleton, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type {
-  AppDependency, Application, AppTrustedCert, AppUser, Certificate, Domain, Tag, Team,
+  AppDependency, Application, ApplicationPage, AppTrustedCert, AppUser, DomainOption, Tag, Team,
 } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import ApplicationDetailDrawer from '../components/ApplicationDetailDrawer'
+import CertificatePicker, { type PickerCert } from '../components/CertificatePicker'
+import ListPagination from '../components/ListPagination'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { useDebounced, usePaging } from '../hooks/usePaging'
 import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 // Uygulama tablosu kolon-başı (huni) filtreleri — metin kolonları + Durum (Aktif/Pasif) seçimi.
@@ -72,14 +75,18 @@ export default function Applications() {
 
   // Liste kullanıcının ÜYELİĞİNE göre kapsamlıdır (backend RBAC): editor/viewer yalnız kendi
   // SY ekiplerinin uygulamalarını görür; admin/allviewer global. Ayrı bir takım filtresi yok.
-  const { data: apps, isLoading, isError, error, refetch } = useQuery<Application[]>({
-    queryKey: ['applications', search],
-    queryFn: async () => (await api.get('/applications', {
-      params: { search: search || undefined },
-    })).data,
-  })
   const cf = useColumnFilters(APP_COLS, { urlPrefix: 'f_' })  // kolon-başı (huni) filtreleri
-  const rows = useMemo(() => (apps ?? []).filter(cf.matches), [apps, cf.values])
+  // Arama + kolon filtreleri sunucuda; yalnız görünen sayfa çekilir
+  const filterParams = useDebounced(JSON.stringify({ q: search.trim() || undefined, ...cf.params }))
+  const paging = usePaging(filterParams)
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<ApplicationPage>({
+    queryKey: ['applications', 'page', filterParams, paging.page, paging.size],
+    queryFn: async () => (await api.get('/applications/page', {
+      params: { ...JSON.parse(filterParams), page: paging.page, size: paging.size },
+    })).data,
+    placeholderData: keepPreviousData,
+  })
+  const rows = data?.items ?? []
   const { data: allTags } = useQuery<Tag[]>({
     queryKey: ['tags'],
     queryFn: async () => (await api.get('/tags')).data,
@@ -97,9 +104,10 @@ export default function Applications() {
     queryFn: async () => (await api.get('/teams')).data,
     enabled: formOpen,
   })
-  const { data: domains } = useQuery<Domain[]>({
-    queryKey: ['domains', ''],
-    queryFn: async () => (await api.get('/domains')).data,
+  // Seçiciler için hafif liste (id + ad) — tam domain kayıtları indirilmez
+  const { data: domains } = useQuery<DomainOption[]>({
+    queryKey: ['domain-options'],
+    queryFn: async () => (await api.get('/domains/options')).data,
     enabled: formOpen,
   })
   // Giriş yapmış kullanıcının SY üyelikleri: editör uygulamayı yalnız KENDİ ekibine
@@ -154,12 +162,10 @@ export default function Applications() {
     queryFn: async () => (await api.get(`/applications/${editTarget!.id}/trusted`)).data,
     enabled: formOpen && !!editTarget,
   })
-  // Trusted eklerken seçilecek sertifika kataloğu: yalnız AKTİF sertifikalar (pasif trust store'a eklenemez).
-  const { data: certs } = useQuery<Certificate[]>({
-    queryKey: ['certificates', 'trusted-picker'],
-    queryFn: async () => (await api.get('/certificates', { params: { is_active: true } })).data,
-    enabled: formOpen,
-  })
+  // Trusted eklerken sertifika sunucuda aranır (yalnız AKTİF — pasif trust store'a eklenemez).
+  // Seçilenlerin adı burada tutulur (eklenecekler listesi ve hata mesajı için).
+  const [pickedCerts, setPickedCerts] = useState<Record<string, PickerCert>>({})
+  const certName = (id: string) => pickedCerts[id]?.name
   const [trustedForm, setTrustedForm] = useState({ certificate_id: '', note: '' })
   // YENİ uygulama formunda biriktirilen trusted sertifikalar: kayıt sonrası sırayla POST edilir
   const [pendingTrusted, setPendingTrusted] = useState<{ certificate_id: string; note: string }[]>([])
@@ -168,9 +174,13 @@ export default function Applications() {
     setPendingTrusted([])
   }, [editTarget, formOpen])
   // Seçicide zaten trust store'da (ya da eklenecekler listesinde) olanlar tekrar çıkmaz
-  const trustedOptions = (certs ?? []).filter((c) => editTarget
-    ? !(trusted ?? []).some((t) => t.cert_id === c.id)
-    : !pendingTrusted.some((p) => p.certificate_id === c.id.toString()))
+  const trustedExclude = (c: { id: number }) => editTarget
+    ? (trusted ?? []).some((t) => t.cert_id === c.id)
+    : pendingTrusted.some((p) => p.certificate_id === c.id.toString())
+  const pickTrusted = (v: PickerCert | null) => {
+    if (v) setPickedCerts((m) => ({ ...m, [v.id.toString()]: v }))
+    setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))
+  }
   const invalidateTrusted = () => {
     queryClient.invalidateQueries({ queryKey: ['app-trusted', editTarget?.id] })
     queryClient.invalidateQueries({ queryKey: ['applications'] })
@@ -290,7 +300,7 @@ export default function Applications() {
             certificate_id: Number(tr.certificate_id), note: tr.note || null,
           })
         } catch (e) {
-          const name = (certs ?? []).find((c) => c.id.toString() === tr.certificate_id)?.name
+          const name = certName(tr.certificate_id)
           trustedFails.push(`${name ?? tr.certificate_id}: ${apiErrorMessage(e)}`)
         }
       }
@@ -334,7 +344,7 @@ export default function Applications() {
         <Box sx={{ flexGrow: 1 }} />
         {cf.anyActive && (
           <Typography variant="body2" color="text.secondary">
-            {rows.length} / {(apps ?? []).length}
+            {data?.total ?? 0}
           </Typography>
         )}
         {cf.anyActive && (
@@ -345,6 +355,7 @@ export default function Applications() {
                    slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> } }} />
       </Box>
 
+      <LinearProgress sx={{ mb: 0.5, height: 2, visibility: isFetching && !isLoading ? 'visible' : 'hidden' }} />
       <Paper>
         {isError ? (
           <Box sx={{ p: 2 }}><QueryError error={error} onRetry={() => refetch()} /></Box>
@@ -410,7 +421,7 @@ export default function Applications() {
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10} align="center" sx={{ py: 7, color: 'text.secondary' }}>
-                    {(apps ?? []).length > 0 ? (
+                    {search || cf.anyActive ? (
                       <Typography variant="body2">Filtreyle eşleşen uygulama yok.</Typography>
                     ) : (
                       <>
@@ -429,9 +440,13 @@ export default function Applications() {
             </TableBody>
           </Table>
         )}
+        {!isError && !isLoading && (
+          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                          onPage={paging.setPage} onSize={paging.setSize} unit="uygulama" />
+        )}
       </Paper>
 
-      <ColumnFilterMenu cf={cf} facetRows={apps ?? []} />
+      <ColumnFilterMenu cf={cf} facetCounts={data?.facets} />
 
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editTarget ? `Uygulama Düzenle — ${editTarget.app_name}` : 'Yeni Uygulama'}</DialogTitle>
@@ -614,12 +629,9 @@ export default function Applications() {
               {canEdit && (
                 <Grid container spacing={1} sx={{ alignItems: 'center' }}>
                   <Grid size={{ xs: 12, sm: 6 }}>
-                    <Autocomplete size="small" options={trustedOptions}
-                                  getOptionLabel={(c) => c.name}
-                                  value={(certs ?? []).find((c) => c.id.toString() === trustedForm.certificate_id) ?? null}
-                                  onChange={(_, v) => setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))}
-                                  isOptionEqualToValue={(o, v) => o.id === v.id}
-                                  renderInput={(params) => <TextField {...params} label="Sertifika *" />} />
+                    <CertificatePicker remote={{ is_active: true, exclude: trustedExclude }}
+                                       value={pickedCerts[trustedForm.certificate_id] ?? null}
+                                       onChange={pickTrusted} label="Sertifika *" />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField label="Not" fullWidth size="small" value={trustedForm.note}
@@ -710,8 +722,7 @@ export default function Applications() {
                     <VerifiedUserIcon fontSize="small" sx={{ color: '#ab47bc' }} />
                     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                       <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>
-                        {(certs ?? []).find((c) => c.id.toString() === t.certificate_id)?.name
-                          ?? `#${t.certificate_id}`}
+                        {certName(t.certificate_id) ?? `#${t.certificate_id}`}
                       </Typography>
                       {t.note && (
                         <Typography variant="caption" color="text.secondary" noWrap>{t.note}</Typography>
@@ -731,12 +742,9 @@ export default function Applications() {
               </Stack>
               <Grid container spacing={1} sx={{ alignItems: 'center' }}>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <Autocomplete size="small" options={trustedOptions}
-                                getOptionLabel={(c) => c.name}
-                                value={(certs ?? []).find((c) => c.id.toString() === trustedForm.certificate_id) ?? null}
-                                onChange={(_, v) => setTrustedForm((f) => ({ ...f, certificate_id: v ? v.id.toString() : '' }))}
-                                isOptionEqualToValue={(o, v) => o.id === v.id}
-                                renderInput={(params) => <TextField {...params} label="Sertifika" />} />
+                  <CertificatePicker remote={{ is_active: true, exclude: trustedExclude }}
+                                       value={pickedCerts[trustedForm.certificate_id] ?? null}
+                                       onChange={pickTrusted} label="Sertifika" />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 4 }}>
                   <TextField label="Not" fullWidth size="small" value={trustedForm.note}

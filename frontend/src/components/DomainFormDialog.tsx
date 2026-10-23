@@ -164,6 +164,7 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
     onSuccess: () => {
       enqueueSnackbar(domain ? 'Domain güncellendi' : 'Domain eklendi', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['domains'] })
+      queryClient.invalidateQueries({ queryKey: ['domain-options'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
       queryClient.invalidateQueries({ queryKey: ['cert-map'] })
