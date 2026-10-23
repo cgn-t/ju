@@ -110,12 +110,15 @@ export default function AppLayout() {
     const button = (
       <ListItemButton key={item.to} component={Link} to={item.to} selected={isActive(item.to)}
                       onClick={() => setDrawerOpen(false)}
-                      sx={{ mx: 1, my: 0.25, borderRadius: 1.5, minHeight: 40,
-                            pl: compact ? 1.5 : nested ? 2 : 1.5, pr: compact ? 1.5 : 1,
+                      sx={{ mx: 1.25, my: 0.25, borderRadius: '10px', minHeight: 40, position: 'relative',
+                            pl: compact ? 1.5 : nested ? 1.75 : 1.5, pr: compact ? 1.5 : 1,
                             justifyContent: compact ? 'center' : 'flex-start',
-                            color: 'rgba(255,255,255,0.82)',
-                            '&:hover': { bgcolor: 'rgba(255,255,255,0.10)' },
-                            '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rgba(255,255,255,0.20)', color: '#fff' } }}>
+                            color: 'rgba(255,255,255,0.74)', transition: 'background-color 150ms, color 150ms',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,0.08)', color: '#fff' },
+                            '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rgba(255,255,255,0.14)', color: '#fff',
+                                                                     boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.10)' },
+                            '&.Mui-selected::before': { content: '""', position: 'absolute', left: -10, top: 9, bottom: 9,
+                                                        width: 3, borderRadius: 2, bgcolor: '#fff' } }}>
         <ListItemIcon sx={{ minWidth: compact ? 0 : 36, color: 'inherit' }}>
           <Badge color="warning" badgeContent={compact ? badge : 0} max={99}>
             {Icon ? <Icon fontSize="small" /> : null}
@@ -134,7 +137,8 @@ export default function AppLayout() {
   }
 
   const navContent = (compact: boolean) => (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#8f1d22', color: '#fff' }}>
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: '#fff',
+               background: 'linear-gradient(180deg, #7e1a1f 0%, #5e1317 100%)' }}>
       <Box component={Link} to="/" onClick={() => setDrawerOpen(false)}
            sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: compact ? 1.5 : 2, py: 1.75,
                  justifyContent: compact ? 'center' : 'flex-start',
@@ -147,15 +151,15 @@ export default function AppLayout() {
           </Box>
         )}
       </Box>
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       <List sx={{ py: 1, flexGrow: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {navEntries.map((entry) => (isGroup(entry) ? (
           <Fragment key={entry.label}>
             {compact ? (
               <Divider sx={{ my: 1, mx: 1.5, borderColor: 'rgba(255,255,255,0.15)' }} />
             ) : (
-              <ListSubheader sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,0.6)', lineHeight: '30px', mt: 1,
-                                   fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+              <ListSubheader sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,0.5)', lineHeight: '30px', mt: 1.5, pl: 2.75,
+                                   fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase' }}>
                 {entry.label}
               </ListSubheader>
             )}
@@ -163,7 +167,7 @@ export default function AppLayout() {
           </Fragment>
         ) : navItem(entry, compact)))}
       </List>
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: compact ? 'center' : 'flex-end', p: 0.5 }}>
         <Tooltip title={compact ? 'Menüyü genişlet' : 'Menüyü daralt'} placement="right">
           <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.8)' }} onClick={toggleCollapsed}
