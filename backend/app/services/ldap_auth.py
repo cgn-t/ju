@@ -455,6 +455,13 @@ def directory_profile(db: Session, username: str) -> dict:
             conn.search(cfg["group_base"], group_filter, attributes=["cn"])
             groups = [str(g.entry_dn) for g in conn.entries]
             group_source = "group_search"
+        # Ekip grupları: Ayarlar > LDAP'taki OU'nun altındaki gruplar (ör. CN=SY-BBB,OU=ScrumGroup,...)
+        team_ou = (cfg.get("team_group_ou") or "").strip().lower()
+        team_groups = sorted({_rdn_value(g) for g in groups
+                              if team_ou and f"ou={team_ou}" in
+                              [p.strip().lower() for p in re.split(r"(?<!\\),", g)]}, key=str.lower)
+        if team_groups:
+            summary.insert(0, {"key": "team", "label": "Ekip (AD)", "value": ", ".join(team_groups)})
         role_map = {k.lower(): v for k, v in (cfg.get("group_role_map") or {}).items()}
         group_out = sorted(({"dn": g, "name": _rdn_value(g), "mapped_role": role_map.get(g.lower())}
                             for g in groups), key=lambda g: g["name"].lower())
@@ -473,7 +480,7 @@ def directory_profile(db: Session, username: str) -> dict:
         reports = sorted((_rdn_value(str(r)) for r in _attr_values(entry, "directReports")), key=str.lower)
         return {"status": "ok", "message": "", "dn": dn, "ou_path": _ou_path(dn), "photo": photo,
                 "summary": summary, "account_flags": account_flags, "managers": chain,
-                "direct_reports": reports, "groups": group_out, "group_source": group_source,
+                "direct_reports": reports, "team_groups": team_groups, "groups": group_out, "group_source": group_source,
                 "attributes": attributes}
     except LDAPException as exc:
         logger.error("LDAP profil okuma hatası (kullanıcı=%s): %s", username, exc)

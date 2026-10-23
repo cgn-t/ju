@@ -47,6 +47,7 @@ DEFAULTS: dict[str, dict] = {
         "group_base": "",                # memberOf yoksa grupların aranacağı taban
         "group_filter": "",              # ör. (member={user_dn})
         "group_role_map": {},  # {"CN=JUMBO-Admins,...": "admin"}
+        "team_group_ou": "ScrumGroup",   # ekip gruplarının OU'su: CN=SY-BBB,OU=ScrumGroup,... → "SY-BBB"
         "default_role": "viewer",
     },
     "smtp": {

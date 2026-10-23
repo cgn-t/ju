@@ -18,6 +18,7 @@ ISMAIL = f"CN=İsmail Çelik,OU=Sertifika,OU=Bilgi Guvenligi,{BASE}"
 AYSE = f"CN=Ayşe Yılmaz,OU=Sertifika,OU=Bilgi Guvenligi,{BASE}"
 MEHMET = f"CN=Mehmet Öz,OU=Bilgi Guvenligi,{BASE}"
 EDITORS = "CN=JUMBO_Editors,OU=Groups,DC=firma,DC=local"
+SCRUM = "CN=SY-BBB,OU=ScrumGroup,OU=BTPersonel,DC=firma,DC=local"
 
 CFG = {"enabled": True, "server": "127.0.0.1", "port": 1, "use_ssl": False, "base_dn": BASE,
        "bind_dn": "CN=svc,DC=firma,DC=local", "bind_password": "x", "user_attr": "sAMAccountName",
@@ -37,7 +38,7 @@ def _fake_directory(monkeypatch):
     conn.strategy.add_entry(ISMAIL, {"objectClass": "user", "sAMAccountName": "ismail.celik",
                                      "displayName": "İsmail Çelik", "title": "Kıdemli Uzman",
                                      "department": "Sertifika Müdürlüğü", "mail": "ismail@firma.com.tr",
-                                     "manager": AYSE, "memberOf": [EDITORS, "CN=VPN,OU=Groups,DC=firma,DC=local"],
+                                     "manager": AYSE, "memberOf": [EDITORS, "CN=VPN,OU=Groups,DC=firma,DC=local", SCRUM],
                                      "userAccountControl": "514", "userPassword": "Gizli.123",
                                      "division": "Teknoloji Grubu"})
     conn.bind()
@@ -65,7 +66,9 @@ def test_profile_reads_summary_managers_groups_and_hides_password(client, monkey
         assert p["managers"][0]["title"] == "Müdür"
         assert p["ou_path"] == ["Users", "Bilgi Guvenligi", "Sertifika"]
         groups = {g["name"]: g["mapped_role"] for g in p["groups"]}
-        assert groups == {"JUMBO_Editors": "editor", "VPN": None}
+        assert groups == {"JUMBO_Editors": "editor", "VPN": None, "SY-BBB": None}
+        # Ekip grubu (varsayılan OU=ScrumGroup): sol menüde adın altında görünür
+        assert p["team_groups"] == ["SY-BBB"] and summary["team"] == "SY-BBB"
         assert "Hesap devre dışı" in p["account_flags"]
         names = {a["name"].lower() for a in p["attributes"]}
         assert "division" in names and "userpassword" not in names
