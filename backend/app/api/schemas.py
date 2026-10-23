@@ -976,3 +976,183 @@ class DiscoveryPage(PageMeta):
 class ProposalPage(PageMeta):
     items: list[TransferProposalOut]
     domain_name: str | None = None     # domain filtresi verildiyse çipte gösterilecek ad
+
+
+# --- Yönetici Panosu / Ekibim / Sistem Sağlığı / sertifika etkilenenler (v3.9.9) ---------
+
+class MissingDetailOut(BaseModel):
+    no_pem: int = 0
+    domains_without_cert: int = 0
+    no_team_email: bool = False
+    domains_without_team: int = 0
+
+
+class TeamSummaryRow(BaseModel):
+    team_id: int
+    team: str
+    email: str | None
+    status: str                         # critical | warning | ok
+    members: int
+    applications: int
+    domains: int
+    certificates: int
+    expired: int
+    expiring_soon: int
+    nearest_days: int | None
+    pending_proposals: int
+    oldest_pending_days: int | None
+    policy_violations: int
+    live_problems: int
+    missing_info: int
+    missing_detail: MissingDetailOut
+
+
+class SummaryProposalOut(BaseModel):
+    id: int
+    label: str
+    kind: str
+    domain_id: int | None
+    domain: str | None
+    app: str | None
+    old_cert: str | None
+    new_cert: str | None
+    team_id: int | None
+    team: str | None
+    created_at: IstanbulDateTime | None
+    age_days: int | None
+
+
+class SummaryTotalsOut(BaseModel):
+    teams: int
+    domains: int
+    certificates: int
+    expired: int
+    expired_teams: int
+    expiring_soon: int
+    nearest_days: int | None
+    pending_proposals: int
+    oldest_pending_days: int | None
+    live_problems: int
+    policy_violations: int
+    missing_info: int
+    missing_detail: MissingDetailOut
+    status_counts: dict[str, int]
+
+
+class MonthCount(BaseModel):
+    month: str                          # YYYY-MM (İstanbul takvimi)
+    count: int
+
+
+class UpcomingCert(BaseModel):
+    id: int
+    name: str
+    valid_to: datetime | None
+    days_left: int | None
+
+
+class TeamOverviewOut(BaseModel):
+    scope: str                          # all | team
+    generated_at: IstanbulDateTime
+    expiring_soon_days: int
+    totals: SummaryTotalsOut
+    teams: list[TeamSummaryRow]
+    upcoming_months: list[MonthCount]
+    upcoming_certs: list[UpcomingCert]
+    oldest_proposals: list[SummaryProposalOut]
+
+
+class TeamAttentionCert(BaseModel):
+    id: int
+    name: str
+    cert_type: str | None
+    valid_to: datetime | None
+    days_left: int | None
+    domains: list[str]
+    last_mail_at: IstanbulDateTime | None
+    open_proposals: list[str]
+
+
+class TeamAttentionItem(BaseModel):
+    kind: str                           # live | no_cert | policy | no_pem
+    name: str
+    detail: str
+    domain_id: int | None = None
+    certificate_id: int | None = None
+
+
+class TeamDetailOut(TeamSummaryRow):
+    expiring_soon_days: int
+    certificates_attention: list[TeamAttentionCert]
+    pending: list[SummaryProposalOut]
+    attention: list[TeamAttentionItem]
+
+
+class ImpactDomain(BaseModel):
+    domain_id: int
+    domain: str
+    mapping_type: str | None
+    team: str | None
+
+
+class ImpactApp(BaseModel):
+    app_id: int
+    app_name: str
+    relation: str
+    via: str | None
+    team: str | None
+    active: bool
+
+
+class ImpactRecipient(BaseModel):
+    label: str
+    emails: list[str]
+    reasons: list[str]
+    effective_days: int
+    starts_on: datetime | None
+
+
+class CertificateImpactOut(BaseModel):
+    certificate_id: int
+    domains: list[ImpactDomain]
+    applications: list[ImpactApp]
+    recipients: list[ImpactRecipient]
+    fallback: bool
+    mail_enabled: bool
+    expired: bool
+
+
+class HealthJob(BaseModel):
+    id: str
+    label: str
+    enabled: bool
+    last_run_at: IstanbulDateTime | None
+    manual: bool
+    status: str | None                  # ok | error | None (hiç çalışmadı)
+    summary: str | None
+    duration_s: float | None
+    next_run_at: IstanbulDateTime | None
+
+
+class HealthMailWeek(BaseModel):
+    sent: int
+    failed: int
+    pending: int
+    refused: int
+    fallback: int
+
+
+class HealthMissing(BaseModel):
+    domains_without_team: int
+    certs_without_recipient: int
+    certs_without_pem: int
+    apps_without_team: int
+    teams_without_email: int
+
+
+class SystemHealthOut(BaseModel):
+    generated_at: IstanbulDateTime
+    jobs: list[HealthJob]
+    mail_week: HealthMailWeek
+    missing: HealthMissing
+    connections: dict

@@ -62,8 +62,10 @@ def recipients_of(raw: str | None) -> list[str]:
 
 class _Filters:
     def __init__(self, *, channel=None, status=None, mail_type=None, q=None, recipient=None,
-                 subject=None, record=None, lo: datetime | None = None, hi: datetime | None = None):
+                 subject=None, record=None, lo: datetime | None = None, hi: datetime | None = None,
+                 certificate_id: int | None = None):
         self.channel, self.status, self.mail_type = channel, status, mail_type
+        self.certificate_id = certificate_id
         self.q, self.recipient, self.subject, self.record = q, recipient, subject, record
         self.lo, self.hi = lo, hi
 
@@ -82,6 +84,8 @@ def _notif_query(db: Session, f: _Filters, *, ignore_status=False, ignore_type=F
         if f.channel == "email":
             cond = or_(cond, Notification.channel.is_(None))
         q = q.filter(cond)
+    if f.certificate_id is not None:
+        q = q.filter(Notification.certificate_id == f.certificate_id)
     if f.status and not ignore_status:
         q = q.filter(eff_status == f.status)
     if f.mail_type and not ignore_type:
@@ -117,6 +121,8 @@ def _queue_query(db: Session, f: _Filters, *, ignore_status=False, ignore_type=F
          .outerjoin(Certificate, Certificate.id == MailQueue.certificate_id)
          .outerjoin(Domain, Domain.id == MailQueue.domain_id)
          .filter(MailQueue.status.in_(("pending", "failed")), ~linked))
+    if f.certificate_id is not None:
+        q = q.filter(MailQueue.certificate_id == f.certificate_id)
     if f.status and not ignore_status:
         q = q.filter(MailQueue.status == f.status)
     if f.mail_type and not ignore_type:

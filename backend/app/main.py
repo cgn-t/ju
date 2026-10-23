@@ -23,6 +23,7 @@ from app.api import (
     policy,
     proposals,
     settings_api,
+    summary,
     tags,
     users,
 )
@@ -655,6 +656,7 @@ app.include_router(discovery.router)
 app.include_router(policy.router)
 app.include_router(jenkins.router)
 app.include_router(deployments.router)
+app.include_router(summary.router)
 
 
 @app.exception_handler(IntegrityError)

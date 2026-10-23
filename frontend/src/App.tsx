@@ -16,10 +16,13 @@ import DeploymentRunsAll from './pages/DeploymentRunsAll'
 import Discovery from './pages/Discovery'
 import Domains from './pages/Domains'
 import Login from './pages/Login'
+import ManagerBoard from './pages/ManagerBoard'
 import Policy from './pages/Policy'
 import Profile from './pages/Profile'
 import Proposals from './pages/Proposals'
 import Settings from './pages/Settings'
+import SystemHealth from './pages/SystemHealth'
+import TeamSummary from './pages/TeamSummary'
 import { createAppTheme, type ThemeMode } from './theme'
 import { usePageAccess } from './hooks/usePageAccess'
 
@@ -69,6 +72,17 @@ function AdminRoute({ children }: { children: ReactNode }) {
   return isAdmin ? <>{children}</> : <Navigate to="/profile" replace />
 }
 
+// Yönetici Panosu: tüm ekipler — admin ve Genel İzleyici (sunucu da kapsamı rolden çözer).
+function ManagerRoute({ children }: { children: ReactNode }) {
+  const { role } = useAuth()
+  return role === 'admin' || role === 'allviewer' ? <>{children}</> : <Navigate to="/" replace />
+}
+
+function AdminOnly({ children }: { children: ReactNode }) {
+  const { isAdmin } = useAuth()
+  return isAdmin ? <>{children}</> : <Navigate to="/" replace />
+}
+
 // /settings artık HERKESE açık: admin tüm sekmeleri, diğer kullanıcılar yalnız 'Etiketler'
 // sekmesini görür (Settings.tsx içinde role göre daraltılır). Takımsız kullanıcıyı zaten
 // Protected'daki hasNoTeam ekranı durduruyor.
@@ -97,6 +111,9 @@ export default function App() {
                 <Route path="/login" element={<Login />} />
                 <Route element={<Protected />}>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/overview" element={<ManagerRoute><ManagerBoard /></ManagerRoute>} />
+                  <Route path="/teams/:teamId" element={<TeamSummary />} />
+                  <Route path="/system-health" element={<AdminOnly><SystemHealth /></AdminOnly>} />
                   <Route path="/certificates" element={<Certificates />} />
                   <Route path="/domains" element={<Domains />} />
                   <Route path="/proposals" element={<PageAccessRoute page="proposals"><Proposals /></PageAccessRoute>} />

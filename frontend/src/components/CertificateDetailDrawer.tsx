@@ -17,6 +17,8 @@ import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined'
 import LanguageIcon from '@mui/icons-material/Language'
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined'
 import LinkIcon from '@mui/icons-material/Link'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import MailOutlineIcon from '@mui/icons-material/MailOutlined'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined'
 import PolicyOutlinedIcon from '@mui/icons-material/PolicyOutlined'
@@ -44,6 +46,7 @@ import { useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { CertificateImpactTab, CertificateMailsTab } from './CertificateExtraTabs'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { EditFooter, FormSection } from './FormKit'
@@ -77,7 +80,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const queryClient = useQueryClient()
   const { canEdit, isAdmin } = useAuth()
   const [editing, setEditing] = useState(false)
-  const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate'>('summary')
+  const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate' | 'mails' | 'impact'>('summary')
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
@@ -249,6 +252,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                 { value: 'technical', label: 'Teknik Detay', icon: <CodeIcon /> },
                 { value: 'revocation', label: 'İptal Durumu', icon: <GppGoodOutlinedIcon /> },
                 { value: 'corporate', label: 'Kurumsal', icon: <BusinessOutlinedIcon /> },
+                { value: 'mails', label: 'Mailler', icon: <MailOutlineIcon /> },
+                { value: 'impact', label: 'Etkilenenler', icon: <HubOutlinedIcon /> },
               ]} />
             } />
           <DialogContent sx={DIALOG_BODY_SX}>
@@ -478,6 +483,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
               </Stack>
             )}
+
+            {tab === 'mails' && <CertificateMailsTab certId={cert.id} />}
+            {tab === 'impact' && <CertificateImpactTab certId={cert.id} onOpenDomain={(id) => navigate(`/domains?domain=${id}`)} />}
 
             {tab === 'corporate' && (
               editing ? (
