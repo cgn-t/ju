@@ -159,7 +159,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
         <>
           <DialogTitle sx={{ pb: 0.5, pr: 7 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Chip label={cert.cert_type.toUpperCase()} size="small"
+              <Chip label={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type} size="small"
                     sx={{ bgcolor: nodeColors[cert.cert_type], color: 'rgba(0,0,0,0.87)', fontWeight: 700 }} />
               {editing ? (
                 <TextField size="small" fullWidth label="Sertifika Adı" value={form.name}
@@ -222,13 +222,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               <Stack spacing={2}>
                 <ValidityCard cert={cert} />
                 <Box sx={GRID4}>
-                  <InfoCard title="Tür" value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type}
-                            sub={cert.cert_type === 'root' ? 'Kendinden imzalı' : undefined} />
-                  <InfoCard title="Sertifika Otoritesi" value={dnPart(cert.issuer, 'CN') ?? '—'}
+                  <InfoCard title="Type" value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type}
+                            sub={cert.cert_type === 'root' ? 'Self-signed' : undefined} />
+                  <InfoCard title="Issuer (CA)" value={dnPart(cert.issuer, 'CN') ?? '—'}
                             sub={dnPart(cert.issuer, 'O') ?? undefined} onClick={() => setTab('chain')} />
-                  <InfoCard title="Anahtar" value={keyText(cert)}
-                            sub={cert.signature_hash ? `${cert.signature_hash.toUpperCase().replace('SHA', 'SHA-')} ile imzalı` : undefined} />
-                  <InfoCard title="Alternatif Adlar (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
+                  <InfoCard title="Public Key" value={keyText(cert)}
+                            sub={cert.signature_hash ? `Signature: ${cert.signature_hash.toUpperCase().replace('SHA', 'SHA-')}` : undefined} />
+                  <InfoCard title="SubjectAltName (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
                             sub={sans.slice(0, 3).join(', ') + (sans.length > 3 ? '…' : '')} onClick={() => setTab('technical')} />
                   <InfoCard title="Durum" value={cert.is_active ? 'Aktif' : 'Pasif'}
                             color={cert.is_active ? 'default' : 'warning'}
@@ -248,10 +248,10 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                 </Box>
                 <SectionBox title="Kimlik">
                   <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-                    <CopyField label="Seri Numarası" value={cert.serial_number} />
-                    <CopyField label="SHA-256 Parmak İzi" value={cert.fingerprint_sha256} />
-                    <CopyField label="Konu (Subject)" value={cert.subject} />
-                    <CopyField label="Veren (Issuer)" value={cert.issuer} />
+                    <CopyField label="Serial Number" value={cert.serial_number} />
+                    <CopyField label="SHA-256 Fingerprint" value={cert.fingerprint_sha256} />
+                    <CopyField label="Subject" value={cert.subject} />
+                    <CopyField label="Issuer" value={cert.issuer} />
                   </Box>
                 </SectionBox>
               </Stack>
@@ -275,7 +275,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   </Box>
                 ))}
                 <Typography variant="caption" color="text.secondary">
-                  Yukarıdan aşağıya: uç sertifikadan köke doğru. Başka bir sertifikanın adına tıklayınca onun detayı açılır.
+                  Yukarıdan aşağıya: Leaf → Intermediate → Root. Başka bir sertifikanın adına tıklayınca onun detayı açılır.
                 </Typography>
               </Stack>
             )}
@@ -320,22 +320,22 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
             {tab === 'technical' && (
               <Stack spacing={2}>
                 <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-                  <CopyField label="Konu (Subject)" value={cert.subject} />
-                  <CopyField label="Veren (Issuer)" value={cert.issuer} />
-                  <CopyField label="Seri Numarası" value={cert.serial_number} />
-                  <CopyField label="SHA-256 Parmak İzi" value={cert.fingerprint_sha256} />
-                  <CopyField label="SubjectKeyIdentifier (SKI)" value={cert.subject_key_identifier} />
-                  <CopyField label="AuthorityKeyIdentifier (AKI)" value={cert.authority_key_identifier} />
+                  <CopyField label="Subject" value={cert.subject} />
+                  <CopyField label="Issuer" value={cert.issuer} />
+                  <CopyField label="Serial Number" value={cert.serial_number} />
+                  <CopyField label="SHA-256 Fingerprint" value={cert.fingerprint_sha256} />
+                  <CopyField label="SubjectKeyIdentifier" value={cert.subject_key_identifier} />
+                  <CopyField label="AuthorityKeyIdentifier" value={cert.authority_key_identifier} />
                 </Box>
                 <Box sx={GRID3}>
-                  <InfoCard title="Başlangıç (ValidFrom)" value={fmtDate(cert.valid_from)} />
-                  <InfoCard title="Bitiş (ValidTo)" value={fmtDate(cert.valid_to)} />
-                  <InfoCard title="Anahtar / İmza" value={keyText(cert)} sub={cert.signature_hash ?? undefined} />
+                  <InfoCard title="ValidFrom" value={fmtDate(cert.valid_from)} />
+                  <InfoCard title="ValidTo" value={fmtDate(cert.valid_to)} />
+                  <InfoCard title="Public Key / Signature" value={keyText(cert)} sub={cert.signature_hash ?? undefined} />
                   <InfoCard title="ExtendedKeyUsage" value={cert.extended_key_usage || '—'} />
                   <InfoCard title="Internal" value={cert.is_internal ? 'Evet' : 'Hayır'} />
                   <InfoCard title="Otomatik Yenileme" value={cert.auto_renew ? 'Açık' : 'Kapalı'} />
                 </Box>
-                <SectionBox title={`Alternatif Adlar (SAN) — ${sans.length}`}>
+                <SectionBox title={`SubjectAltName (SAN) — ${sans.length}`}>
                   <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{sans.length ? sans.join(', ') : '—'}</Typography>
                 </SectionBox>
                 {cert.pem_certificate && (

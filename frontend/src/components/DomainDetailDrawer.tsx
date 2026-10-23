@@ -245,14 +245,14 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               <Stack spacing={2}>
                 <ValidityCard cert={server} emptyText="Bu domaine bağlı server sertifikası yok. Sertifikalar sekmesinden bağlayabilirsiniz." />
                 <Box sx={GRID4}>
-                  <InfoCard title="Sertifika (CN)" onClick={() => setTab('certs')}
+                  <InfoCard title="Common Name (CN)" onClick={() => setTab('certs')}
                             value={server?.name ?? 'Bağlanmamış'}
                             sub={server ? [CERT_TYPE_FULL[server.cert_type], envLabel(leaf?.environment)].filter(Boolean).join(' · ') : 'Server sertifikası yok'} />
-                  <InfoCard title="Sertifika Otoritesi" value={server ? dnPart(server.issuer, 'CN') ?? '—' : '—'}
+                  <InfoCard title="Issuer (CA)" value={server ? dnPart(server.issuer, 'CN') ?? '—' : '—'}
                             sub={dnPart(server?.issuer, 'O') ?? undefined} />
-                  <InfoCard title="Anahtar" value={keyText(leaf)}
-                            sub={leaf?.signature_hash ? `${leaf.signature_hash.toUpperCase().replace('SHA', 'SHA-')} ile imzalı` : undefined} />
-                  <InfoCard title="Alternatif Adlar (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
+                  <InfoCard title="Public Key" value={keyText(leaf)}
+                            sub={leaf?.signature_hash ? `Signature: ${leaf.signature_hash.toUpperCase().replace('SHA', 'SHA-')}` : undefined} />
+                  <InfoCard title="SubjectAltName (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
                             chip={leaf ? (covers ? { label: 'Alan adını kapsıyor', color: 'success' } : { label: 'Alan adını kapsamıyor', color: 'error' }) : undefined} />
                   <InfoCard title="Zincir" onClick={() => setTab('certs')}
                             value={`${serverChain.length} sertifika`}
@@ -288,10 +288,10 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}>
                     <Typography variant="overline" color="text.secondary">Kimlik</Typography>
                     <Box sx={{ display: 'grid', gap: 2, mt: 0.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-                      <CopyField label="Seri Numarası" value={leaf.serial_number} />
-                      <CopyField label="SHA-256 Parmak İzi" value={leaf.fingerprint_sha256} />
-                      <CopyField label="Konu (Subject)" value={leaf.subject} />
-                      <CopyField label="Veren (Issuer)" value={leaf.issuer} />
+                      <CopyField label="Serial Number" value={leaf.serial_number} />
+                      <CopyField label="SHA-256 Fingerprint" value={leaf.fingerprint_sha256} />
+                      <CopyField label="Subject" value={leaf.subject} />
+                      <CopyField label="Issuer" value={leaf.issuer} />
                     </Box>
                   </Box>
                 )}

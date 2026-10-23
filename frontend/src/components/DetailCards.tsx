@@ -75,7 +75,7 @@ export function ValidityCard({ cert, emptyText }: { cert?: Dated; emptyText?: st
           </Typography>
         </Box>
         <Box sx={{ textAlign: 'right' }}>
-          <Typography variant="caption" color="text.secondary">BİTİŞ</Typography>
+          <Typography variant="caption" color="text.secondary">ValidTo</Typography>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>{fmtDate(cert.valid_to)}</Typography>
         </Box>
       </Stack>
@@ -88,7 +88,7 @@ export function ValidityCard({ cert, emptyText }: { cert?: Dated; emptyText?: st
           <LinearProgress variant="determinate" value={used} color={color === 'default' ? 'primary' : color}
                           sx={{ height: 8, borderRadius: 4, my: 0.75 }} />
           <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
-            <Typography variant="caption" color="text.secondary">Başlangıç: {fmtDate(cert.valid_from)}</Typography>
+            <Typography variant="caption" color="text.secondary">ValidFrom: {fmtDate(cert.valid_from)}</Typography>
             {total !== null && <Typography variant="caption" color="text.secondary">{total} günlük geçerlilik</Typography>}
           </Stack>
         </Box>
@@ -136,9 +136,9 @@ export function CopyField({ label, value }: { label: string; value?: string | nu
 }
 
 export const CERT_TYPE_FULL: Record<string, string> = {
-  root: 'Kök CA (Root)', intermediate: 'Ara CA (Intermediate)', leaf: 'Uç Sertifika (Leaf)',
+  root: 'Root', intermediate: 'Intermediate', leaf: 'Leaf',
 }
-const CHAIN_TITLE: Record<string, string> = { leaf: 'Uç sertifika', intermediate: 'Ara sertifika', root: 'Kök sertifika' }
+const CHAIN_TITLE: Record<string, string> = { leaf: 'Leaf', intermediate: 'Intermediate', root: 'Root' }
 
 type ChainCert = Dated & {
   name: string; cert_type: string; issuer?: string | null; serial_number?: string | null
@@ -155,7 +155,7 @@ export function ChainCertCard({ index, cert, badges, actions, current, onOpen }:
       <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <Chip size="small" variant="outlined"
               label={`${index !== undefined ? `${index}. ` : ''}${CHAIN_TITLE[cert.cert_type] ?? cert.cert_type}`} />
-        {selfSigned && <Chip size="small" color="warning" variant="outlined" label="Kendinden imzalı" />}
+        {selfSigned && <Chip size="small" color="warning" variant="outlined" label="Self-signed" />}
         {cert.is_active === false && <Chip size="small" color="warning" label="Pasif" />}
         {badges}
         <Box sx={{ flexGrow: 1 }} />
@@ -168,17 +168,17 @@ export function ChainCertCard({ index, cert, badges, actions, current, onOpen }:
       </Box>
       <Box sx={{ display: 'grid', gap: 1.5, mt: 1, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
         <Box>
-          <Typography variant="caption" color="text.secondary">Düzenleyen</Typography>
+          <Typography variant="caption" color="text.secondary">Issuer</Typography>
           <Typography variant="body2">
             {dnPart(cert.issuer, 'CN') ?? '—'}{dnPart(cert.issuer, 'O') ? ` · ${dnPart(cert.issuer, 'O')}` : ''}
           </Typography>
         </Box>
         <Box>
-          <Typography variant="caption" color="text.secondary">Geçerlilik</Typography>
+          <Typography variant="caption" color="text.secondary">ValidFrom – ValidTo</Typography>
           <Typography variant="body2">{fmtDate(cert.valid_from)} – {fmtDate(cert.valid_to)}</Typography>
         </Box>
-        <CopyField label="Seri Numarası" value={cert.serial_number} />
-        <CopyField label="SubjectKeyIdentifier (SKI)" value={cert.subject_key_identifier} />
+        <CopyField label="Serial Number" value={cert.serial_number} />
+        <CopyField label="SubjectKeyIdentifier" value={cert.subject_key_identifier} />
       </Box>
     </Box>
   )
