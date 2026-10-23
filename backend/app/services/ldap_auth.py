@@ -18,8 +18,11 @@ logger = logging.getLogger(__name__)
 
 class LdapResult:
     def __init__(self, success: bool, role: str = "viewer", email: str = "",
-                 full_name: str = "", error: str = ""):
+                 full_name: str = "", error: str = "", photo: str | None = None,
+                 team_groups: list[str] | None = None):
         self.success = success
+        self.photo = photo                      # AD fotoğrafı (data URL) — sol menü için
+        self.team_groups = team_groups or []    # ekip grupları (ör. SY-BBB) — sol menü için
         self.role = role
         self.email = email
         self.full_name = full_name
@@ -176,11 +179,16 @@ def authenticate(db: Session, username: str, password: str) -> LdapResult:
         used_default_filter = not bool(cfg.get("user_filter"))
         user_filter = _subst(cfg.get("user_filter") or f"({user_attr}={{username}})",
                              username=safe_username)
-        attrs = ["memberOf", email_attr, display_attr, user_attr]  # user_attr: çok-eşleşmede tam-eşleşme için
+        attrs = ["memberOf", email_attr, display_attr, user_attr,  # user_attr: çok-eşleşmede tam-eşleşme için
+                 "thumbnailPhoto", "jpegPhoto"]  # sol menüdeki fotoğraf; yoksa sunucu boş döner
         logger.debug("LDAP 2) kullanıcı aranıyor → base=%s | filtre=%s%s | istenen_nitelikler=%s",
                      cfg.get("base_dn"), user_filter,
                      " (user_attr'dan türetildi — user_filter boş)" if used_default_filter
                      else " (user_filter kullanıldı; user_attr YOKSAYILDI)", attrs)
+        # Dizin şemasında olmayan nitelik istenirse ldap3 hata verir (ör. OpenLDAP'ta thumbnailPhoto yok)
+        schema = search_conn.server.schema
+        if schema is not None and schema.attribute_types:
+            attrs = [a for a in attrs if a in schema.attribute_types]
         search_conn.search(cfg["base_dn"], user_filter, attributes=attrs)
         logger.debug("LDAP arama sonucu: %d kayıt döndü", len(search_conn.entries))
         if not search_conn.entries:
@@ -225,6 +233,12 @@ def authenticate(db: Session, username: str, password: str) -> LdapResult:
         email = _entry_value(entry, email_attr)
         full_name = _entry_value(entry, display_attr)
         groups = [str(g) for g in (entry.memberOf.values if "memberOf" in entry else [])]
+        photo = None
+        for photo_attr in ("thumbnailPhoto", "jpegPhoto"):
+            raw = _attr_values(entry, photo_attr)
+            if raw and isinstance(raw[0], (bytes, bytearray)):
+                photo = "data:image/jpeg;base64," + base64.b64encode(raw[0]).decode()
+                break
         logger.info("LDAP kullanıcı bulundu: kullanıcı=%s → dn=%s", username, user_dn)
         logger.debug("LDAP nitelikler → %s=%s | %s=%s | memberOf(%d grup)=%s",
                      email_attr, email or "(boş)", display_attr, full_name or "(boş)",
@@ -264,7 +278,8 @@ def authenticate(db: Session, username: str, password: str) -> LdapResult:
                     role = mapped_role
         logger.info("LDAP giriş BAŞARILI: kullanıcı=%s | dn=%s | eşlenen_rol=%s",
                     username, user_dn, role)
-        return LdapResult(True, role=role, email=email, full_name=full_name)
+        return LdapResult(True, role=role, email=email, full_name=full_name,
+                          photo=photo, team_groups=team_groups_of(groups, cfg))
     except LDAPException as exc:
         # Bağlantı/TLS/servis-bind hatası gibi GERÇEK hatalar (yanlış şifre değil — o yukarıda
         # WARNING). ERROR seviyesinde: LOG_LEVEL=ERROR'da bile görünür.
@@ -304,6 +319,27 @@ _SUMMARY_FIELDS = [
     ("account_expires", "Hesap Bitişi", ["accountExpires"]),
 ]
 _MAX_MANAGER_DEPTH = 8
+
+
+def _norm_rdn_value(value: str) -> str:
+    return re.sub(r"[\s\"']", "", value).lower()
+
+
+def team_groups_of(groups: list[str], cfg: dict) -> list[str]:
+    """Ekip grupları: Ayarlar > LDAP 'Ekip grubu OU'su' altındaki gruplar → ilk RDN değeri.
+    CN=SY-BBB,OU=ScrumGroup,OU=BTPersonel,... → "SY-BBB". OU adında boşluk/tırnak ve sondaki
+    çoğul 's' (ScrumGroups) gözetilmez; DN'deki herhangi bir kademede olabilir."""
+    want = _norm_rdn_value(cfg.get("team_group_ou") or "")
+    if not want:
+        return []
+    found = set()
+    for dn in groups:
+        for part in re.split(r"(?<!\\),", dn)[1:]:
+            key, _, value = part.partition("=")
+            if key.strip().lower() == "ou" and _norm_rdn_value(value).rstrip("s") == want.rstrip("s"):
+                found.add(_rdn_value(dn).strip().strip('"'))
+                break
+    return sorted(found, key=str.lower)
 
 
 def _hidden(attr: str) -> bool:
@@ -455,11 +491,7 @@ def directory_profile(db: Session, username: str) -> dict:
             conn.search(cfg["group_base"], group_filter, attributes=["cn"])
             groups = [str(g.entry_dn) for g in conn.entries]
             group_source = "group_search"
-        # Ekip grupları: Ayarlar > LDAP'taki OU'nun altındaki gruplar (ör. CN=SY-BBB,OU=ScrumGroup,...)
-        team_ou = (cfg.get("team_group_ou") or "").strip().lower()
-        team_groups = sorted({_rdn_value(g) for g in groups
-                              if team_ou and f"ou={team_ou}" in
-                              [p.strip().lower() for p in re.split(r"(?<!\\),", g)]}, key=str.lower)
+        team_groups = team_groups_of(groups, cfg)
         if team_groups:
             summary.insert(0, {"key": "team", "label": "Ekip (AD)", "value": ", ".join(team_groups)})
         role_map = {k.lower(): v for k, v in (cfg.get("group_role_map") or {}).items()}

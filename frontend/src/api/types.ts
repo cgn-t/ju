@@ -4,6 +4,8 @@ export interface TokenResponse {
   role: string
   full_name?: string | null
   email?: string | null
+  photo?: string | null        // LDAP: AD fotoğrafı (data URL)
+  team_groups?: string[]       // LDAP: ekip grupları (ör. SY-BBB)
 }
 
 export interface Team {

@@ -41,6 +41,8 @@ class TokenResponse(BaseModel):
     role: str
     full_name: str | None = None
     email: str | None = None
+    photo: str | None = None          # LDAP: AD fotoğrafı (data URL), sol menüde
+    team_groups: list[str] = []       # LDAP: ekip grupları (ör. SY-BBB), sol menüde adın altında
 
 
 class UserOut(ORMModel):
