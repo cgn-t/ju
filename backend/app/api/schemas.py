@@ -978,7 +978,7 @@ class ProposalPage(PageMeta):
     domain_name: str | None = None     # domain filtresi verildiyse çipte gösterilecek ad
 
 
-# --- Yönetici Panosu / Ekibim / Sistem Sağlığı / sertifika etkilenenler (v3.9.9) ---------
+# --- Genel Durum / Ekibim / Sistem Sağlığı / sertifika etkilenenler (v3.9.9) ---------
 
 class MissingDetailOut(BaseModel):
     no_pem: int = 0

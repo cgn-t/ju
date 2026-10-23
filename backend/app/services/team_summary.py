@@ -1,4 +1,4 @@
-"""Yönetici Panosu / Ekibim / Sistem Sağlığı / sertifika 'Etkilenenler' hesapları.
+"""Genel Durum / Ekibim / Sistem Sağlığı / sertifika 'Etkilenenler' hesapları.
 
 Hepsi MEVCUT tablolardan okuma anında hesaplanır — yeni tablo/kolon YOK. Ekip ↔ sertifika
 ilişkisi mail paydaşlarıyla aynı mantıktır: sertifika, bağlı olduğu domainlerin SY ekibine VE

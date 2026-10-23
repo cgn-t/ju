@@ -27,14 +27,14 @@ function Todo({ n, text, tone, onClick }: { n: number; text: string; tone: Tone;
   )
 }
 
-/** Anasayfa 'Ekibim' bölümü: ekip kullanıcısına kendi ekibinden beklenenler + yenileme takvimi. */
+/** 'Ekibim' sayfasının gövdesi: ekip kullanıcısına kendi ekibinden beklenenler + yenileme takvimi. */
 export default function MyTeamSection() {
   const navigate = useNavigate()
   const { data, isLoading } = useQuery<TeamOverview>({
     queryKey: ['summary', 'teams'],
     queryFn: async () => (await api.get('/summary/teams')).data,
   })
-  if (isLoading) return <Skeleton variant="rounded" height={220} sx={{ mb: 3 }} />
+  if (isLoading) return <Skeleton variant="rounded" height={420} />
   if (!data || !data.teams.length) return null
 
   const t = data.totals
@@ -60,14 +60,10 @@ export default function MyTeamSection() {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
     byMonth.set(key, [...(byMonth.get(key) ?? []), c])
   }
-  const teamLine = data.teams.map((r) => r.team).join(', ')
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, mb: 3 }}>
-      <Panel title={data.teams.length > 1 ? 'Ekiplerimden beklenenler' : 'Ekibimden beklenenler'}
-             aside={<Typography variant="body2" color="text.secondary">
-               {teamLine} · {t.domains} domain · {t.certificates} aktif sertifika
-             </Typography>}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      <Panel title={data.teams.length > 1 ? 'Ekiplerimden beklenenler' : 'Ekibimden beklenenler'}>
         {todos.length === 0 ? (
           <Typography variant="body2" color="text.secondary">Şu an ekibinizden beklenen bir işlem yok. Tüm sertifikalar güncel.</Typography>
         ) : (

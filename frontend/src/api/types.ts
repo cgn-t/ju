@@ -708,7 +708,7 @@ export interface DirectoryProfile {
   team_groups?: string[]             // Ayarlar > LDAP 'Ekip grubu OU'su' altındaki gruplar (ör. SY-BBB)
 }
 
-/** Yönetici Panosu / Ekibim (GET /summary/teams, /summary/teams/{id}). */
+/** Genel Durum / Ekibim (GET /summary/teams, /summary/teams/{id}). */
 export type TeamHealth = 'critical' | 'warning' | 'ok'
 export interface MissingDetail {
   no_pem: number

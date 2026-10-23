@@ -21,7 +21,7 @@ const ATTENTION_TONE: Record<TeamAttentionItem['kind'], Tone> = {
   live: 'error', no_cert: 'warning', policy: 'warning', no_pem: 'default',
 }
 
-/** Tek ekibin özeti: Yönetici Panosu'ndan satıra tıklayınca ya da Anasayfa'daki Ekibim'den açılır. */
+/** Tek ekibin özeti: Genel Durum'da satıra tıklayınca ya da Ekibim'den açılır. */
 export default function TeamSummary() {
   const { teamId } = useParams()
   const navigate = useNavigate()
@@ -37,8 +37,8 @@ export default function TeamSummary() {
   useDocumentTitle(data ? `${data.team} ekibi` : 'Ekip özeti')
 
   const back = (
-    <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate(isManager ? '/overview' : '/')} sx={{ mb: 1 }}>
-      {isManager ? 'Yönetici Panosu' : 'Anasayfa'}
+    <Button size="small" startIcon={<ArrowBackIcon />} onClick={() => navigate(isManager ? '/overview' : '/my-team')} sx={{ mb: 1 }}>
+      {isManager ? 'Genel Durum' : 'Ekibim'}
     </Button>
   )
   if (isError) return <Box>{back}<QueryError error={error} onRetry={() => refetch()} /></Box>
