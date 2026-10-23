@@ -168,6 +168,12 @@ function LdapTab() {
               helper="{user_dn} çalışma anında değiştirilir — ör. (member={user_dn})" />
       </Grid>
 
+      <SectionLabel>Ekip Grubu</SectionLabel>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="team_group_ou" label="Ekip grubu OU'su"
+              helper="Bu OU altındaki grup kişinin ekibi sayılır; sol menüde adın altında ve Profilim'de görünür — ör. ScrumGroup (CN=SY-BBB,OU=ScrumGroup,…)" />
+      </Grid>
+
       <Stack direction="row" spacing={2}>
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => test.mutate()} disabled={test.isPending}>

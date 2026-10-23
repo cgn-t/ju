@@ -21,8 +21,11 @@ import {
   ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Switch, Toolbar,
   Tooltip, Typography,
 } from '@mui/material'
+import { useQuery } from '@tanstack/react-query'
 import { Fragment, useState, type ComponentType } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { api } from '../api/client'
+import type { DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
 import { usePageAccess } from '../hooks/usePageAccess'
@@ -88,6 +91,15 @@ export default function AppLayout() {
     return !c
   })
   const roleLabel = ROLE_LABELS[role ?? ''] ?? role ?? ''
+  // LDAP kullanıcısının AD fotoğrafı ve ekip grubu (ör. SY-BBB); Profilim ile aynı sorgu, oturumda bir kez
+  const { data: dir } = useQuery<DirectoryProfile>({
+    queryKey: ['directory', 'me'],
+    queryFn: async () => (await api.get('/auth/me/directory')).data,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const photo = dir?.photo ?? undefined
+  const subLabel = dir?.team_groups?.length ? dir.team_groups.join(', ') : roleLabel
   const initial = (fullName || username || '?')[0]?.toUpperCase()
   const access = usePageAccess()
   const pendingCount = usePendingProposalCount()
@@ -184,13 +196,13 @@ export default function AppLayout() {
       </List>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       {/* Kullanıcı: dikey menünün altında (tıklayınca tema / ayarlar / çıkış menüsü yukarı açılır) */}
-      <Tooltip title={compact ? `${fullName || username} · ${roleLabel}` : ''} placement="right">
+      <Tooltip title={compact ? `${fullName || username} · ${subLabel}` : ''} placement="right">
         <ButtonBase onClick={(e) => setAnchor(e.currentTarget)} aria-label="Kullanıcı menüsü"
                     sx={{ mx: 1.25, my: 1, px: compact ? 0.5 : 1, py: 0.75, borderRadius: '10px', gap: 1.25,
                           justifyContent: compact ? 'center' : 'flex-start', textAlign: 'left',
                           color: '#fff', transition: 'background-color 150ms',
                           '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
-          <Avatar sx={{ width: 34, height: 34, bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 15, fontWeight: 700 }}>
+          <Avatar src={photo} sx={{ width: 34, height: 34, bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 15, fontWeight: 700 }}>
             {initial}
           </Avatar>
           {!compact && (
@@ -200,7 +212,7 @@ export default function AppLayout() {
                 <Typography variant="body2" noWrap title={fullName || username || undefined}
                             sx={{ fontWeight: 700, lineHeight: 1.3 }}>{fullName || username}</Typography>
                 <Typography variant="caption" noWrap component="div"
-                            sx={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.3 }}>{roleLabel}</Typography>
+                            title={subLabel} sx={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.3 }}>{subLabel}</Typography>
               </Box>
               <UnfoldMoreIcon fontSize="small" sx={{ color: 'rgba(255,255,255,0.6)' }} />
             </>
@@ -237,7 +249,7 @@ export default function AppLayout() {
             transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
             slotProps={{ paper: { sx: { width: 280, mt: -1 } } }}>
         <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <Avatar sx={{ bgcolor: 'primary.main' }}>{initial}</Avatar>
+          <Avatar src={photo} sx={{ bgcolor: 'primary.main' }}>{initial}</Avatar>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="subtitle2" noWrap>{fullName || username}</Typography>
             {email && <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{email}</Typography>}

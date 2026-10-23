@@ -35,7 +35,7 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
 const fmtValue = (v: string) => (ISO_RE.test(v) ? formatAuditTime(v) : v)
 
 const SUMMARY_ICONS: Record<string, ReactNode> = {
-  full_name: <PersonIcon />, title: <WorkIcon />, department: <ApartmentIcon />, division: <AccountTreeIcon />,
+  team: <GroupsIcon />, full_name: <PersonIcon />, title: <WorkIcon />, department: <ApartmentIcon />, division: <AccountTreeIcon />,
   company: <BusinessIcon />, office: <LocationOnIcon />, location: <LocationOnIcon />, employee_id: <BadgeIcon />,
   employee_type: <BadgeIcon />, mail: <EmailIcon />, upn: <EmailIcon />, account: <PersonIcon />,
   phone: <PhoneIcon />, mobile: <PhoneIcon />, description: <NotesIcon />, created: <CalendarMonthIcon />,
@@ -43,7 +43,7 @@ const SUMMARY_ICONS: Record<string, ReactNode> = {
 }
 // Özet kutularının grupları (anahtarlar backend ldap_auth._SUMMARY_FIELDS ile aynı)
 const SUMMARY_GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'Organizasyon', keys: ['title', 'department', 'division', 'company', 'office', 'location', 'employee_id', 'employee_type'] },
+  { title: 'Organizasyon', keys: ['team', 'title', 'department', 'division', 'company', 'office', 'location', 'employee_id', 'employee_type'] },
   { title: 'İletişim ve Hesap', keys: ['mail', 'upn', 'account', 'phone', 'mobile', 'description'] },
   { title: 'Hesap Tarihleri (AD)', keys: ['created', 'last_logon', 'pwd_last_set', 'account_expires'] },
 ]
