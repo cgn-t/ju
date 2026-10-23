@@ -211,3 +211,37 @@ def test_revoked_mail_from_nightly_job_and_fallback(client, auth_headers, monkey
     revocation.check_all_certificates()
     assert not [m for m in sent if "rv-noowner.test" in m["subject"]]
     _set_smtp(client, h)  # sonraki testler için yedek adresi temizle
+
+
+def test_only_admin_changes_certificate_derived_fields(client, auth_headers):
+    """Ad, Type, üst sertifika ve Internal sertifikadan gelir — elle düzeltmeyi yalnız admin yapar;
+    editör kendi sertifikasında yalnız kurumsal alanları değiştirir."""
+    h = auth_headers
+    t_a = _team(client, h, "CE3 Alpha SY")
+    uid = _mk_user(client, h, "ce3_editor_alpha")
+    _add_member(client, h, t_a, uid)
+    eh = _login(client, "ce3_editor_alpha")
+    own = _import_leaf(client, h, "ce3-own.test")
+    _bind_domain(own, "ce3-own-dom.test", t_a)
+    cur = client.get(f"/api/certificates/{own}", headers=h).json()
+    root = next(c for c in client.get("/api/certificates", headers=h).json() if c["cert_type"] == "root")
+
+    for change in ({"name": "yeni-ad"}, {"cert_type": "intermediate"},
+                   {"is_internal": not cur["is_internal"]}, {"parent_id": root["id"]}):
+        r = client.put(f"/api/certificates/{own}", headers=eh, json=change)
+        assert r.status_code == 403, (change, r.text)
+        assert "yalnız admin" in r.json()["detail"]
+    after = client.get(f"/api/certificates/{own}", headers=h).json()
+    assert (after["name"], after["cert_type"], after["is_internal"]) == (cur["name"], "leaf", cur["is_internal"])
+
+    # Form tüm alanları geri gönderse de (değişmemişse) kurumsal alan güncellemesi geçer
+    r = client.put(f"/api/certificates/{own}", headers=eh,
+                   json={"name": cur["name"], "is_internal": cur["is_internal"], "environment": "prod",
+                         "purchased_by": "Satın Alma", "notes": "editör notu"})
+    assert r.status_code == 200, r.text
+    assert r.json()["notes"] == "editör notu"
+
+    # admin hepsini değiştirir
+    r = client.put(f"/api/certificates/{own}", headers=h, json={"name": "admin-adı", "is_internal": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "admin-adı"

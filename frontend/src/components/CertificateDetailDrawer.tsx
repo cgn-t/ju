@@ -64,6 +64,7 @@ interface Props {
 }
 
 const SHRINK = { inputLabel: { shrink: true } }
+const ADMIN_ONLY = 'Sertifikadan okunur; yalnız admin değiştirebilir'
 
 interface EditForm {
   name: string; purchased_by: string; creator: string; environment: string; notes: string
@@ -74,7 +75,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const { enqueueSnackbar } = useSnackbar()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { canEdit } = useAuth()
+  const { canEdit, isAdmin } = useAuth()
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate'>('summary')
   const theme = useTheme()
@@ -483,12 +484,14 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               <Box>
                 <Stack spacing={2}>
                   <FormSection icon={<BadgeOutlinedIcon />} title="Kimlik" hint="Ad, tür ve ortam">
-                    <TextField size="small" fullWidth label="Sertifika Adı" value={form.name} required
-                               error={!form.name.trim()} helperText={!form.name.trim() ? 'Zorunlu alan' : undefined}
+                    <TextField size="small" fullWidth label="Sertifika Adı" value={form.name} required disabled={!isAdmin}
+                               error={!form.name.trim()}
+                               helperText={!form.name.trim() ? 'Zorunlu alan' : !isAdmin ? ADMIN_ONLY : undefined}
                                slotProps={SHRINK} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                     <TextField select size="small" fullWidth label="Type" value={form.cert_type} slotProps={SHRINK}
+                               disabled={!isAdmin}
                                onChange={(e) => setForm({ ...form, cert_type: e.target.value as EditForm['cert_type'] })}
-                               helperText={form.cert_type !== cert.cert_type
+                               helperText={!isAdmin ? ADMIN_ONLY : form.cert_type !== cert.cert_type
                                  ? 'Tür normalde sertifikadan okunur; yalnız yanlış algılandıysa değiştirin.'
                                  : 'Leaf / Intermediate / Root'}>
                       <MenuItem value="leaf">Leaf</MenuItem>
@@ -503,12 +506,14 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                       <MenuItem value="test">Test</MenuItem>
                     </TextField>
                   </FormSection>
-                  <FormSection icon={<AccountTreeIcon />} title="Zincir" hint="Bu sertifikayı imzalayan üst sertifika" columns={1}>
-                    <CertificatePicker
+                  <FormSection icon={<AccountTreeIcon />} title="Zincir" columns={1}
+                               hint={isAdmin ? 'Bu sertifikayı imzalayan üst sertifika' : 'Zincir bilgisi sertifikadan okunur; yalnız admin düzeltebilir'}>
+                    <CertificatePicker disabled={!isAdmin}
                       remote={{ exclude: (c) => c.id === cert.id || c.cert_type === 'leaf' }}
                       value={form.parent} onChange={(v) => setForm({ ...form, parent: v })}
                       label="Üst sertifika (Issuer) — boş bırakılırsa zincirin başı" />
                     <FormControlLabel sx={{ ml: 0, gap: 1 }}
+                      disabled={!isAdmin}
                       control={<Switch checked={form.is_internal} onChange={(e) => setForm({ ...form, is_internal: e.target.checked })} />}
                       label={<Box>
                         <Typography variant="body2" sx={{ fontWeight: 500 }}>Internal</Typography>

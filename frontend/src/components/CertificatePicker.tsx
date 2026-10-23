@@ -21,6 +21,7 @@ interface Props<T extends PickerCert> {
   disabledIds?: Set<number>
   disabledLabel?: string // pasif seçeneklerin yanında görünen rozet (ör. "zaten bağlı")
   sx?: object
+  disabled?: boolean
 }
 
 // SKI sertifikanın kimliğidir — ad, SKI, seri no ve SAN üzerinden arama yapılabilir
@@ -32,7 +33,7 @@ const localFilter = createFilterOptions<PickerCert>({
 /** Sertifika bağlama noktalarında kullanılan ortak seçici: her seçenekte tür, kalan gün
  *  ve SubjectKeyIdentifier görünür; yanlış sertifikaya bağlanma riskini azaltır. */
 export default function CertificatePicker<T extends PickerCert>({
-  options, remote, value, onChange, label, disabledIds, disabledLabel = 'zaten bağlı', sx,
+  options, remote, value, onChange, label, disabledIds, disabledLabel = 'zaten bağlı', sx, disabled,
 }: Props<T>) {
   const [input, setInput] = useState(value?.name ?? '')
   const [open, setOpen] = useState(false)
@@ -51,7 +52,7 @@ export default function CertificatePicker<T extends PickerCert>({
 
   return (
     <Autocomplete
-      size="small" sx={sx} options={list} value={value}
+      size="small" sx={sx} options={list} value={value} disabled={disabled}
       open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)}
       onChange={(_, v) => onChange(v)}
       inputValue={remote ? input : undefined}

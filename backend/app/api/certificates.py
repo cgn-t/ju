@@ -801,6 +801,10 @@ def _ensure_can_edit_cert(db: Session, user: User, cert: Certificate) -> None:
                                    "veya admin düzenleyebilir")
 
 
+# Sertifikanın kendisinden gelen bilgiler — elle düzeltmeyi yalnız admin yapar
+ADMIN_ONLY_FIELDS = ("name", "cert_type", "parent_id", "is_internal")
+
+
 @router.put("/{cert_id}", response_model=CertificateOut)
 def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                        db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
@@ -817,6 +821,15 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
                                 detail="Sertifikayı yalnız admin pasife alabilir/aktifleştirebilir")
         if changes["is_active"] is False:  # pasife alma → server bağı engeller (deactivate ile aynı kural)
             _ensure_deactivatable(db, cert)
+    # Sertifikadan okunan bilgilerin elle düzeltilmesi (ad, tür, üst sertifika, Internal) YALNIZ
+    # admin işidir; editör yalnız kurumsal alanları (Ortam, Satın Alım, Oluşturan Ekip, Notlar)
+    # değiştirebilir. Aynı değerin geri gönderilmesi değişiklik sayılmaz.
+    if user.role != "admin":
+        locked = [k for k in ADMIN_ONLY_FIELDS if k in changes and changes[k] != getattr(cert, k)]
+        if locked:
+            raise HTTPException(status_code=403,
+                                detail="Sertifika adı, Type, üst sertifika ve Internal bilgisini "
+                                       "yalnız admin değiştirebilir")
     if changes.get("parent_id") is not None:
         _ensure_valid_parent(db, cert, changes["parent_id"])
     diff = label_ids(db, diff_fields(cert, changes))
