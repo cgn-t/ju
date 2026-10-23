@@ -4,7 +4,9 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
+import GroupsIcon from '@mui/icons-material/Groups'
 import HistoryIcon from '@mui/icons-material/History'
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import LanguageIcon from '@mui/icons-material/Language'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -40,6 +42,7 @@ type NavEntry = NavLink | NavGroup
 const isGroup = (e: NavEntry): e is NavGroup => 'items' in e
 
 const NAV: NavEntry[] = [
+  { to: '/overview', label: 'Yönetici Panosu' },
   { to: '/certificates', label: 'SSL Sertifikaları' },
   { to: '/domains', label: 'Domainler' },
   { to: '/applications', label: 'Uygulamalar' },
@@ -52,6 +55,7 @@ const NAV: NavEntry[] = [
     { to: '/proposals', label: 'Değişiklik Talepleri' },
     { to: '/deployments', label: 'Dağıtım' },
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
+    { to: '/system-health', label: 'Sistem Sağlığı' },
   ] },
 ]
 
@@ -59,6 +63,13 @@ const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
+  '/overview': GroupsIcon, '/system-health': MonitorHeartIcon,
+}
+
+// Rol kapılı rotalar: Yönetici Panosu admin + Genel İzleyici, Sistem Sağlığı yalnız admin.
+const ROLE_PATHS: Record<string, string[]> = {
+  '/overview': ['admin', 'allviewer'],
+  '/system-health': ['admin'],
 }
 const NAV_W = 248
 const NAV_W_COMPACT = 68
@@ -116,7 +127,11 @@ export default function AppLayout() {
         : to === '/policy' ? violationCount : 0
   // Menüde erişimi olmayan rotaları gizle (bkz. usePageAccess `nav` — SY üyeliği carve-out'u
   // burada UYGULANMAZ; rota erişimi/onay iş akışı bundan etkilenmez). Boşalan gruplar düşer.
-  const canSee = (to: string) => { const page = PAGE_FOR_PATH[to]; return !page || access.nav[page] }
+  const canSee = (to: string) => {
+    if (ROLE_PATHS[to] && !ROLE_PATHS[to].includes(role ?? '')) return false
+    const page = PAGE_FOR_PATH[to]
+    return !page || access.nav[page]
+  }
   const navEntries: NavEntry[] = NAV
     .map((e) => (isGroup(e) ? { ...e, items: e.items.filter((i) => canSee(i.to)) } : e))
     .filter((e) => (isGroup(e) ? e.items.length > 0 : canSee(e.to)))

@@ -707,3 +707,135 @@ export interface DirectoryProfile {
   managers?: DirectoryPerson[]       // yakından uzağa: [0] doğrudan yönetici
   team_groups?: string[]             // Ayarlar > LDAP 'Ekip grubu OU'su' altındaki gruplar (ör. SY-BBB)
 }
+
+/** Yönetici Panosu / Ekibim (GET /summary/teams, /summary/teams/{id}). */
+export type TeamHealth = 'critical' | 'warning' | 'ok'
+export interface MissingDetail {
+  no_pem: number
+  domains_without_cert: number
+  no_team_email: boolean
+  domains_without_team: number
+}
+export interface TeamSummaryRow {
+  team_id: number
+  team: string
+  email?: string | null
+  status: TeamHealth
+  members: number
+  applications: number
+  domains: number
+  certificates: number
+  expired: number
+  expiring_soon: number
+  nearest_days?: number | null
+  pending_proposals: number
+  oldest_pending_days?: number | null
+  policy_violations: number
+  live_problems: number
+  missing_info: number
+  missing_detail: MissingDetail
+}
+export interface SummaryProposal {
+  id: number
+  label: string
+  kind: string
+  domain_id?: number | null
+  domain?: string | null
+  app?: string | null
+  old_cert?: string | null
+  new_cert?: string | null
+  team_id?: number | null
+  team?: string | null
+  created_at?: string | null
+  age_days?: number | null
+}
+export interface TeamOverview {
+  scope: 'all' | 'team'
+  generated_at: string
+  expiring_soon_days: number
+  totals: {
+    teams: number
+    domains: number
+    certificates: number
+    expired: number
+    expired_teams: number
+    expiring_soon: number
+    nearest_days?: number | null
+    pending_proposals: number
+    oldest_pending_days?: number | null
+    live_problems: number
+    policy_violations: number
+    missing_info: number
+    missing_detail: MissingDetail
+    status_counts: Record<TeamHealth, number>
+  }
+  teams: TeamSummaryRow[]
+  upcoming_months: { month: string; count: number }[]
+  upcoming_certs: { id: number; name: string; valid_to?: string | null; days_left?: number | null }[]
+  oldest_proposals: SummaryProposal[]
+}
+export interface TeamAttentionCert {
+  id: number
+  name: string
+  cert_type?: string | null
+  valid_to?: string | null
+  days_left?: number | null
+  domains: string[]
+  last_mail_at?: string | null
+  open_proposals: string[]
+}
+export interface TeamAttentionItem {
+  kind: 'live' | 'no_cert' | 'policy' | 'no_pem'
+  name: string
+  detail: string
+  domain_id?: number | null
+  certificate_id?: number | null
+}
+export interface TeamDetail extends TeamSummaryRow {
+  expiring_soon_days: number
+  certificates_attention: TeamAttentionCert[]
+  pending: SummaryProposal[]
+  attention: TeamAttentionItem[]
+}
+
+/** Sertifika detayı 'Etkilenenler' sekmesi (GET /certificates/{id}/impact). */
+export interface CertificateImpact {
+  certificate_id: number
+  domains: { domain_id: number; domain: string; mapping_type?: string | null; team?: string | null }[]
+  applications: { app_id: number; app_name: string; relation: string; via?: string | null; team?: string | null; active: boolean }[]
+  recipients: { label: string; emails: string[]; reasons: string[]; effective_days: number; starts_on?: string | null }[]
+  fallback: boolean
+  mail_enabled: boolean
+  expired: boolean
+}
+
+/** Sistem Sağlığı (GET /system/health, admin). */
+export interface HealthJob {
+  id: string
+  label: string
+  enabled: boolean
+  last_run_at?: string | null
+  manual: boolean
+  status?: 'ok' | 'error' | null
+  summary?: string | null
+  duration_s?: number | null
+  next_run_at?: string | null
+}
+export interface SystemHealth {
+  generated_at: string
+  jobs: HealthJob[]
+  mail_week: { sent: number; failed: number; pending: number; refused: number; fallback: number }
+  missing: {
+    domains_without_team: number
+    certs_without_recipient: number
+    certs_without_pem: number
+    apps_without_team: number
+    teams_without_email: number
+  }
+  connections: {
+    smtp: { enabled: boolean; host?: string | null; fallback_address?: string | null; queue_enabled: boolean }
+    ldap: { enabled: boolean; server?: string | null }
+    database: boolean
+    version: string
+  }
+}

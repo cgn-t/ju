@@ -1,4 +1,4 @@
-import { Box, Chip, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
+import { Box, Button, Chip, Grid, Paper, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import BusinessIcon from '@mui/icons-material/Business'
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined'
@@ -7,6 +7,8 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
+import MyTeamSection from '../components/MyTeamSection'
 import type { DashboardData } from '../api/types'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
@@ -28,6 +30,13 @@ function SectionTitle({ icon, children }: { icon: React.ReactNode; children: Rea
 export default function Dashboard() {
   useDocumentTitle('Anasayfa')
   const navigate = useNavigate()
+  const { role } = useAuth()
+  // Yönetici (admin, Genel İzleyici) tüm ekipleri Yönetici Panosu'nda görür; ekip kullanıcısı
+  // Anasayfa'nın başında kendi ekibinin özetini görür.
+  const isManager = role === 'admin' || role === 'allviewer'
+  const managerLink = isManager
+    ? <Button variant="outlined" startIcon={<GroupsOutlinedIcon />} onClick={() => navigate('/overview')}>Yönetici Panosu</Button>
+    : undefined
   const { data, isLoading, isError, error, refetch } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
     queryFn: async () => (await api.get('/dashboard')).data,
@@ -47,7 +56,11 @@ export default function Dashboard() {
 
   return (
     <Box>
-    <PageHeader title="Anasayfa" subtitle="Sertifika ve domain durumuna genel bakış" />
+    <PageHeader title="Anasayfa" subtitle="Sertifika ve domain durumuna genel bakış" actions={managerLink} />
+    {!isManager && <MyTeamSection />}
+    {!isManager && (
+      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>Sayılarla durum</Typography>
+    )}
     <Grid container spacing={3}>
       <Grid size={{ xs: 12 }}>
         <Grid container spacing={2}>
