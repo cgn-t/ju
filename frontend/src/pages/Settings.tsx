@@ -17,6 +17,7 @@ import { formatAuditTime } from '../utils/auditFormat'
 import type { AppUser, ScanTarget, Tag, Team, TeamMember } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import AuditLogPanel from '../components/AuditLogPanel'
+import LdapQueryPanel from '../components/LdapQueryPanel'
 import MailHistoryPanel from '../components/MailHistoryPanel'
 import TeamsPanel from '../components/TeamsPanel'
 import UsersPanel from '../components/UsersPanel'
@@ -1589,6 +1590,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'memberships', label: 'Ekip Üyelikleri', desc: 'Üyelik = kullanıcının veri kapsamı', wide: true, el: <MembershipsTab /> },
     { key: 'access', label: 'Erişim', desc: 'Uyum/Değişiklik Talepleri/Keşif/Dağıtım sayfa görünürlüğü', el: <AccessTab /> },
     { key: 'ldap', label: 'LDAP / Active Directory', desc: 'Kurumsal dizinle kimlik doğrulama', el: <LdapTab /> },
+    { key: 'ldap-query', label: 'LDAP Sorguları', desc: 'Kişinin hangi Scrum ekibiyle geldiği ve ekiplerde kimlerin olduğu (dizinden canlı)', wide: true, el: <LdapQueryPanel /> },
   ] },
   { title: 'Bildirimler', items: [
     { key: 'smtp', label: 'E-posta (SMTP)', desc: 'Süresi yaklaşan sertifikalar için bilgilendirme e-postaları', el: <SmtpTab /> },

@@ -60,6 +60,26 @@ def ldap_test(request: Request, db: Session = Depends(get_db), user: User = Depe
     return {"success": ok, "message": message}
 
 
+@router.get("/ldap/lookup-user")
+def ldap_lookup_user(username: str = "", db: Session = Depends(get_db),
+                     _: User = Depends(require_role("admin"))):
+    """Kişi giriş yapınca hangi Scrum ekibiyle (ekip grubu OU'su altındaki grup) gelir."""
+    return ldap_auth.lookup_user_team(db, username)
+
+
+@router.get("/ldap/teams")
+def ldap_teams(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    """Ekip grubu OU'su altındaki tüm Scrum ekipleri."""
+    return ldap_auth.list_team_groups(db)
+
+
+@router.get("/ldap/team-members")
+def ldap_team_members(team: str = "", db: Session = Depends(get_db),
+                      _: User = Depends(require_role("admin"))):
+    """Bir Scrum ekibindeki kullanıcılar."""
+    return ldap_auth.team_members(db, team)
+
+
 @router.post("/vault/test")
 def vault_test(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     from app.services.providers.vault import VaultProvider

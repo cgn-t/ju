@@ -11,6 +11,7 @@ from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy.orm import Session
 
+from app.core.textmatch import fold
 from app.services.settings_service import get_category, secret_state
 
 logger = logging.getLogger(__name__)
@@ -499,5 +500,197 @@ def directory_profile(db: Session, username: str) -> dict:
     except LDAPException as exc:
         logger.error("LDAP profil okuma hatası (kullanıcı=%s): %s", username, exc)
         return {"status": "error", "message": f"LDAP okuma hatası: {exc}"}
+    finally:
+        conn.unbind()
+
+
+# ---------------------------------------------------------------------------
+# Ayarlar > LDAP sorguları: kişi hangi Scrum ekibiyle gelir, bir ekipte kimler var.
+# Yalnız okuma; servis hesabıyla çalışır, hiçbir şeyi değiştirmez.
+# ---------------------------------------------------------------------------
+_GROUP_CLASSES = ("group", "groupOfNames", "groupOfUniqueNames")
+_MEMBER_LIMIT = 2000
+
+
+def _group_filter(conn: Connection) -> str:
+    """Grup nesne sınıfları; şemada olmayan sınıf filtreye konmaz (ldap3 istemci tarafında reddeder:
+    AD'de 'group', OpenLDAP'ta 'groupOfNames' vardır)."""
+    schema = conn.server.schema
+    known = schema.object_classes if schema is not None and schema.object_classes else None
+    classes = [c for c in _GROUP_CLASSES if known is None or c in known] or ["group"]
+    return "(|%s)" % "".join(f"(objectClass={c})" for c in classes)
+
+
+def _domain_root(cfg: dict) -> str:
+    """Base DN'in DC kısmı: 'OU=Users,DC=firma,DC=local' → 'DC=firma,DC=local'. Ekip OU'su
+    kullanıcıların altında olmayabilir (ör. OU=ScrumGroups,OU=BTPersonel), bu yüzden kökten aranır."""
+    base = cfg.get("base_dn") or ""
+    dcs = [p.strip() for p in re.split(r"(?<!\\),", base) if p.strip().lower().startswith("dc=")]
+    return ",".join(dcs) or base
+
+
+def _query_conn(db: Session, cfg: dict) -> tuple[Connection | None, dict | None]:
+    """Servis hesabıyla bağlantı; olmazsa (None, hata sözlüğü)."""
+    if not cfg.get("enabled") or not cfg.get("server"):
+        return None, {"status": "disabled", "message": "LDAP Ayarlar'da etkin değil."}
+    if not _norm_rdn_value(cfg.get("team_group_ou") or ""):
+        return None, {"status": "error", "message": "Ekip grubu OU'su tanımlı değil (Ayarlar > LDAP > Ekip Grubu)."}
+    problem = _bind_password_problem(db, cfg)
+    if problem:
+        return None, {"status": "error", "message": problem}
+    try:
+        return _connect(_server(cfg), cfg, cfg.get("bind_dn"), cfg.get("bind_password")), None
+    except LDAPException as exc:
+        logger.error("LDAP sorgu: bağlantı hatası: %s", exc)
+        return None, {"status": "error", "message": f"LDAP sunucusuna bağlanılamadı: {exc}"}
+
+
+def _jumbo_users(db: Session, accounts: list[str]) -> dict[str, dict]:
+    """Hesap adı → Jumbo'daki kullanıcı (rol, ekipler). Türkçe I/i farkı gözetilmez."""
+    from app.db.models import Team, User, UserTeam
+    wanted = {fold(a) for a in accounts if a}
+    if not wanted:
+        return {}
+    users = [u for u in db.query(User).all() if fold(u.username) in wanted]
+    teams: dict[int, list[str]] = {}
+    if users:
+        rows = (db.query(UserTeam.user_id, Team.name).join(Team, Team.id == UserTeam.team_id)
+                .filter(UserTeam.user_id.in_([u.id for u in users]), Team.type == "SY").all())
+        for uid, name in rows:
+            teams.setdefault(uid, []).append(name)
+    return {fold(u.username): {"id": u.id, "role": u.role, "active": bool(u.is_active),
+                               "teams": sorted(teams.get(u.id, []), key=str.lower)} for u in users}
+
+
+def lookup_user_team(db: Session, username: str) -> dict:
+    """Kullanıcı adı → giriş yapınca hangi ekip grubuyla (ör. SY-BBB) geleceği. Girişle AYNI
+    arama ve AYNI ekip kuralı kullanılır; ayrıca Jumbo'da hesabı var mı, hangi ekiplerde."""
+    username = (username or "").strip()
+    if not username:
+        return {"status": "error", "message": "Kullanıcı adı girin."}
+    cfg = get_category(db, "ldap", mask_secrets=False)
+    conn, err = _query_conn(db, cfg)
+    if err:
+        return err
+    try:
+        user_attr = cfg.get("user_attr") or "sAMAccountName"
+        attrs = _known_attrs(conn, sorted({"displayName", "cn", "mail", "title", "department",
+                                           "memberOf", user_attr}))
+        entry = _find_one(conn, cfg, username, attrs)
+        if entry is None:
+            return {"status": "not_found",
+                    "message": "Kullanıcı LDAP'ta bulunamadı (ya da filtre birden çok kayıt eşleştirdi)."}
+        dn = str(entry.entry_dn)
+        groups = [str(g) for g in _attr_values(entry, "memberOf")]
+        if not groups and cfg.get("group_base") and cfg.get("group_filter"):
+            group_filter = _subst(cfg["group_filter"], user_dn=escape_filter_chars(dn),
+                                  username=escape_filter_chars(username))
+            conn.search(cfg["group_base"], group_filter, attributes=["cn"])
+            groups = [str(g.entry_dn) for g in conn.entries]
+        account = _first(entry, [user_attr]) or username
+        jumbo = _jumbo_users(db, [account, username])
+        return {"status": "ok", "message": "", "dn": dn, "account": account,
+                "name": _first(entry, ["displayName", "cn"]), "mail": _first(entry, ["mail"]),
+                "title": _first(entry, ["title"]), "department": _first(entry, ["department"]),
+                "team_groups": team_groups_of(groups, cfg),
+                "jumbo": jumbo.get(fold(account)) or jumbo.get(fold(username))}
+    except LDAPException as exc:
+        logger.error("LDAP kullanıcı sorgusu hatası (kullanıcı=%s): %s", username, exc)
+        return {"status": "error", "message": f"LDAP okuma hatası: {exc}"}
+    finally:
+        conn.unbind()
+
+
+def _team_ou_dns(conn: Connection, cfg: dict) -> list[str]:
+    """Adı ekip grubu OU'suyla eşleşen OU'lar (boşluk/tırnak/çoğul 's' gözetilmez)."""
+    want = _norm_rdn_value(cfg.get("team_group_ou") or "").rstrip("s")
+    raw = (cfg.get("team_group_ou") or "").strip().strip('"')
+    names = {raw, raw.rstrip("sS"), raw.rstrip("sS") + "s"}
+    flt = "(&(objectClass=organizationalUnit)(|%s))" % "".join(
+        f"(ou={escape_filter_chars(n)})" for n in sorted(names) if n)
+    conn.search(_domain_root(cfg), flt, attributes=["ou"])
+    return [str(e.entry_dn) for e in conn.entries
+            if _norm_rdn_value(_rdn_value(str(e.entry_dn))).rstrip("s") == want]
+
+
+def list_team_groups(db: Session) -> dict:
+    """Ekip grubu OU'su altındaki tüm gruplar → [{name, dn}] (ad sırasıyla)."""
+    cfg = get_category(db, "ldap", mask_secrets=False)
+    conn, err = _query_conn(db, cfg)
+    if err:
+        return err
+    try:
+        ous = _team_ou_dns(conn, cfg)
+        if not ous:
+            return {"status": "not_found", "groups": [],
+                    "message": f"'{cfg.get('team_group_ou')}' adlı OU dizinde bulunamadı."}
+        found = {}
+        for ou in ous:
+            conn.search(ou, _group_filter(conn), attributes=["cn"])
+            for e in conn.entries:
+                dn = str(e.entry_dn)
+                found[dn.lower()] = {"name": _rdn_value(dn).strip().strip('"'), "dn": dn}
+        groups = sorted(found.values(), key=lambda g: fold(g["name"]))
+        return {"status": "ok", "message": "", "ous": ous, "groups": groups}
+    except LDAPException as exc:
+        logger.error("LDAP ekip listesi hatası: %s", exc)
+        return {"status": "error", "groups": [], "message": f"LDAP okuma hatası: {exc}"}
+    finally:
+        conn.unbind()
+
+
+def team_members(db: Session, team: str) -> dict:
+    """Bir ekip grubunun (ör. SY-BBB) doğrudan üyeleri: ad, hesap, e-posta, unvan, Jumbo'da var mı."""
+    team = (team or "").strip()
+    if not team:
+        return {"status": "error", "members": [], "message": "Ekip adı girin."}
+    cfg = get_category(db, "ldap", mask_secrets=False)
+    conn, err = _query_conn(db, cfg)
+    if err:
+        return err
+    try:
+        group_dn = None
+        for ou in _team_ou_dns(conn, cfg):
+            conn.search(ou, "(&%s(cn=%s))" % (_group_filter(conn), escape_filter_chars(team)), attributes=["cn"])
+            if conn.entries:
+                group_dn = str(conn.entries[0].entry_dn)
+                break
+        if not group_dn:
+            return {"status": "not_found", "members": [],
+                    "message": f"'{team}' adlı grup ekip grubu OU'sunda bulunamadı."}
+        user_attr = cfg.get("user_attr") or "sAMAccountName"
+        attrs = _known_attrs(conn, sorted({"displayName", "cn", "mail", "title", "department", user_attr}))
+        entries = conn.extend.standard.paged_search(
+            _domain_root(cfg), "(memberOf=%s)" % escape_filter_chars(group_dn),
+            attributes=attrs, paged_size=500, generator=True)
+        members, truncated = [], False
+        for item in entries:
+            if item.get("type") != "searchResEntry":
+                continue
+            if len(members) >= _MEMBER_LIMIT:
+                truncated = True
+                break
+            a = item.get("attributes") or {}
+
+            def val(*names):
+                for n in names:
+                    v = a.get(n)
+                    if isinstance(v, list):
+                        v = v[0] if v else ""
+                    if v:
+                        return str(v)
+                return ""
+            members.append({"dn": item["dn"], "name": val("displayName", "cn") or _rdn_value(item["dn"]),
+                            "account": val(user_attr), "mail": val("mail"), "title": val("title"),
+                            "department": val("department")})
+        jumbo = _jumbo_users(db, [m["account"] for m in members])
+        for m in members:
+            m["jumbo"] = jumbo.get(fold(m["account"])) if m["account"] else None
+        members.sort(key=lambda m: fold(m["name"]))
+        return {"status": "ok", "message": "", "team": _rdn_value(group_dn).strip().strip('"'),
+                "dn": group_dn, "members": members, "truncated": truncated}
+    except LDAPException as exc:
+        logger.error("LDAP ekip üyeleri hatası (ekip=%s): %s", team, exc)
+        return {"status": "error", "members": [], "message": f"LDAP okuma hatası: {exc}"}
     finally:
         conn.unbind()
