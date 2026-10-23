@@ -65,13 +65,12 @@ def test_profile_reads_summary_managers_groups_and_hides_password(client, monkey
         assert [m["name"] for m in p["managers"]] == ["Ayşe Yılmaz", "Mehmet Öz"]
         assert p["managers"][0]["title"] == "Müdür"
         assert p["ou_path"] == ["Users", "Bilgi Guvenligi", "Sertifika"]
-        groups = {g["name"]: g["mapped_role"] for g in p["groups"]}
-        assert groups == {"JUMBO_Editors": "editor", "VPN": None, "SY-BBB": None}
         # Ekip grubu (varsayılan OU=ScrumGroup): sol menüde adın altında görünür
         assert p["team_groups"] == ["SY-BBB"] and summary["team"] == "SY-BBB"
         assert "Hesap devre dışı" in p["account_flags"]
-        names = {a["name"].lower() for a in p["attributes"]}
-        assert "division" in names and "userpassword" not in names
+        # Yalnız ekrandaki alanlar döner: tüm nitelik listesi, gruplar, şifre alanları yok
+        assert summary["division"] == "Teknoloji Grubu"
+        assert not {"attributes", "groups", "direct_reports"} & set(p)
     finally:
         _save(db, {"enabled": False})
         db.close()
