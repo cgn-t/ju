@@ -17,6 +17,7 @@ import Discovery from './pages/Discovery'
 import Domains from './pages/Domains'
 import Login from './pages/Login'
 import ManagerBoard from './pages/ManagerBoard'
+import MyTeam from './pages/MyTeam'
 import Policy from './pages/Policy'
 import Profile from './pages/Profile'
 import Proposals from './pages/Proposals'
@@ -72,10 +73,16 @@ function AdminRoute({ children }: { children: ReactNode }) {
   return isAdmin ? <>{children}</> : <Navigate to="/profile" replace />
 }
 
-// Yönetici Panosu: tüm ekipler — admin ve Genel İzleyici (sunucu da kapsamı rolden çözer).
+// Genel Durum: tüm ekipler — admin ve Genel İzleyici (sunucu da kapsamı rolden çözer).
 function ManagerRoute({ children }: { children: ReactNode }) {
   const { role } = useAuth()
   return role === 'admin' || role === 'allviewer' ? <>{children}</> : <Navigate to="/" replace />
+}
+
+// Ekibim: ekip kullanıcıları (editör, Ekip İzleyici); yöneticiler tüm ekipleri Genel Durum'da görür.
+function TeamUserRoute({ children }: { children: ReactNode }) {
+  const { role } = useAuth()
+  return role === 'admin' || role === 'allviewer' ? <Navigate to="/overview" replace /> : <>{children}</>
 }
 
 function AdminOnly({ children }: { children: ReactNode }) {
@@ -112,6 +119,7 @@ export default function App() {
                 <Route element={<Protected />}>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/overview" element={<ManagerRoute><ManagerBoard /></ManagerRoute>} />
+                  <Route path="/my-team" element={<TeamUserRoute><MyTeam /></TeamUserRoute>} />
                   <Route path="/teams/:teamId" element={<TeamSummary />} />
                   <Route path="/system-health" element={<AdminOnly><SystemHealth /></AdminOnly>} />
                   <Route path="/certificates" element={<Certificates />} />

@@ -8,7 +8,6 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import MyTeamSection from '../components/MyTeamSection'
 import type { DashboardData } from '../api/types'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
@@ -31,11 +30,10 @@ export default function Dashboard() {
   useDocumentTitle('Anasayfa')
   const navigate = useNavigate()
   const { role } = useAuth()
-  // Yönetici (admin, Genel İzleyici) tüm ekipleri Yönetici Panosu'nda görür; ekip kullanıcısı
-  // Anasayfa'nın başında kendi ekibinin özetini görür.
+  // Yönetici (admin, Genel İzleyici) tüm ekipleri Genel Durum'da, ekip kullanıcısı kendi ekibini Ekibim'de görür.
   const isManager = role === 'admin' || role === 'allviewer'
   const managerLink = isManager
-    ? <Button variant="outlined" startIcon={<GroupsOutlinedIcon />} onClick={() => navigate('/overview')}>Yönetici Panosu</Button>
+    ? <Button variant="outlined" startIcon={<GroupsOutlinedIcon />} onClick={() => navigate('/overview')}>Genel Durum</Button>
     : undefined
   const { data, isLoading, isError, error, refetch } = useQuery<DashboardData>({
     queryKey: ['dashboard'],
@@ -57,10 +55,6 @@ export default function Dashboard() {
   return (
     <Box>
     <PageHeader title="Anasayfa" subtitle="Sertifika ve domain durumuna genel bakış" actions={managerLink} />
-    {!isManager && <MyTeamSection />}
-    {!isManager && (
-      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>Sayılarla durum</Typography>
-    )}
     <Grid container spacing={3}>
       <Grid size={{ xs: 12 }}>
         <Grid container spacing={2}>

@@ -13,9 +13,9 @@ import {
 } from '../components/TeamSummaryKit'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 
-/** Yönetici Panosu: tüm ekiplerin sertifika durumu (admin ve Genel İzleyici). */
+/** Genel Durum: tüm ekiplerin sertifika durumu (admin ve Genel İzleyici). */
 export default function ManagerBoard() {
-  useDocumentTitle('Yönetici Panosu')
+  useDocumentTitle('Genel Durum')
   const navigate = useNavigate()
   const { data, isLoading, isError, error, refetch } = useQuery<TeamOverview>({
     queryKey: ['summary', 'teams'],
@@ -23,7 +23,7 @@ export default function ManagerBoard() {
   })
   const generated = data ? new Date(data.generated_at).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : ''
   const header = (
-    <PageHeader title="Yönetici Panosu"
+    <PageHeader title="Genel Durum"
                 subtitle={data ? `Tüm ekiplerin sertifika durumu · ${generated}` : 'Tüm ekiplerin sertifika durumu'}
                 actions={data && (
                   <Button variant="outlined" startIcon={<DownloadIcon />}

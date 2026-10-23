@@ -1,4 +1,4 @@
-"""Yönetici Panosu, Ekibim, Sistem Sağlığı ve sertifika Mailler/Etkilenenler uçları (v3.9.9).
+"""Genel Durum, Ekibim, Sistem Sağlığı ve sertifika Mailler/Etkilenenler uçları (v3.9.9).
 
 Görünürlük: admin ve Genel İzleyici (allviewer) TÜM ekipleri görür; editör ve Ekip İzleyici
 yalnız üyesi olduğu SY ekiplerinin özetini görür (security.domain_scope_team_ids). Sertifika

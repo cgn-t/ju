@@ -42,7 +42,8 @@ type NavEntry = NavLink | NavGroup
 const isGroup = (e: NavEntry): e is NavGroup => 'items' in e
 
 const NAV: NavEntry[] = [
-  { to: '/overview', label: 'Yönetici Panosu' },
+  { to: '/overview', label: 'Genel Durum' },
+  { to: '/my-team', label: 'Ekibim' },
   { to: '/certificates', label: 'SSL Sertifikaları' },
   { to: '/domains', label: 'Domainler' },
   { to: '/applications', label: 'Uygulamalar' },
@@ -63,12 +64,13 @@ const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
-  '/overview': GroupsIcon, '/system-health': MonitorHeartIcon,
+  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon,
 }
 
-// Rol kapılı rotalar: Yönetici Panosu admin + Genel İzleyici, Sistem Sağlığı yalnız admin.
+// Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı yalnız admin.
 const ROLE_PATHS: Record<string, string[]> = {
   '/overview': ['admin', 'allviewer'],
+  '/my-team': ['editor', 'viewer'],
   '/system-health': ['admin'],
 }
 const NAV_W = 248

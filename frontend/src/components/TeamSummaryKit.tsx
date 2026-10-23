@@ -1,4 +1,4 @@
-// Yönetici Panosu, Ekibim ve ekip detayı sayfalarının ortak parçaları.
+// Genel Durum, Ekibim ve ekip detayı sayfalarının ortak parçaları.
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import {
   Box, ButtonBase, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography,
@@ -11,7 +11,7 @@ import { CARD_SX, StatusPill, type Tone } from './DetailCards'
 import { EmptyState } from './ListKit'
 
 export const TEAM_HEALTH: Record<TeamHealth, { label: string; tone: Tone; hint: string }> = {
-  critical: { label: 'Sorunlu', tone: 'error', hint: 'Süresi dolmuş sertifika ya da canlıda EŞLEŞMİYOR domain var' },
+  critical: { label: 'Acil', tone: 'error', hint: 'Süresi dolmuş sertifika ya da canlıda EŞLEŞMİYOR domain var' },
   warning: { label: 'Dikkat', tone: 'warning', hint: 'Yakında biten sertifika, bekleyen talep, uyum ihlali ya da ekip maili eksik' },
   ok: { label: 'İyi', tone: 'success', hint: 'İşlem bekleyen bir şey yok' },
 }
