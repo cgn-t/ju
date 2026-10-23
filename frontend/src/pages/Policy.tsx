@@ -100,9 +100,9 @@ export default function Policy() {
               <TableCell>Sertifika</TableCell>
               <TableCell>Tür</TableCell>
               <TableCell>İhlaller</TableCell>
-              <TableCell>Anahtar</TableCell>
-              <TableCell>İmza</TableCell>
-              <TableCell>Bitiş</TableCell>
+              <TableCell>Public Key</TableCell>
+              <TableCell>Signature</TableCell>
+              <TableCell>ValidTo</TableCell>
               <TableCell>Önem</TableCell>
             </TableRow>
           </TableHead>

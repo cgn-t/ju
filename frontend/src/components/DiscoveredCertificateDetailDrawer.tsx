@@ -90,11 +90,11 @@ export default function DiscoveredCertificateDetailDrawer({ findingId, onClose }
             <Divider />
 
             <Field label="Subject" value={f.subject} mono />
-            <Field label="Issuer (CA)" value={f.issuer} mono />
+            <Field label="Issuer" value={f.issuer} mono />
             <Field label="SAN" value={f.san} mono />
             <Stack direction="row" spacing={4}>
-              <Field label="Seri No" value={f.serial_number} mono />
-              <Field label="Bitiş" value={f.valid_to ? new Date(f.valid_to).toLocaleString('tr-TR') : null} />
+              <Field label="Serial Number" value={f.serial_number} mono />
+              <Field label="ValidTo" value={f.valid_to ? new Date(f.valid_to).toLocaleString('tr-TR') : null} />
             </Stack>
             <Field label="SHA-256 Fingerprint" value={f.fingerprint_sha256} mono />
             <Stack direction="row" spacing={4}>

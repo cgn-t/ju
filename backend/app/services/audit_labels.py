@@ -69,10 +69,10 @@ FIELD_LABELS = {
     "ug_team_name": "UG ekip adı", "servers_to_update": "Güncellenecek sunucular",
     "notify_days": "Bildirim günü",
     # Sertifika
-    "name": "Ad", "serial_number": "Seri no", "issuer": "Yayıncı (CA)", "subject": "Subject",
-    "cert_type": "Tür", "valid_from": "Başlangıç", "valid_to": "Bitiş", "is_active": "Aktif",
+    "name": "Ad", "serial_number": "Serial Number", "issuer": "Issuer", "subject": "Subject",
+    "cert_type": "Tür", "valid_from": "ValidFrom", "valid_to": "ValidTo", "is_active": "Aktif",
     "purchased_by": "Satın alan", "notes": "Notlar", "environment": "Ortam", "source": "Kaynak",
-    "fingerprint_sha256": "SHA-256 parmak izi", "vault_path": "Vault yolu", "parent_id": "Üst sertifika",
+    "fingerprint_sha256": "SHA-256 Fingerprint", "vault_path": "Vault yolu", "parent_id": "Üst sertifika",
     # Uygulama
     "app_name": "Uygulama adı", "app_user": "Uygulama kullanıcısı", "conf_path": "Konfigürasyon yolu",
     "control_method": "Kontrol yöntemi", "dns": "DNS", "ip_address": "IP adresi", "log_path": "Log yolu",
@@ -96,7 +96,7 @@ FIELD_LABELS = {
     "targets": "Hedef", "reachable": "Erişilebilir", "new_findings": "Yeni bulgu",
     "success": "Başarılı", "message": "Mesaj", "target": "Hedef", "endpoint": "Uç",
     "file": "Dosya", "created": "Oluşturulan", "updated": "Güncellenen", "proposals": "Talepler",
-    "serial": "Seri no", "cert": "Sertifika", "app": "Uygulama", "fields": "Alanlar", "host": "Host",
+    "serial": "Serial Number", "cert": "Sertifika", "app": "Uygulama", "fields": "Alanlar", "host": "Host",
     "port": "Port", "flow_name": "Akış", "trigger": "Tetikleme", "creator": "Oluşturan", "chain": "Zincir",
     "superseded": "Değiştirilen", "paths": "Yollar", "params": "Parametreler", "ok": "Başarılı",
     "node_id": "Adım", "jenkins_job": "Jenkins işi", "flow_id": "Akış", "user_id": "Kullanıcı",

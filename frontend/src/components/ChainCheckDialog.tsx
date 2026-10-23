@@ -8,10 +8,10 @@ import { api, apiErrorMessage } from '../api/client'
 import type { ChainCheckFinding } from '../api/types'
 
 const KIND_LABEL: Record<ChainCheckFinding['kind'], string> = {
-  type: 'Tür',
-  parent: 'Üst sertifika',
-  subject_key_identifier: 'Anahtar kimliği (SKI)',
-  authority_key_identifier: 'Yayıncı anahtar kimliği (AKI)',
+  type: 'Type',
+  parent: 'Parent (Issuer)',
+  subject_key_identifier: 'SubjectKeyIdentifier',
+  authority_key_identifier: 'AuthorityKeyIdentifier',
 }
 
 /** Kayıtların türünü (kök/ara/uç) ve üst sertifikasını PEM'lerinden yeniden hesaplar; farkları
@@ -43,7 +43,7 @@ export default function ChainCheckDialog({ open, onClose }: { open: boolean; onC
       <DialogTitle>Zincir Kontrolü</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Her sertifikanın türü (Kök CA / Ara CA / Uç Sertifika) ve üst sertifikası, sertifikanın
+          Her sertifikanın türü (Root / Intermediate / Leaf) ve üst sertifikası, sertifikanın
           kendisinden yeniden hesaplanır. Kayıtta farklı olanlar aşağıda listelenir; "Düzelt" ile
           hepsi düzeltilir ve işlem kaydına yazılır. Domain ve uygulama bağlantılarına dokunulmaz.
         </Typography>

@@ -21,7 +21,7 @@ from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate
 from app.services import cert_parser
 
-TYPE_LABEL = {"root": "Kök CA", "intermediate": "Ara CA", "leaf": "Uç Sertifika"}
+TYPE_LABEL = {"root": "Root", "intermediate": "Intermediate", "leaf": "Leaf"}
 KIND_LABEL = {"type": "Tür", "parent": "Üst sertifika", "subject_key_identifier": "SKI",
               "authority_key_identifier": "AKI"}
 
