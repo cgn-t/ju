@@ -9,6 +9,7 @@ import LanguageIcon from '@mui/icons-material/Language'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
+import PersonIcon from '@mui/icons-material/Person'
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import RuleIcon from '@mui/icons-material/Rule'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -255,6 +256,10 @@ export default function AppLayout() {
         </MenuItem>
         <Divider />
 
+        <MenuItem onClick={() => { setAnchor(null); setDrawerOpen(false); navigate('/profile') }}>
+          <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Profilim</ListItemText>
+        </MenuItem>
         {/* Ayarlar HERKESE görünür: admin tüm sekmeleri, diğerleri yalnız Etiketler'i görür */}
         <MenuItem onClick={() => { setAnchor(null); setDrawerOpen(false); navigate('/settings') }}>
           <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>

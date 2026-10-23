@@ -119,3 +119,19 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     # (bkz. nav_visible). Route erişimi/onay iş akışı page_access ile değişmeden çalışır.
     out.nav_page_access = {page: nav_visible(db, user, page) for page in PAGE_SETTING_KEY}
     return out
+
+
+def directory_for(db: Session, user: User) -> dict:
+    """Profil sayfası verisi: Jumbo hesabı + dizin (LDAP/AD) kaydı. Yerel hesapta dizine gidilmez."""
+    if is_local_password(user.password_hash):
+        info = {"status": "local",
+                "message": "Bu hesap Jumbo'nun yerel hesabı; LDAP'ta karşılığı yok."}
+    else:
+        info = ldap_auth.directory_profile(db, user.username)
+    return {"username": user.username, **info}
+
+
+@router.get("/me/directory")
+def my_directory(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Giriş yapmış kişinin LDAP/AD'deki tüm bilgileri (Profilim sayfası)."""
+    return directory_for(db, user)

@@ -135,6 +135,17 @@ def update_user(request: Request, user_id: int, body: UserUpdate, db: Session = 
     return _user_out(db, user)
 
 
+@router.get("/users/{user_id}/directory")
+def user_directory(user_id: int, db: Session = Depends(get_db),
+                   _: User = Depends(require_role("admin"))):
+    """Bir kullanıcının LDAP/AD bilgileri — yalnız yönetici (Kullanıcılar > detay)."""
+    from app.api.auth import directory_for
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı")
+    return directory_for(db, user)
+
+
 @router.delete("/users/{user_id}")
 def delete_user(request: Request, user_id: int, db: Session = Depends(get_db),
                 admin: User = Depends(require_role("admin"))):

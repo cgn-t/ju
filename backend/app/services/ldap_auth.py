@@ -1,9 +1,12 @@
 """LDAP/Active Directory kimlik doğrulama ve AD grubu → uygulama rolü eşleme."""
 
+import base64
 import logging
+import re
 import ssl
+from datetime import datetime
 
-from ldap3 import ALL, Connection, Server, Tls
+from ldap3 import ALL, ALL_ATTRIBUTES, BASE, Connection, Server, Tls
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from sqlalchemy.orm import Session
@@ -268,3 +271,212 @@ def authenticate(db: Session, username: str, password: str) -> LdapResult:
         logger.error("LDAP doğrulama HATASI (kullanıcı=%s, sunucu=%s): %s",
                      username, cfg.get("server"), exc)
         return LdapResult(False, error="Kullanıcı adı veya şifre hatalı")
+
+
+# ── Profil sayfası: kullanıcının dizindeki TÜM bilgileri ─────────────────────────────────────
+# Girişten bağımsızdır: sayfa açıldığında servis hesabıyla canlı okunur, DB'ye yazılmaz.
+
+# Hiçbir koşulda gösterilmeyen nitelikler (şifre/şifre geçmişi/LAPS). Ad içinde "password" geçenler de.
+_HIDDEN_ATTRS = {"unicodepwd", "dbcspwd", "lmpwdhistory", "ntpwdhistory", "supplementalcredentials",
+                 "ms-mcs-admpwd", "ms-mcs-admpwdexpirationtime", "msds-managedpassword"}
+_PHOTO_ATTRS = {"thumbnailphoto", "jpegphoto"}
+
+# Özet kutuları: (anahtar, ekranda başlık, aranacak nitelikler — ilk dolu olan kullanılır)
+_SUMMARY_FIELDS = [
+    ("full_name", "Ad Soyad", ["displayName", "cn"]),
+    ("title", "Unvan", ["title"]),
+    ("department", "Departman", ["department", "departmentNumber"]),
+    ("division", "Bölüm", ["division"]),
+    ("company", "Şirket", ["company", "o"]),
+    ("office", "Ofis", ["physicalDeliveryOfficeName", "roomNumber"]),
+    ("location", "Şehir", ["l"]),
+    ("employee_id", "Sicil No", ["employeeID", "employeeNumber"]),
+    ("employee_type", "Çalışan Tipi", ["employeeType"]),
+    ("mail", "E-posta", ["mail"]),
+    ("upn", "UPN", ["userPrincipalName"]),
+    ("account", "Hesap Adı", ["sAMAccountName", "uid"]),
+    ("phone", "Telefon", ["telephoneNumber"]),
+    ("mobile", "Cep Telefonu", ["mobile"]),
+    ("description", "Açıklama", ["description"]),
+    ("created", "Hesap Açılış", ["whenCreated", "createTimestamp"]),
+    ("last_logon", "Son Oturum (AD)", ["lastLogonTimestamp"]),
+    ("pwd_last_set", "Şifre Değişimi", ["pwdLastSet"]),
+    ("account_expires", "Hesap Bitişi", ["accountExpires"]),
+]
+_MAX_MANAGER_DEPTH = 8
+
+
+def _hidden(attr: str) -> bool:
+    low = attr.lower()
+    return low in _HIDDEN_ATTRS or "password" in low
+
+
+def _fmt_value(value) -> str:
+    """Tek nitelik değerini ekranda okunur metne çevirir. Tarihler ISO; ikili veri boyutuyla."""
+    if isinstance(value, datetime):
+        # AD 'hiçbir zaman' değerleri (0 → 1601, 0x7FFF.. → 9999) gerçek tarih değildir
+        if value.year <= 1601 or value.year >= 9999:
+            return "Hiçbir zaman"
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            text = bytes(value).decode("utf-8")
+            if text.isprintable():
+                return text
+        except UnicodeDecodeError:
+            pass
+        return f"(ikili veri, {len(value)} bayt)"
+    return str(value)
+
+
+def _rdn_value(dn: str) -> str:
+    """'CN=Ali Veli,OU=IT,...' → 'Ali Veli'. Kaçışlı virgüller (\\,) korunur."""
+    first = re.split(r"(?<!\\),", dn, maxsplit=1)[0]
+    return first.split("=", 1)[1].replace("\\,", ",") if "=" in first else dn
+
+
+def _ou_path(dn: str) -> list[str]:
+    """DN'deki OU'lar en üstten alta: 'CN=x,OU=Ekip,OU=Müdürlük,DC=..' → ['Müdürlük', 'Ekip']."""
+    parts = re.split(r"(?<!\\),", dn)
+    return [p.split("=", 1)[1].replace("\\,", ",") for p in reversed(parts)
+            if p.strip().lower().startswith("ou=")]
+
+
+def _attr_values(entry, name: str) -> list:
+    if name not in entry:
+        return []
+    vals = entry[name].values
+    return [v for v in vals if v not in (None, "", b"")]
+
+
+def _first(entry, names: list[str]) -> str:
+    for name in names:
+        vals = _attr_values(entry, name)
+        if vals:
+            return _fmt_value(vals[0])
+    return ""
+
+
+def _find_one(conn: Connection, cfg: dict, username: str, attrs) -> object | None:
+    """authenticate() ile AYNI arama: filtre + birden çok sonuçta user_attr ile daraltma.
+    Tek kayıt bulunamazsa None (rastgele ilk sonuç ASLA kullanılmaz)."""
+    safe = escape_filter_chars(username)
+    user_attr = cfg.get("user_attr") or "sAMAccountName"
+    user_filter = _subst(cfg.get("user_filter") or f"({user_attr}={{username}})", username=safe)
+    conn.search(cfg["base_dn"], user_filter, attributes=attrs)
+    entries = conn.entries
+    if len(entries) > 1:
+        wide = user_filter if user_filter.startswith("(") else f"({user_filter})"
+        conn.search(cfg["base_dn"], "(&%s(%s=%s))" % (wide, user_attr, safe), attributes=attrs)
+        entries = conn.entries
+    return entries[0] if len(entries) == 1 else None
+
+
+def _person(conn: Connection, dn: str) -> dict:
+    """Yönetici gibi bir DN'in kısa kartı. Okunamazsa yalnız DN'den türetilen ad döner."""
+    card = {"dn": dn, "name": _rdn_value(dn), "title": "", "department": "", "mail": "", "manager_dn": ""}
+    try:
+        conn.search(dn, "(objectClass=*)", search_scope=BASE,
+                    attributes=["displayName", "cn", "title", "department", "departmentNumber",
+                                "mail", "manager"])
+    except LDAPException as exc:
+        logger.debug("LDAP kişi kartı okunamadı (dn=%s): %s", dn, exc)
+        return card
+    if conn.entries:
+        e = conn.entries[0]
+        card.update(name=_first(e, ["displayName", "cn"]) or card["name"], title=_first(e, ["title"]),
+                    department=_first(e, ["department", "departmentNumber"]), mail=_first(e, ["mail"]),
+                    manager_dn=_first(e, ["manager"]))
+    return card
+
+
+def _uac_flags(value: str) -> list[str]:
+    try:
+        uac = int(value)
+    except (TypeError, ValueError):
+        return []
+    flags = []
+    if uac & 0x2:
+        flags.append("Hesap devre dışı")
+    if uac & 0x10:
+        flags.append("Hesap kilitli")
+    if uac & 0x10000:
+        flags.append("Şifre süresi dolmaz")
+    if uac & 0x800000:
+        flags.append("Şifrenin süresi dolmuş")
+    return flags or ["Etkin"]
+
+
+def directory_profile(db: Session, username: str) -> dict:
+    """Kullanıcının dizin kaydını okur: özet alanlar, yönetici zinciri, gruplar, tüm nitelikler.
+    Dönüş: {"status": ok|disabled|not_found|error, "message": str, ...}. Hata fırlatmaz."""
+    cfg = get_category(db, "ldap", mask_secrets=False)
+    if not cfg.get("enabled") or not cfg.get("server"):
+        return {"status": "disabled", "message": "LDAP Ayarlar'da etkin değil."}
+    problem = _bind_password_problem(db, cfg)
+    if problem:
+        return {"status": "error", "message": problem}
+    try:
+        conn = _connect(_server(cfg), cfg, cfg.get("bind_dn"), cfg.get("bind_password"))
+    except LDAPException as exc:
+        logger.error("LDAP profil okuma: bağlantı hatası (kullanıcı=%s): %s", username, exc)
+        return {"status": "error", "message": f"LDAP sunucusuna bağlanılamadı: {exc}"}
+    try:
+        entry = _find_one(conn, cfg, username, [ALL_ATTRIBUTES])
+        if entry is None:
+            return {"status": "not_found",
+                    "message": "Kullanıcı LDAP'ta bulunamadı (ya da filtre birden çok kayıt eşleştirdi)."}
+        dn = str(entry.entry_dn)
+
+        attributes, photo = [], None
+        for name in sorted(entry.entry_attributes, key=str.lower):
+            if _hidden(name):
+                continue
+            vals = _attr_values(entry, name)
+            if not vals:
+                continue
+            if name.lower() in _PHOTO_ATTRS and isinstance(vals[0], (bytes, bytearray)):
+                photo = photo or "data:image/jpeg;base64," + base64.b64encode(vals[0]).decode()
+            attributes.append({"name": name, "values": [_fmt_value(v) for v in vals]})
+
+        summary = []
+        for key, label, names in _SUMMARY_FIELDS:
+            value = _first(entry, names)
+            if value:
+                summary.append({"key": key, "label": label, "value": value})
+        uac = _first(entry, ["userAccountControl"])
+        account_flags = _uac_flags(uac) if uac else []
+
+        groups = [str(g) for g in _attr_values(entry, "memberOf")]
+        group_source = "memberOf"
+        if not groups and cfg.get("group_base") and cfg.get("group_filter"):
+            group_filter = _subst(cfg["group_filter"], user_dn=escape_filter_chars(dn),
+                                  username=escape_filter_chars(username))
+            conn.search(cfg["group_base"], group_filter, attributes=["cn"])
+            groups = [str(g.entry_dn) for g in conn.entries]
+            group_source = "group_search"
+        role_map = {k.lower(): v for k, v in (cfg.get("group_role_map") or {}).items()}
+        group_out = sorted(({"dn": g, "name": _rdn_value(g), "mapped_role": role_map.get(g.lower())}
+                            for g in groups), key=lambda g: g["name"].lower())
+
+        # Yönetici zinciri: manager → onun manager'ı ... (döngü ve derinlik korumalı)
+        chain, seen = [], {dn.lower()}
+        next_dn = _first(entry, ["manager"])
+        while next_dn and next_dn.lower() not in seen and len(chain) < _MAX_MANAGER_DEPTH:
+            seen.add(next_dn.lower())
+            card = _person(conn, next_dn)
+            chain.append(card)
+            next_dn = card.pop("manager_dn")
+        for card in chain:
+            card.pop("manager_dn", None)
+
+        reports = sorted((_rdn_value(str(r)) for r in _attr_values(entry, "directReports")), key=str.lower)
+        return {"status": "ok", "message": "", "dn": dn, "ou_path": _ou_path(dn), "photo": photo,
+                "summary": summary, "account_flags": account_flags, "managers": chain,
+                "direct_reports": reports, "groups": group_out, "group_source": group_source,
+                "attributes": attributes}
+    except LDAPException as exc:
+        logger.error("LDAP profil okuma hatası (kullanıcı=%s): %s", username, exc)
+        return {"status": "error", "message": f"LDAP okuma hatası: {exc}"}
+    finally:
+        conn.unbind()

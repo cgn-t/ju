@@ -683,3 +683,28 @@ export interface CertificatePage extends PageMeta {
 export interface ApplicationPage extends PageMeta { items: Application[] }
 export interface DiscoveryPage extends PageMeta { items: DiscoveredCertificate[]; has_ct: boolean }
 export interface ProposalPage extends PageMeta { items: TransferProposal[]; domain_name?: string | null }
+
+/** Profil sayfası: kullanıcının LDAP/AD kaydı (GET /auth/me/directory, /users/{id}/directory). */
+export interface DirectoryPerson {
+  dn: string
+  name: string
+  title: string
+  department: string
+  mail: string
+}
+
+export interface DirectoryProfile {
+  username: string
+  status: 'ok' | 'local' | 'disabled' | 'not_found' | 'error'
+  message: string
+  dn?: string
+  ou_path?: string[]
+  photo?: string | null
+  summary?: { key: string; label: string; value: string }[]
+  account_flags?: string[]
+  managers?: DirectoryPerson[]       // yakından uzağa: [0] doğrudan yönetici
+  direct_reports?: string[]
+  groups?: { dn: string; name: string; mapped_role: string | null }[]
+  group_source?: 'memberOf' | 'group_search'
+  attributes?: { name: string; values: string[] }[]
+}
