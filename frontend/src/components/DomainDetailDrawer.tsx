@@ -239,7 +239,9 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
 
             {tab === 'summary' && (
               <Stack spacing={2}>
-                <ValidityCard cert={server} emptyText="Bu domaine bağlı server sertifikası yok. Sertifikalar sekmesinden bağlayabilirsiniz." />
+                <ValidityCard cert={server} warnDays={domain.notify_days ?? 30}
+                              warnDaysNote={domain.notify_days ? "domainin Bildirim Gün Sayısı" : "varsayılan süre"}
+                              emptyText="Bu domaine bağlı server sertifikası yok. Sertifikalar sekmesinden bağlayabilirsiniz." />
                 <Box sx={GRID4}>
                   <InfoCard title="Common Name (CN)" onClick={() => setTab('certs')}
                             value={server?.name ?? 'Bağlanmamış'}

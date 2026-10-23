@@ -220,7 +220,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
           <DialogContent sx={{ pt: 2.5 }}>
             {tab === 'summary' && (
               <Stack spacing={2}>
-                <ValidityCard cert={cert} />
+                <ValidityCard cert={cert} warnDaysNote="varsayılan süre; domainde farklı ayarlanabilir" />
                 <Box sx={GRID4}>
                   <InfoCard title="Type" value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type}
                             sub={cert.cert_type === 'root' ? 'Self-signed' : undefined} />
