@@ -4,6 +4,8 @@ export interface TokenResponse {
   role: string
   full_name?: string | null
   email?: string | null
+  photo?: string | null        // LDAP: AD fotoğrafı (data URL)
+  team_groups?: string[]       // LDAP: ekip grupları (ör. SY-BBB)
 }
 
 export interface Team {
@@ -703,9 +705,5 @@ export interface DirectoryProfile {
   summary?: { key: string; label: string; value: string }[]
   account_flags?: string[]
   managers?: DirectoryPerson[]       // yakından uzağa: [0] doğrudan yönetici
-  direct_reports?: string[]
   team_groups?: string[]             // Ayarlar > LDAP 'Ekip grubu OU'su' altındaki gruplar (ör. SY-BBB)
-  groups?: { dn: string; name: string; mapped_role: string | null }[]
-  group_source?: 'memberOf' | 'group_search'
-  attributes?: { name: string; values: string[] }[]
 }

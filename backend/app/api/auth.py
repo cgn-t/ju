@@ -37,6 +37,7 @@ def _login(db: Session, username: str, password: str, request: Request | None) -
     user = _find_user(db, username)
 
     authenticated = False
+    photo, team_groups = None, []
     # Yerel (bcrypt-hash'li) şifresi olan kullanıcı YALNIZ yerelden doğrulanır; LDAP'a düşmez
     # (yanlış şifre → 401). Karar auth_source etiketine değil, gerçek hash'in varlığına dayanır —
     # çünkü auth_source'un DB server_default'u 'ldap' olduğundan legacy/ORM-dışı satırlar yanlış
@@ -48,6 +49,7 @@ def _login(db: Session, username: str, password: str, request: Request | None) -
         result = ldap_auth.authenticate(db, username, password)
         if result.success:
             authenticated = True
+            photo, team_groups = result.photo, result.team_groups
             if user is None:
                 # RBAC: LDAP kullanıcısı role='none' (yetkisiz) oluşur → hiçbir şey göremez. Yetki AD
                 # grubundan DEĞİL, admin'in JUMBO'da rol atamasından gelir (role='none' AÇIKÇA verilir;
@@ -88,7 +90,8 @@ def _login(db: Session, username: str, password: str, request: Request | None) -
     role = effective_role(db, user)
     token = create_access_token(user.username, role)
     return TokenResponse(access_token=token, username=user.username, role=role,
-                         full_name=user.full_name, email=user.email)
+                         full_name=user.full_name, email=user.email, photo=photo,
+                         team_groups=team_groups)
 
 
 @router.post("/login", response_model=TokenResponse)

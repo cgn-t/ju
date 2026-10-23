@@ -65,13 +65,12 @@ def test_profile_reads_summary_managers_groups_and_hides_password(client, monkey
         assert [m["name"] for m in p["managers"]] == ["Ayşe Yılmaz", "Mehmet Öz"]
         assert p["managers"][0]["title"] == "Müdür"
         assert p["ou_path"] == ["Users", "Bilgi Guvenligi", "Sertifika"]
-        groups = {g["name"]: g["mapped_role"] for g in p["groups"]}
-        assert groups == {"JUMBO_Editors": "editor", "VPN": None, "SY-BBB": None}
         # Ekip grubu (varsayılan OU=ScrumGroup): sol menüde adın altında görünür
         assert p["team_groups"] == ["SY-BBB"] and summary["team"] == "SY-BBB"
         assert "Hesap devre dışı" in p["account_flags"]
-        names = {a["name"].lower() for a in p["attributes"]}
-        assert "division" in names and "userpassword" not in names
+        # Yalnız ekrandaki alanlar döner: tüm nitelik listesi, gruplar, şifre alanları yok
+        assert summary["division"] == "Teknoloji Grubu"
+        assert not {"attributes", "groups", "direct_reports"} & set(p)
     finally:
         _save(db, {"enabled": False})
         db.close()
@@ -109,3 +108,30 @@ def test_endpoints_local_account_and_admin_only(client, auth_headers):
     assert client.get(f"/api/users/{admin_id}/directory", headers=h).status_code == 403
     assert client.get("/api/auth/me/directory", headers=h).json()["status"] == "local"
     assert client.get(f"/api/users/{admin_id}/directory", headers=auth_headers).json()["status"] == "local"
+
+
+def test_team_groups_of_tolerates_spacing_quotes_and_plural():
+    cfg = {"team_group_ou": "ScrumGroup"}
+    groups = ['CN=SY-BBB,OU=ScrumGroup,OU=BTPersonel,DC=akb',
+              'CN="SY-CCC",OU="Scrum Groups",OU=BTPersonel,DC=akb',
+              'CN=VPN,OU=Groups,DC=akb', 'CN=ScrumGroup,OU=Groups,DC=akb']
+    assert ldap_auth.team_groups_of(groups, cfg) == ["SY-BBB", "SY-CCC"]
+    assert ldap_auth.team_groups_of(groups, {"team_group_ou": ""}) == []
+
+
+def test_login_returns_photo_and_team_groups(client, monkeypatch):
+    db = SessionLocal()
+    try:
+        _fake_directory(monkeypatch)
+        _save(db, CFG)
+        conn = ldap_auth._connect(None, CFG, None, None)
+        conn.strategy.add_entry("CN=Foto,OU=Users,DC=firma,DC=local",
+                                {"objectClass": "user", "sAMAccountName": "foto.kisi", "userPassword": "Pw.1",
+                                 "thumbnailPhoto": b"\xff\xd8\xff\xe0JPEG", "memberOf": [SCRUM]})
+        res = ldap_auth.authenticate(db, "foto.kisi", "Pw.1")
+        assert res.success, res.error
+        assert res.photo and res.photo.startswith("data:image/jpeg;base64,")
+        assert res.team_groups == ["SY-BBB"]
+    finally:
+        _save(db, {"enabled": False})
+        db.close()

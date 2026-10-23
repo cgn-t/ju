@@ -79,7 +79,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 export default function AppLayout() {
-  const { username, fullName, role, email, logout, isAdmin } = useAuth()
+  const { username, fullName, role, email, logout, isAdmin, photo: authPhoto, teamGroups: authTeams } = useAuth()
   const { mode, toggle } = useThemeMode()
   const location = useLocation()
   const navigate = useNavigate()
@@ -91,15 +91,18 @@ export default function AppLayout() {
     return !c
   })
   const roleLabel = ROLE_LABELS[role ?? ''] ?? role ?? ''
-  // LDAP kullanıcısının AD fotoğrafı ve ekip grubu (ör. SY-BBB); Profilim ile aynı sorgu, oturumda bir kez
+  // AD fotoğrafı ve ekip grubu (ör. SY-BBB) girişte gelir ve saklanır → beklemeden görünür. Bu sürümden
+  // önce giriş yapmış oturumlarda yoksa Profilim'in sorgusundan bir kez alınır.
   const { data: dir } = useQuery<DirectoryProfile>({
     queryKey: ['directory', 'me'],
     queryFn: async () => (await api.get('/auth/me/directory')).data,
     staleTime: Infinity,
     retry: false,
+    enabled: !authPhoto && !authTeams.length,
   })
-  const photo = dir?.photo ?? undefined
-  const subLabel = dir?.team_groups?.length ? dir.team_groups.join(', ') : roleLabel
+  const photo = authPhoto || dir?.photo || undefined
+  const teams = authTeams.length ? authTeams : (dir?.team_groups ?? [])
+  const subLabel = teams.length ? teams.join(', ') : roleLabel
   const initial = (fullName || username || '?')[0]?.toUpperCase()
   const access = usePageAccess()
   const pendingCount = usePendingProposalCount()
