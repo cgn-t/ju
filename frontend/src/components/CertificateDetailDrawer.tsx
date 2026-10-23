@@ -3,9 +3,9 @@ import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
-import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight'
 import {
-  Box, Button, Chip, Divider, Drawer, IconButton, MenuItem, Skeleton, Stack, TextField, Tooltip, Typography,
+  Box, Button, Chip, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Skeleton, Stack, Tab, Tabs,
+  TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -17,6 +17,10 @@ import { useAuth } from '../auth/AuthContext'
 import CertificatePicker from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import {
+  CERT_TYPE_FULL, ChainArrow, ChainCertCard, CopyField, dnPart, fmtDate, GRID3, GRID4, InfoCard, keyText,
+  REVOCATION, SectionBox, ValidityCard,
+} from './DetailCards'
+import {
   daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, MONO_FONT, nodeColors,
   sourceLabel, TRANSFER_TOAST_MS,
 } from '../theme'
@@ -27,63 +31,6 @@ interface Props {
   onSelectCert?: (id: number) => void // zincirde başka sertifikaya geçiş
 }
 
-// İptal (revocation) durumu çip görünümü; 'null' = henüz denetlenmemiş
-const REVOCATION_META: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'default' }> = {
-  good: { label: 'İptal edilmemiş', color: 'success' },
-  revoked: { label: 'İPTAL EDİLMİŞ', color: 'error' },
-  unknown: { label: 'Bilinmiyor', color: 'warning' },
-  unreachable: { label: 'Ulaşılamadı', color: 'warning' },
-  not_checkable: { label: 'Kontrol edilemez', color: 'default' },
-  null: { label: 'Denetlenmedi', color: 'default' },
-}
-
-function Field({ label, value, mono }: { label: string; value?: string | null; mono?: boolean }) {
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
-      <Typography variant="body2" sx={mono ? { fontFamily: MONO_FONT, fontSize: 12, wordBreak: 'break-all' } : { wordBreak: 'break-word' }}>
-        {value || '—'}
-      </Typography>
-    </Box>
-  )
-}
-
-function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <Typography variant="overline" color="text.secondary">{children}</Typography>
-      {action}
-    </Box>
-  )
-}
-
-function ChainRow({ cert, current, indent, onClick }: {
-  cert: { id: number; name: string; cert_type: string; days_left?: number | null }
-  current: boolean
-  indent: number
-  onClick?: () => void
-}) {
-  return (
-    <Box
-      onClick={current ? undefined : onClick}
-      sx={{
-        display: 'flex', alignItems: 'center', gap: 1, py: 0.75, pl: indent * 2.5, pr: 1,
-        borderRadius: 1, cursor: current ? 'default' : 'pointer',
-        bgcolor: current ? 'action.selected' : 'transparent',
-        '&:hover': current ? {} : { bgcolor: 'action.hover' },
-      }}
-    >
-      {indent > 0 && <SubdirectoryArrowRightIcon fontSize="small" sx={{ color: 'text.disabled' }} />}
-      <Chip size="small" label={cert.cert_type[0].toUpperCase()}
-            sx={{ bgcolor: nodeColors[cert.cert_type], color: 'rgba(0,0,0,0.87)', fontWeight: 700, width: 26 }} />
-      <Typography variant="body2" sx={{ flexGrow: 1, fontWeight: current ? 700 : 400 }} noWrap>
-        {cert.name}
-      </Typography>
-      <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
-    </Box>
-  )
-}
-
 interface EditForm { name: string; purchased_by: string; creator: string; environment: string; notes: string }
 
 export default function CertificateDetailDrawer({ certId, onClose, onSelectCert }: Props) {
@@ -92,6 +39,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const queryClient = useQueryClient()
   const { canEdit } = useAuth()
   const [editing, setEditing] = useState(false)
+  const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate'>('summary')
+  const theme = useTheme()
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
   const [form, setForm] = useState<EditForm>(
     { name: '', purchased_by: '', creator: '', environment: '', notes: '' })
@@ -118,7 +68,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const [successor, setSuccessor] = useState<Certificate | null>(null)
 
   // Sertifika değişince / panel kapanınca düzenleme modundan çık, halef seçimini sıfırla
-  useEffect(() => { setEditing(false); setSuccessor(null) }, [certId])
+  useEffect(() => { setEditing(false); setSuccessor(null); setTab('summary') }, [certId])
   const { data: allCerts } = useQuery<Certificate[]>({
     queryKey: ['certificates', 'picker'],
     queryFn: async () => (await api.get('/certificates')).data,
@@ -196,43 +146,37 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
     URL.revokeObjectURL(a.href)
   }
 
+  const revo = REVOCATION[cert?.revocation_status ?? 'null'] ?? REVOCATION.null
+  const sans = (cert?.san ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  const chainList = chain ? [...chain.ancestors].reverse() : []   // uçtan köke: önce üst, sonra kök
+
   return (
-    <Drawer anchor="right" open={certId !== null} onClose={onClose}
-            slotProps={{ paper: { sx: { width: { xs: '100%', sm: 580 } } } }}>
-      <Box sx={{ p: 3 }}>
-        {isLoading || !cert ? (
-          <Skeleton variant="rounded" height={500} />
-        ) : (
-          <Stack spacing={2.5}>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <Chip label={cert.cert_type.toUpperCase()}
-                      sx={{ bgcolor: nodeColors[cert.cert_type], color: 'rgba(0,0,0,0.87)', fontWeight: 700 }} />
-                {editing ? (
-                  <TextField size="small" fullWidth label="Sertifika Adı" value={form.name}
-                             onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                ) : (
-                  <Typography variant="h6" sx={{ wordBreak: 'break-all', flexGrow: 1 }}>{cert.name}</Typography>
-                )}
-                {!editing && (
-                  <>
-                    {canEdit && (
-                      <Tooltip title="Düzenle">
-                        <IconButton size="small" onClick={startEdit}><EditIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                    )}
-                    <Tooltip title="Haritada Aç">
-                      <IconButton size="small" onClick={() => navigate('/cert-map')}>
-                        <AccountTreeIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Kapat">
-                      <IconButton size="small" onClick={onClose}><CloseIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                  </>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+    <Dialog open={certId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
+            slotProps={{ paper: { sx: { height: { md: '88vh' } } } }}>
+      {isLoading || !cert ? (
+        <Box sx={{ p: 3 }}><Skeleton variant="rounded" height={500} /></Box>
+      ) : (
+        <>
+          <DialogTitle sx={{ pb: 0.5, pr: 7 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <Chip label={cert.cert_type.toUpperCase()} size="small"
+                    sx={{ bgcolor: nodeColors[cert.cert_type], color: 'rgba(0,0,0,0.87)', fontWeight: 700 }} />
+              {editing ? (
+                <TextField size="small" fullWidth label="Sertifika Adı" value={form.name}
+                           onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              ) : (
+                <Typography variant="h6" component="span" sx={{ fontWeight: 700, wordBreak: 'break-all' }}>{cert.name}</Typography>
+              )}
+              {!editing && canEdit && (
+                <Tooltip title="Düzenle">
+                  <IconButton size="small" onClick={() => { setTab('corporate'); startEdit() }}><EditIcon fontSize="small" /></IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Haritada Aç">
+                <IconButton size="small" onClick={() => navigate('/cert-map')}><AccountTreeIcon fontSize="small" /></IconButton>
+              </Tooltip>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
                 <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
                 {cert.environment && (
                   <Chip size="small" color={environmentColor(cert.environment)}
@@ -259,64 +203,177 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                           onClick={() => onSelectCert?.(p.id)} />
                   </Tooltip>
                 ))}
-              </Box>
             </Box>
-
-            {/* Zincir */}
-            {chain && (chain.ancestors.length > 0 || chain.children.length > 0) && (
-              <Box>
-                <SectionTitle>Sertifika Zinciri</SectionTitle>
-                <Box sx={{ mt: 0.5 }}>
-                  {chain.ancestors.map((a, i) => (
-                    <ChainRow key={a.id} cert={a} current={false} indent={i}
-                              onClick={() => onSelectCert?.(a.id)} />
-                  ))}
-                  <ChainRow cert={cert} current indent={chain.ancestors.length} />
-                  {chain.children.map((c) => (
-                    <ChainRow key={c.id} cert={c} current={false} indent={chain.ancestors.length + 1}
-                              onClick={() => onSelectCert?.(c.id)} />
-                  ))}
+            <IconButton aria-label="Kapat" onClick={onClose} sx={{ position: 'absolute', right: 12, top: 12 }}>
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant={fullScreen ? 'scrollable' : 'standard'} scrollButtons={false}
+                sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Tab value="summary" label="Özet" />
+            <Tab value="chain" label="Zincir" />
+            <Tab value="links" label={`Bağlantılar (${cert.domains.length})`} />
+            <Tab value="technical" label="Teknik Detay" />
+            <Tab value="revocation" label="İptal Durumu" />
+            <Tab value="corporate" label="Kurumsal" />
+          </Tabs>
+          <DialogContent sx={{ pt: 2.5 }}>
+            {tab === 'summary' && (
+              <Stack spacing={2}>
+                <ValidityCard cert={cert} />
+                <Box sx={GRID4}>
+                  <InfoCard title="Tür" value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type}
+                            sub={cert.cert_type === 'root' ? 'Kendinden imzalı' : undefined} />
+                  <InfoCard title="Sertifika Otoritesi" value={dnPart(cert.issuer, 'CN') ?? '—'}
+                            sub={dnPart(cert.issuer, 'O') ?? undefined} onClick={() => setTab('chain')} />
+                  <InfoCard title="Anahtar" value={keyText(cert)}
+                            sub={cert.signature_hash ? `${cert.signature_hash.toUpperCase().replace('SHA', 'SHA-')} ile imzalı` : undefined} />
+                  <InfoCard title="Alternatif Adlar (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
+                            sub={sans.slice(0, 3).join(', ') + (sans.length > 3 ? '…' : '')} onClick={() => setTab('technical')} />
+                  <InfoCard title="Durum" value={cert.is_active ? 'Aktif' : 'Pasif'}
+                            color={cert.is_active ? 'default' : 'warning'}
+                            sub={cert.superseded_by_id ? `Yenisi: ${cert.superseded_by_name ?? `#${cert.superseded_by_id}`}` : undefined} />
+                  <InfoCard title="İptal Durumu" value={revo.label} color={revo.color} onClick={() => setTab('revocation')}
+                            sub={cert.revocation_checked_at ? `Son kontrol: ${fmtDate(cert.revocation_checked_at)}` : 'Henüz kontrol edilmedi'} />
+                  <InfoCard title="Zincir" onClick={() => setTab('chain')}
+                            value={chain ? `${chain.ancestors.length + 1} sertifika` : '—'}
+                            sub={chain?.children.length ? `Altında ${chain.children.length} sertifika` : undefined} />
+                  <InfoCard title="Bağlı Domainler" onClick={() => setTab('links')}
+                            value={cert.domains.length ? `${cert.domains.length} domain` : 'Yok'}
+                            sub={cert.domains.slice(0, 3).map((d) => d.domain).join(', ') + (cert.domains.length > 3 ? '…' : '')} />
+                  <InfoCard title="Ortam" value={environmentLabel(cert.environment) || '—'} />
+                  <InfoCard title="Kaynak" value={sourceLabel(cert.source)} sub={cert.vault_path ?? undefined} />
+                  <InfoCard title="Oluşturan Ekip" value={cert.creator || '—'} onClick={() => setTab('corporate')} />
+                  <InfoCard title="Satın Alım Yapan" value={cert.purchased_by || '—'} onClick={() => setTab('corporate')} />
                 </Box>
-              </Box>
+                <SectionBox title="Kimlik">
+                  <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+                    <CopyField label="Seri Numarası" value={cert.serial_number} />
+                    <CopyField label="SHA-256 Parmak İzi" value={cert.fingerprint_sha256} />
+                    <CopyField label="Konu (Subject)" value={cert.subject} />
+                    <CopyField label="Veren (Issuer)" value={cert.issuer} />
+                  </Box>
+                </SectionBox>
+              </Stack>
             )}
 
-            <Divider />
-            <SectionTitle>Kimlik</SectionTitle>
-            <Field label="Subject" value={cert.subject} mono />
-            <Field label="Issuer" value={cert.issuer} mono />
-            <Field label="SerialNumber" value={cert.serial_number} mono />
-            <Field label="SHA-256 Fingerprint" value={cert.fingerprint_sha256} mono />
-            <Field label="SubjectKeyIdentifier" value={cert.subject_key_identifier} mono />
-            <Field label="AuthorityKeyIdentifier" value={cert.authority_key_identifier} mono />
-            <Field label="SubjectAltName (SAN)" value={cert.san} />
-            <Field label="ExtendedKeyUsage" value={cert.extended_key_usage} />
-            <Field label="Anahtar / İmza" mono
-                   value={cert.public_key_type
-                     ? `${cert.public_key_type}${cert.key_size ? ` ${cert.key_size} bit` : ''}`
-                       + `${cert.key_curve ? ` (${cert.key_curve})` : ''} · ${cert.signature_hash || '—'}`
-                     : null} />
-
-            <Divider />
-            <SectionTitle
-              action={canEdit && (
-                <Button size="small" variant="outlined" disabled={revocationCheck.isPending}
-                        onClick={() => revocationCheck.mutate()}>
-                  {revocationCheck.isPending ? 'Denetleniyor…' : 'Şimdi Kontrol Et'}
-                </Button>
-              )}>
-              İptal Durumu (OCSP/CRL)
-            </SectionTitle>
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-              <Chip size="small" color={REVOCATION_META[cert.revocation_status ?? 'null'].color}
-                    label={REVOCATION_META[cert.revocation_status ?? 'null'].label} />
-              {cert.revocation_checked_at && (
+            {tab === 'chain' && (
+              <Stack spacing={1}>
+                {chainList.length === 0 && !chain?.children.length && (
+                  <Typography variant="body2" color="text.secondary">
+                    Bu sertifikanın envanterde üst ya da alt sertifikası yok.
+                  </Typography>
+                )}
+                {[...(chain?.children ?? []).map((c) => ({ c, current: false })),
+                  { c: cert, current: true },
+                  ...chainList.map((c) => ({ c, current: false }))].map(({ c, current }, i) => (
+                  <Box key={c.id}>
+                    {i > 0 && <ChainArrow />}
+                    <ChainCertCard cert={c} current={current}
+                                   badges={current ? <Chip size="small" color="primary" label="Bu sertifika" /> : undefined}
+                                   onOpen={current ? undefined : () => onSelectCert?.(c.id)} />
+                  </Box>
+                ))}
                 <Typography variant="caption" color="text.secondary">
-                  Son denetim: {new Date(cert.revocation_checked_at).toLocaleString('tr-TR')}
+                  Yukarıdan aşağıya: uç sertifikadan köke doğru. Başka bir sertifikanın adına tıklayınca onun detayı açılır.
                 </Typography>
-              )}
-            </Stack>
+              </Stack>
+            )}
 
-            <Box sx={{ mt: 0.5, p: 1.5, borderRadius: 1, bgcolor: 'action.hover' }}>
+            {tab === 'links' && (
+              <Stack spacing={2}>
+                <SectionBox title={`Bağlı Domainler (${cert.domains.length})`}>
+                  {cert.domains.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">Bu sertifika hiçbir domain'e bağlı değil</Typography>
+                  ) : (
+                    <Box sx={GRID3}>
+                      {cert.domains.map((d) => (
+                        <InfoCard key={`${d.domain_id}-${d.mapping_type}`} title={d.mapping_type === 'server' ? 'Server' : 'Trusted'}
+                                  value={d.domain} color={d.mapping_type === 'server' ? 'error' : 'info'}
+                                  onClick={() => navigate(`/domains?domain=${d.domain_id}`)} />
+                      ))}
+                    </Box>
+                  )}
+                </SectionBox>
+                {!editing && canEdit && cert.is_active && (
+                  <SectionBox title="Değişiklik Talebi Oluştur">
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  Bu sertifikanın yerine geçecek yeni sertifikayı seçin. Bağlı her domain ve uygulama
+                  bağlantısı için AYRI değişiklik talebi oluşturulur; her talep kendi sahibi SY
+                  ekibinin onayını bekler — onaysız hiçbir bağlantı taşınmaz.
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+                  <CertificatePicker options={successorOptions} value={successor}
+                                     onChange={setSuccessor} label="Yeni sertifika"
+                                     sx={{ flexGrow: 1 }} />
+                  <Button variant="outlined" onClick={() => supersede.mutate()}
+                          disabled={!successor || supersede.isPending}
+                          sx={{ flexShrink: 0, px: 2.5 }}>
+                    Değişiklik Talebi Oluştur
+                  </Button>
+                </Stack>
+                  </SectionBox>
+                )}
+              </Stack>
+            )}
+
+            {tab === 'technical' && (
+              <Stack spacing={2}>
+                <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+                  <CopyField label="Konu (Subject)" value={cert.subject} />
+                  <CopyField label="Veren (Issuer)" value={cert.issuer} />
+                  <CopyField label="Seri Numarası" value={cert.serial_number} />
+                  <CopyField label="SHA-256 Parmak İzi" value={cert.fingerprint_sha256} />
+                  <CopyField label="SubjectKeyIdentifier (SKI)" value={cert.subject_key_identifier} />
+                  <CopyField label="AuthorityKeyIdentifier (AKI)" value={cert.authority_key_identifier} />
+                </Box>
+                <Box sx={GRID3}>
+                  <InfoCard title="Başlangıç (ValidFrom)" value={fmtDate(cert.valid_from)} />
+                  <InfoCard title="Bitiş (ValidTo)" value={fmtDate(cert.valid_to)} />
+                  <InfoCard title="Anahtar / İmza" value={keyText(cert)} sub={cert.signature_hash ?? undefined} />
+                  <InfoCard title="ExtendedKeyUsage" value={cert.extended_key_usage || '—'} />
+                  <InfoCard title="Internal" value={cert.is_internal ? 'Evet' : 'Hayır'} />
+                  <InfoCard title="Otomatik Yenileme" value={cert.auto_renew ? 'Açık' : 'Kapalı'} />
+                </Box>
+                <SectionBox title={`Alternatif Adlar (SAN) — ${sans.length}`}>
+                  <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{sans.length ? sans.join(', ') : '—'}</Typography>
+                </SectionBox>
+                {cert.pem_certificate && (
+                  <SectionBox title="PEM Certificate" action={
+                    <Box>
+                      <Tooltip title="Kopyala">
+                        <IconButton size="small" onClick={copyPem}><ContentCopyIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="İndir (.pem)">
+                        <IconButton size="small" onClick={downloadPem}><DownloadIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                    </Box>
+                  }>
+                    <Box component="pre" sx={{
+                      fontFamily: MONO_FONT, fontSize: 11, bgcolor: 'background.default',
+                      p: 1.5, borderRadius: 1, maxHeight: 260, overflow: 'auto', m: 0,
+                    }}>
+                      {cert.pem_certificate}
+                    </Box>
+                  </SectionBox>
+                )}
+              </Stack>
+            )}
+
+            {tab === 'revocation' && (
+              <Stack spacing={2}>
+                <Box sx={GRID3}>
+                  <InfoCard title="İptal Durumu (OCSP/CRL)" value={revo.label} color={revo.color} />
+                  <InfoCard title="Son Kontrol" value={cert.revocation_checked_at ? fmtDate(cert.revocation_checked_at) : 'Henüz kontrol edilmedi'} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}>
+                    {canEdit ? (
+                      <Button variant="outlined" disabled={revocationCheck.isPending} onClick={() => revocationCheck.mutate()}>
+                        {revocationCheck.isPending ? 'Denetleniyor…' : 'Şimdi Kontrol Et'}
+                      </Button>
+                    ) : <Typography variant="caption" color="text.secondary">Kontrol için düzenleme yetkisi gerekir</Typography>}
+                  </Box>
+                </Box>
+            <Box sx={{ p: 2, borderRadius: 2, bgcolor: 'action.hover' }}>
               <Typography variant="caption" color="text.secondary" component="p" sx={{ m: 0 }}>
                 Bir sertifika, son kullanma tarihi gelmeden de <b>iptal</b> edilebilir (ör. özel anahtarı
                 çalınırsa). OCSP ve CRL, sertifikayı veren kuruma (CA) &quot;bu sertifika iptal edildi mi?&quot;
@@ -347,62 +404,11 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               </Box>
             </Box>
 
-            <Divider />
-            <SectionTitle>Geçerlilik</SectionTitle>
-            <Stack direction="row" spacing={4}>
-              <Field label="ValidFrom" value={cert.valid_from ? new Date(cert.valid_from).toLocaleString('tr-TR') : null} />
-              <Field label="ValidTo" value={cert.valid_to ? new Date(cert.valid_to).toLocaleString('tr-TR') : null} />
-            </Stack>
-
-            <Divider />
-            <SectionTitle>Bağlı Domainler</SectionTitle>
-            {cert.domains.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">Bu sertifika hiçbir domain'e bağlı değil</Typography>
-            ) : (
-              <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
-                {cert.domains.map((d) => (
-                  <Chip key={`${d.domain_id}-${d.mapping_type}`} size="small"
-                        label={`${d.domain} (${d.mapping_type === 'server' ? 'server' : 'client'})`}
-                        color={d.mapping_type === 'server' ? 'error' : 'info'} variant="outlined" />
-                ))}
               </Stack>
             )}
 
-            {/* Manuel devir: otomatik sinyallerin (aynı anahtar / aynı CN+CA) yakalamadığı
-                yenilemeler için sahibin elle tetiklediği yol. Yalnız ÖNERİ üretir — her
-                bağlantı granülünün onayı kendi sahibi SY ekibindedir (backend sahiplik korur). */}
-            {!editing && canEdit && cert.is_active && (
-              <>
-                <Divider />
-                <SectionTitle>Değişiklik Talebi Oluştur</SectionTitle>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: -1 }}>
-                  Bu sertifikanın yerine geçecek yeni sertifikayı seçin. Bağlı her domain ve uygulama
-                  bağlantısı için AYRI değişiklik talebi oluşturulur; her talep kendi sahibi SY
-                  ekibinin onayını bekler — onaysız hiçbir bağlantı taşınmaz.
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                  <CertificatePicker options={successorOptions} value={successor}
-                                     onChange={setSuccessor} label="Yeni sertifika"
-                                     sx={{ flexGrow: 1 }} />
-                  <Button variant="outlined" onClick={() => supersede.mutate()}
-                          disabled={!successor || supersede.isPending}
-                          sx={{ flexShrink: 0, px: 2.5 }}>
-                    Değişiklik Talebi Oluştur
-                  </Button>
-                </Stack>
-              </>
-            )}
-
-            <Divider />
-            <SectionTitle
-              action={!editing && canEdit && (
-                <Button size="small" startIcon={<EditIcon fontSize="small" />} onClick={startEdit}>
-                  Düzenle
-                </Button>
-              )}>
-              Kurumsal
-            </SectionTitle>
-            {editing ? (
+            {tab === 'corporate' && (
+              editing ? (
               <Stack spacing={2}>
                 <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by}
                            onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
@@ -444,43 +450,28 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                       value: cert?.valid_to ? cert.valid_to.slice(0, 10) : '—' },
                   ]} />
               </Stack>
-            ) : (
-              <>
-                <Stack direction="row" spacing={4}>
-                  <Field label="Satın Alım Yapan" value={cert.purchased_by} />
-                  <Field label="Oluşturan Ekip" value={cert.creator} />
-                </Stack>
-                <Field label="Ortam" value={environmentLabel(cert.environment)} />
-                <Field label="Notlar" value={cert.notes} />
-              </>
-            )}
-
-            {cert.pem_certificate && (
-              <>
-                <Divider />
-                <SectionTitle action={
-                  <Box>
-                    <Tooltip title="Kopyala">
-                      <IconButton size="small" onClick={copyPem}><ContentCopyIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title="İndir (.pem)">
-                      <IconButton size="small" onClick={downloadPem}><DownloadIcon fontSize="small" /></IconButton>
-                    </Tooltip>
+              ) : (
+                <Stack spacing={2}>
+                  <Box sx={GRID3}>
+                    <InfoCard title="Satın Alım Yapan" value={cert.purchased_by || '—'} />
+                    <InfoCard title="Oluşturan Ekip" value={cert.creator || '—'} />
+                    <InfoCard title="Ortam" value={environmentLabel(cert.environment) || '—'} />
+                    <InfoCard title="Kaynak" value={sourceLabel(cert.source)} />
+                    <InfoCard title="Vault Yolu" value={cert.vault_path || '—'} />
+                    <InfoCard title="Kayıt Tarihi" value={fmtDate(cert.created_at)} sub={`Son güncelleme: ${fmtDate(cert.updated_at)}`} />
+                    <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
+                      <InfoCard title="Notlar" value={cert.notes || '—'} />
+                    </Box>
                   </Box>
-                }>
-                  PEM Certificate
-                </SectionTitle>
-                <Box component="pre" sx={{
-                  fontFamily: MONO_FONT, fontSize: 11, bgcolor: 'background.default',
-                  p: 1.5, borderRadius: 1, maxHeight: 220, overflow: 'auto', m: 0,
-                }}>
-                  {cert.pem_certificate}
-                </Box>
-              </>
+                  {canEdit && (
+                    <Box><Button startIcon={<EditIcon fontSize="small" />} variant="outlined" onClick={startEdit}>Düzenle</Button></Box>
+                  )}
+                </Stack>
+              )
             )}
-          </Stack>
-        )}
-      </Box>
-    </Drawer>
+          </DialogContent>
+        </>
+      )}
+    </Dialog>
   )
 }
