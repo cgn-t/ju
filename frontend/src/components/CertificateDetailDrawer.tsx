@@ -275,7 +275,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   </Box>
                 ))}
                 <Typography variant="caption" color="text.secondary">
-                  Yukarıdan aşağıya: Leaf → Intermediate → Root. Başka bir sertifikanın adına tıklayınca onun detayı açılır.
+                  Yukarıdan aşağıya: Leaf → Intermediate → Root. Ayrıntı için satıra tıklayın; tekrar tıklayınca kapanır.
                 </Typography>
               </Stack>
             )}

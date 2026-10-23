@@ -3,7 +3,6 @@ import CloseIcon from '@mui/icons-material/Close'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
 import LanguageIcon from '@mui/icons-material/Language'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
 import {
@@ -187,9 +186,6 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const live = domain ? liveStatus(domain) : undefined
   const certActions = (c: MappedCert) => (
     <>
-      <Tooltip title="Sertifika detayını aç">
-        <IconButton size="small" onClick={() => setOpenCertId(c.certificate_id)}><OpenInNewIcon fontSize="small" /></IconButton>
-      </Tooltip>
       {canEdit && (
         <Tooltip title="Bağlantıyı kaldır">
           <IconButton size="small" color="error"
@@ -342,7 +338,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   />
                   {mappingType === 'server' && (
                     <Typography variant="caption" color="text.secondary">
-                      Server olarak yalnız leaf (uç) sertifika seçilir — zincir (intermediate/root)
+                      Server olarak yalnız Leaf sertifika seçilir — zincir (Intermediate/Root)
                       otomatik eklenir.
                     </Typography>
                   )}

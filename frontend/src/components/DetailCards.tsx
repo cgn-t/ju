@@ -1,9 +1,11 @@
 // Detay pencerelerinde (domain, sertifika) ortak kullanılan kutucuklar ve yardımcılar.
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
-import { Box, ButtonBase, Chip, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import { Box, Button, ButtonBase, Chip, Collapse, IconButton, LinearProgress, Stack, Tooltip, Typography } from '@mui/material'
 import { useSnackbar } from 'notistack'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { Certificate } from '../api/types'
 import { daysLeftColor, daysLeftLabel, MONO_FONT } from '../theme'
 
@@ -138,48 +140,64 @@ export function CopyField({ label, value }: { label: string; value?: string | nu
 export const CERT_TYPE_FULL: Record<string, string> = {
   root: 'Root', intermediate: 'Intermediate', leaf: 'Leaf',
 }
-const CHAIN_TITLE: Record<string, string> = { leaf: 'Leaf', intermediate: 'Intermediate', root: 'Root' }
 
 type ChainCert = Dated & {
   name: string; cert_type: string; issuer?: string | null; serial_number?: string | null
   subject_key_identifier?: string | null; is_active?: boolean
 }
 
-// Zincirdeki tek sertifikanın kutusu (Monitor'deki "1. Sunucu sertifikası" kartı gibi).
-export function ChainCertCard({ index, cert, badges, actions, current, onOpen }: {
-  index?: number; cert: ChainCert; badges?: ReactNode; actions?: ReactNode; current?: boolean; onOpen?: () => void
+// Zincirdeki tek sertifikanın kutusu: kapalıyken yalnız özet (tür, ad, ValidTo, kalan gün);
+// satıra tıklayınca ayrıntılar aşağı açılır, tekrar tıklayınca kapanır.
+export function ChainCertCard({ index, cert, badges, actions, current, onOpen, defaultOpen = false }: {
+  index?: number; cert: ChainCert; badges?: ReactNode; actions?: ReactNode; current?: boolean
+  onOpen?: () => void; defaultOpen?: boolean
 }) {
-  const selfSigned = cert.cert_type === 'root'
+  const [open, setOpen] = useState(defaultOpen)
   return (
-    <Box sx={{ border: current ? 2 : 1, borderColor: current ? 'primary.main' : 'divider', borderRadius: 2, p: 2 }}>
-      <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+    <Box sx={{ border: current ? 2 : 1, borderColor: current ? 'primary.main' : 'divider', borderRadius: 2 }}>
+      <Box role="button" tabIndex={0} aria-expanded={open} onClick={() => setOpen((o) => !o)}
+           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o) } }}
+           sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' },
+                 px: 1.5, py: 1.25, cursor: 'pointer', borderRadius: 2, '&:hover': { bgcolor: 'action.hover' } }}>
+        <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary', transition: 'transform 150ms',
+                                               transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
         <Chip size="small" variant="outlined"
-              label={`${index !== undefined ? `${index}. ` : ''}${CHAIN_TITLE[cert.cert_type] ?? cert.cert_type}`} />
-        {selfSigned && <Chip size="small" color="warning" variant="outlined" label="Self-signed" />}
+              label={`${index !== undefined ? `${index}. ` : ''}${CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type}`} />
+        {cert.cert_type === 'root' && <Chip size="small" color="warning" variant="outlined" label="Self-signed" />}
         {cert.is_active === false && <Chip size="small" color="warning" label="Pasif" />}
         {badges}
-        <Box sx={{ flexGrow: 1 }} />
+        <Typography variant="subtitle2" noWrap title={cert.name} sx={{ fontWeight: 700, flexGrow: 1, minWidth: 120 }}>
+          {cert.name}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+          ValidTo: {fmtDate(cert.valid_to)}
+        </Typography>
         <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
-        {actions}
-      </Stack>
-      <Box onClick={onOpen} sx={{ mt: 1, cursor: onOpen ? 'pointer' : 'default', display: 'inline-block',
-                                  '&:hover': onOpen ? { textDecoration: 'underline' } : undefined }}>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700, wordBreak: 'break-all' }}>{cert.name}</Typography>
+        {actions && <Box onClick={(e) => e.stopPropagation()} sx={{ display: 'flex' }}>{actions}</Box>}
       </Box>
-      <Box sx={{ display: 'grid', gap: 1.5, mt: 1, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">Issuer</Typography>
-          <Typography variant="body2">
-            {dnPart(cert.issuer, 'CN') ?? '—'}{dnPart(cert.issuer, 'O') ? ` · ${dnPart(cert.issuer, 'O')}` : ''}
-          </Typography>
+      <Collapse in={open} unmountOnExit>
+        <Box sx={{ px: 2, pb: 2, pt: 0.5 }}>
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Issuer</Typography>
+              <Typography variant="body2">
+                {dnPart(cert.issuer, 'CN') ?? '—'}{dnPart(cert.issuer, 'O') ? ` · ${dnPart(cert.issuer, 'O')}` : ''}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">ValidFrom – ValidTo</Typography>
+              <Typography variant="body2">{fmtDate(cert.valid_from)} – {fmtDate(cert.valid_to)}</Typography>
+            </Box>
+            <CopyField label="Serial Number" value={cert.serial_number} />
+            <CopyField label="SubjectKeyIdentifier" value={cert.subject_key_identifier} />
+          </Box>
+          {onOpen && (
+            <Button size="small" startIcon={<OpenInNewIcon fontSize="small" />} onClick={onOpen} sx={{ mt: 1 }}>
+              Sertifika detayını aç
+            </Button>
+          )}
         </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">ValidFrom – ValidTo</Typography>
-          <Typography variant="body2">{fmtDate(cert.valid_from)} – {fmtDate(cert.valid_to)}</Typography>
-        </Box>
-        <CopyField label="Serial Number" value={cert.serial_number} />
-        <CopyField label="SubjectKeyIdentifier" value={cert.subject_key_identifier} />
-      </Box>
+      </Collapse>
     </Box>
   )
 }
