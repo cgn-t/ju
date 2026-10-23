@@ -1,6 +1,7 @@
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
+import PersonSearchIcon from '@mui/icons-material/PersonSearch'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   Alert, Autocomplete, Box, Button, Chip, Divider, Drawer, IconButton, MenuItem, Stack, TextField, Tooltip,
@@ -9,6 +10,7 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { AppUser, Team } from '../api/types'
 import { MONO_FONT } from '../theme'
@@ -21,6 +23,7 @@ export default function UserDetailDrawer({ user, teams, onClose, onChanged }: {
   user: AppUser | null; teams: Team[]; onClose: () => void; onChanged: () => void
 }) {
   const { enqueueSnackbar } = useSnackbar()
+  const navigate = useNavigate()
   const [editProfile, setEditProfile] = useState(false)
   const [profile, setProfile] = useState({ full_name: '', email: '', password: '' })
   const [editTeams, setEditTeams] = useState(false)
@@ -96,6 +99,12 @@ export default function UserDetailDrawer({ user, teams, onClose, onChanged }: {
               </Meta>
               <Meta label="Oluşturulma">{u.created_at ? formatAuditTime(u.created_at) : '—'}</Meta>
             </Box>
+            {isLdap && (
+              <Button variant="outlined" size="small" startIcon={<PersonSearchIcon />} sx={{ alignSelf: 'flex-start' }}
+                      onClick={() => navigate(`/profile/${u.id}`)}>
+                LDAP bilgilerini gör
+              </Button>
+            )}
 
             {/* Rol ve kapsam */}
             <Box>

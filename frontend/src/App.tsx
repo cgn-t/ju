@@ -17,6 +17,7 @@ import Discovery from './pages/Discovery'
 import Domains from './pages/Domains'
 import Login from './pages/Login'
 import Policy from './pages/Policy'
+import Profile from './pages/Profile'
 import Proposals from './pages/Proposals'
 import Settings from './pages/Settings'
 import { createAppTheme, type ThemeMode } from './theme'
@@ -62,6 +63,12 @@ function PageAccessRoute({ page, children }: {
   return access[page] ? <>{children}</> : <Navigate to="/" replace />
 }
 
+// Başka kullanıcının profili (LDAP bilgileri) yalnız yöneticiye açık; sunucu da admin ister.
+function AdminRoute({ children }: { children: ReactNode }) {
+  const { isAdmin } = useAuth()
+  return isAdmin ? <>{children}</> : <Navigate to="/profile" replace />
+}
+
 // /settings artık HERKESE açık: admin tüm sekmeleri, diğer kullanıcılar yalnız 'Etiketler'
 // sekmesini görür (Settings.tsx içinde role göre daraltılır). Takımsız kullanıcıyı zaten
 // Protected'daki hasNoTeam ekranı durduruyor.
@@ -101,6 +108,8 @@ export default function App() {
                   <Route path="/deployments/runs" element={<PageAccessRoute page="deployments"><DeploymentRunsAll /></PageAccessRoute>} />
                   <Route path="/deployments/runs/:runId" element={<PageAccessRoute page="deployments"><DeploymentRunDetail /></PageAccessRoute>} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/profile/:userId" element={<AdminRoute><Profile /></AdminRoute>} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
