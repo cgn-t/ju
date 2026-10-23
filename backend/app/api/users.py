@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import Unicode, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.textmatch import ci_like
+from app.core.textmatch import ci_equals, ci_like
 from app.api.schemas import (
     AuditListOut,
     AuditOut,
@@ -217,11 +217,28 @@ def update_team(request: Request, team_id: int, body: TeamUpdate, db: Session = 
     if team is None:
         raise HTTPException(status_code=404, detail="Ekip bulunamadı")
     changes = body.model_dump(exclude_unset=True)
+    old_name = team.name
+    new_name = (changes.get("name") or "").strip() or None
+    if "name" in changes:
+        if new_name is None:
+            raise HTTPException(status_code=400, detail="Ekip adı boş olamaz")
+        changes["name"] = new_name
+        clash = (db.query(Team).filter(Team.id != team.id, Team.type == team.type,
+                                       ci_equals(Team.name, new_name)).first())
+        if clash is not None:
+            raise HTTPException(status_code=400, detail=f"'{clash.name}' adında bir ekip zaten var")
     diff = diff_fields(team, changes)
     for key, value in changes.items():
         setattr(team, key, value)
-    log_action(db, admin.username, "update", "teams", team.id,
-               {"name": team.name, "changes": diff}, request)
+    details = {"name": team.name, "changes": diff}
+    # Sertifikanın "Oluşturan Ekip" alanı SY ekibinin ADINI metin olarak tutar (sahiplik mailleri ve
+    # düzenleme yetkisi bu adla eşleşir). Ad değişince bu sertifikalar da yeni adı almalı; yoksa
+    # ekipten kopar, sahip ekip mail alamaz.
+    if team.type == "SY" and new_name is not None and new_name != old_name:
+        moved = (db.query(Certificate).filter(Certificate.creator == old_name)
+                 .update({Certificate.creator: new_name}, synchronize_session=False))
+        details["certificates_creator_renamed"] = moved
+    log_action(db, admin.username, "update", "teams", team.id, details, request)
     db.commit()
     return team
 
