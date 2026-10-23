@@ -12,10 +12,11 @@ import MenuIcon from '@mui/icons-material/Menu'
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import RuleIcon from '@mui/icons-material/Rule'
 import SettingsIcon from '@mui/icons-material/Settings'
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import {
-  AppBar, Avatar, Badge, Box, Button, Chip, Container, Divider, Drawer, IconButton, List,
+  AppBar, Avatar, Badge, Box, ButtonBase, Chip, Container, Divider, Drawer, IconButton, List,
   ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Switch, Toolbar,
   Tooltip, Typography,
 } from '@mui/material'
@@ -85,6 +86,8 @@ export default function AppLayout() {
     try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* gizli pencere: yalnız bu oturum */ }
     return !c
   })
+  const roleLabel = ROLE_LABELS[role ?? ''] ?? role ?? ''
+  const initial = (fullName || username || '?')[0]?.toUpperCase()
   const access = usePageAccess()
   const pendingCount = usePendingProposalCount()
   const shadowCount = useDiscoveredCount()
@@ -168,6 +171,31 @@ export default function AppLayout() {
         ) : navItem(entry, compact)))}
       </List>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
+      {/* Kullanıcı: dikey menünün altında (tıklayınca tema / ayarlar / çıkış menüsü yukarı açılır) */}
+      <Tooltip title={compact ? `${fullName || username} · ${roleLabel}` : ''} placement="right">
+        <ButtonBase onClick={(e) => setAnchor(e.currentTarget)} aria-label="Kullanıcı menüsü"
+                    sx={{ mx: 1.25, my: 1, px: compact ? 0.5 : 1, py: 0.75, borderRadius: '10px', gap: 1.25,
+                          justifyContent: compact ? 'center' : 'flex-start', textAlign: 'left',
+                          color: '#fff', transition: 'background-color 150ms',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
+          <Avatar sx={{ width: 34, height: 34, bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontSize: 15, fontWeight: 700 }}>
+            {initial}
+          </Avatar>
+          {!compact && (
+            <>
+              {/* Uzun LDAP Ad Soyad'ı menüyü bozmasın: tek satır + kısaltma (…) */}
+              <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                <Typography variant="body2" noWrap title={fullName || username || undefined}
+                            sx={{ fontWeight: 700, lineHeight: 1.3 }}>{fullName || username}</Typography>
+                <Typography variant="caption" noWrap component="div"
+                            sx={{ color: 'rgba(255,255,255,0.65)', lineHeight: 1.3 }}>{roleLabel}</Typography>
+              </Box>
+              <UnfoldMoreIcon fontSize="small" sx={{ color: 'rgba(255,255,255,0.6)' }} />
+            </>
+          )}
+        </ButtonBase>
+      </Tooltip>
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: compact ? 'center' : 'flex-end', p: 0.5 }}>
         <Tooltip title={compact ? 'Menüyü genişlet' : 'Menüyü daralt'} placement="right">
           <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.8)' }} onClick={toggleCollapsed}
@@ -190,62 +218,51 @@ export default function AppLayout() {
       </Box>
 
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      {/* Üst çubuk yalnız mobilde (xs/sm): menü düğmesi + logo. Masaüstünde sol menü yeterli. */}
       <AppBar position="sticky" elevation={0} color="inherit"
-              sx={{ bgcolor: 'background.paper', backgroundImage: 'none', borderBottom: 1, borderColor: 'divider' }}>
+              sx={{ display: { xs: 'block', md: 'none' }, bgcolor: 'background.paper', backgroundImage: 'none',
+                    borderBottom: 1, borderColor: 'divider' }}>
         <Toolbar variant="dense" sx={{ gap: 1, minHeight: 56 }}>
-          {/* Mobilde (xs) menü hamburger'ı; md+ gizli (sol menü zaten görünür). */}
-          <IconButton color="inherit" edge="start" aria-label="Menüyü aç"
-                      onClick={() => setDrawerOpen(true)}
-                      sx={{ display: { xs: 'inline-flex', md: 'none' } }}>
+          <IconButton color="inherit" edge="start" aria-label="Menüyü aç" onClick={() => setDrawerOpen(true)}>
             <MenuIcon />
           </IconButton>
-          <Box sx={{ flexGrow: 1 }} />
-          <Button color="inherit" onClick={(e) => setAnchor(e.currentTarget)} sx={{ textTransform: 'none', minWidth: 0 }}>
-            <Avatar sx={{ width: 32, height: 32, mr: { xs: 0, sm: 1 }, bgcolor: '#8f1d22', color: '#fff' }}>
-              {(fullName || username || '?')[0]?.toUpperCase()}
-            </Avatar>
-            {/* Uzun LDAP Ad Soyad'ı üst çubuğu bozmasın: tek satır + kısaltma (…); xs'te yalnız avatar. */}
-            <Box sx={{ textAlign: 'left', minWidth: 0, maxWidth: { xs: 110, sm: 200 }, display: { xs: 'none', sm: 'block' } }}>
-              <Typography variant="body2" noWrap title={fullName || username || undefined}
-                          sx={{ fontWeight: 700 }}>{fullName || username}</Typography>
-              <Typography variant="caption" noWrap color="text.secondary"
-                          sx={{ display: 'block' }}>{ROLE_LABELS[role ?? ''] ?? role}</Typography>
-            </Box>
-          </Button>
-          <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}
-                slotProps={{ paper: { sx: { width: 280, mt: 1 } } }}>
-            <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Avatar sx={{ bgcolor: 'primary.main' }}>{(fullName || username || '?')[0]?.toUpperCase()}</Avatar>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2" noWrap>{fullName || username}</Typography>
-                {email && <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{email}</Typography>}
-                <Chip size="small" label={ROLE_LABELS[role ?? ''] ?? role} sx={{ mt: 0.5 }} />
-              </Box>
-            </Box>
-            <Divider />
-
-            <Typography variant="overline" sx={{ px: 2, pt: 1, display: 'block', color: 'text.secondary' }}>
-              Görünüm
-            </Typography>
-            <MenuItem disableRipple sx={{ cursor: 'default', '&:hover': { bgcolor: 'transparent' } }}>
-              <ListItemIcon>{mode === 'dark' ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}</ListItemIcon>
-              <ListItemText>Koyu tema</ListItemText>
-              <Switch edge="end" checked={mode === 'dark'} onChange={toggle} />
-            </MenuItem>
-            <Divider />
-
-            {/* Ayarlar HERKESE görünür: admin tüm sekmeleri, diğerleri yalnız Etiketler'i görür */}
-            <MenuItem onClick={() => { setAnchor(null); navigate('/settings') }}>
-              <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
-              <ListItemText>{isAdmin ? 'Ayarlar' : 'Etiketler'}</ListItemText>
-            </MenuItem>
-            <MenuItem onClick={() => { setAnchor(null); logout(); navigate('/login') }}>
-              <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
-              <ListItemText>Çıkış Yap</ListItemText>
-            </MenuItem>
-          </Menu>
+          <Typography variant="h6" sx={{ fontSize: 17 }}>JUMBO</Typography>
         </Toolbar>
       </AppBar>
+      <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}
+            anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+            transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+            slotProps={{ paper: { sx: { width: 280, mt: -1 } } }}>
+        <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Avatar sx={{ bgcolor: 'primary.main' }}>{initial}</Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" noWrap>{fullName || username}</Typography>
+            {email && <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{email}</Typography>}
+            <Chip size="small" label={roleLabel} sx={{ mt: 0.5 }} />
+          </Box>
+        </Box>
+        <Divider />
+
+        <Typography variant="overline" sx={{ px: 2, pt: 1, display: 'block', color: 'text.secondary' }}>
+          Görünüm
+        </Typography>
+        <MenuItem disableRipple sx={{ cursor: 'default', '&:hover': { bgcolor: 'transparent' } }}>
+          <ListItemIcon>{mode === 'dark' ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}</ListItemIcon>
+          <ListItemText>Koyu tema</ListItemText>
+          <Switch edge="end" checked={mode === 'dark'} onChange={toggle} />
+        </MenuItem>
+        <Divider />
+
+        {/* Ayarlar HERKESE görünür: admin tüm sekmeleri, diğerleri yalnız Etiketler'i görür */}
+        <MenuItem onClick={() => { setAnchor(null); setDrawerOpen(false); navigate('/settings') }}>
+          <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>{isAdmin ? 'Ayarlar' : 'Etiketler'}</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => { setAnchor(null); logout(); navigate('/login') }}>
+          <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Çıkış Yap</ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* Mobil navigasyon çekmecesi (xs): aynı sol menü, tam genişlikte. */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}
