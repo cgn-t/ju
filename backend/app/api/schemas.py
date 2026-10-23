@@ -531,6 +531,24 @@ class PolicyReportOut(BaseModel):
     violations: list[PolicyViolationOut]
 
 
+class PolicyCountsOut(BaseModel):
+    """Uyum özeti (ihlal listesi yok) — menü rozeti ve sayfa üst bilgisi için hafif uç."""
+    enabled: bool
+    total_evaluated: int
+    compliant: int
+    non_compliant: int
+    rule_counts: dict[str, int]
+
+
+class PolicyViolationPage(PolicyCountsOut):
+    """Uyumsuz sertifikaların bir sayfası. `total` = filtreye uyan ihlal sayısı."""
+    items: list[PolicyViolationOut]
+    total: int
+    page: int
+    size: int
+    severity_counts: dict[str, int]      # filtre (kural + arama) uygulanmış önem dağılımı
+
+
 class PolicyCertResult(BaseModel):
     certificate_id: int
     compliant: bool

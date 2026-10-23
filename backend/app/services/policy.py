@@ -10,6 +10,8 @@ Kripto alanları (key_size/public_key_type/signature_hash) cert_parser tarafınd
 Certificate'e yazılır; null (kontrol edilmemiş) alan İHLAL SAYILMAZ.
 """
 
+from sqlalchemy.orm import load_only
+
 from app.core.textmatch import fold
 from app.db.models import Certificate
 from app.services.settings_service import get_category
@@ -84,7 +86,12 @@ def max_severity(violations: list[dict]) -> str:
 def evaluate_inventory(db) -> dict:
     """Aktif envanteri değerlendirir. Döner: {total_evaluated, compliant, rule_counts,
     violations: [(cert, [violation])]}."""
+    # Yalnız kuralların okuduğu kolonlar yüklenir (PEM vb. büyük alanlar çekilmez) — binlerce
+    # sertifikada rapor ve menü rozeti hızlı kalsın.
     certs = (db.query(Certificate)
+             .options(load_only(Certificate.id, Certificate.name, Certificate.cert_type,
+                                Certificate.issuer, Certificate.public_key_type, Certificate.key_size,
+                                Certificate.signature_hash, Certificate.valid_from, Certificate.valid_to))
              .filter(Certificate.is_active == True)  # noqa: E712 (MSSQL uyumu)
              .order_by(Certificate.valid_to.asc()).all())
     out_violations: list[tuple[Certificate, list[dict]]] = []

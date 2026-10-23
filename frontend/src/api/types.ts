@@ -110,6 +110,22 @@ export interface PolicyReport {
   violations: PolicyViolation[]
 }
 
+export interface PolicyCounts {
+  enabled: boolean
+  total_evaluated: number
+  compliant: number
+  non_compliant: number
+  rule_counts: Record<string, number>
+}
+
+export interface PolicyViolationPage extends PolicyCounts {
+  items: PolicyViolation[]
+  total: number
+  page: number
+  size: number
+  severity_counts: Record<string, number>
+}
+
 export interface CertRef {
   id: number
   name: string

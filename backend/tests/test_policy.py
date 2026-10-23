@@ -140,6 +140,40 @@ def test_certificate_policy_endpoint(client, auth_headers):
     assert any(v["rule"] == "weak_key" for v in r["violations"])
 
 
+def test_violation_page_and_counts(client, auth_headers):
+    """Sayfalı ihlal listesi: kural/arama/önem filtresi, sayfa boyutu; counts ucu listeyi taşımaz."""
+    ca, ck = certgen.make_ca("Paging Policy CA")
+    for i in range(3):
+        leaf, _ = certgen.make_leaf(ca, ck, f"pgweak{i}.example", key=certgen.make_key(1024))
+        _import(client, auth_headers, certgen.pem(leaf) + certgen.pem(ca))
+    rep = client.get("/api/policy/report", headers=auth_headers).json()
+
+    counts = client.get("/api/policy/counts", headers=auth_headers).json()
+    assert "violations" not in counts
+    assert counts["non_compliant"] == rep["non_compliant"]
+    assert counts["rule_counts"] == rep["rule_counts"]
+
+    r = client.get("/api/policy/violations/page", headers=auth_headers,
+                   params={"q": "PGWEAK", "rule": "weak_key", "size": 2}).json()
+    assert r["total"] == 3 and len(r["items"]) == 2 and r["page"] == 0
+    assert all("weak_key" in v["rules"] for v in r["items"])
+    assert r["non_compliant"] == rep["non_compliant"]           # özet tüm envanterden
+    r2 = client.get("/api/policy/violations/page", headers=auth_headers,
+                    params={"q": "pgweak", "size": 2, "page": 1, "sort": "name"}).json()
+    assert [v["name"] for v in r2["items"]] == ["pgweak2.example"]
+    # aralık dışı sayfa son sayfaya çekilir
+    r3 = client.get("/api/policy/violations/page", headers=auth_headers,
+                    params={"q": "pgweak", "size": 2, "page": 9}).json()
+    assert r3["page"] == 1
+    # önem filtresi: severity_counts filtre öncesi dağılımı verir
+    sev = r["severity_counts"]
+    assert sum(sev.values()) == 3
+    only = max(sev, key=sev.get)
+    r4 = client.get("/api/policy/violations/page", headers=auth_headers,
+                    params={"q": "pgweak", "severity": only}).json()
+    assert r4["total"] == sev[only]
+
+
 # ---- yetki ----
 def _mk_user(client, admin, username, role):
     assert client.post("/api/users", headers=admin, json={
