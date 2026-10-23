@@ -1,9 +1,9 @@
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AppsIcon from '@mui/icons-material/Apps'
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
-import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
+import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import HistoryIcon from '@mui/icons-material/History'
 import LanguageIcon from '@mui/icons-material/Language'
 import LightModeIcon from '@mui/icons-material/LightMode'
@@ -142,17 +142,28 @@ export default function AppLayout() {
   const navContent = (compact: boolean) => (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: '#fff',
                background: 'linear-gradient(180deg, #7e1a1f 0%, #5e1317 100%)' }}>
-      <Box component={Link} to="/" onClick={() => setDrawerOpen(false)}
-           sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: compact ? 1.5 : 2, py: 1.75,
-                 justifyContent: compact ? 'center' : 'flex-start',
-                 textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.9 } }}>
-        <Box component="img" src="/favicon.svg" alt="JUMBO" sx={{ width: 36, height: 36, display: 'block' }} />
-        {!compact && (
-          <Box>
-            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>JUMBO</Typography>
-            <Typography variant="caption" sx={{ opacity: 0.8 }}>Sertifika Yönetimi</Typography>
-          </Box>
-        )}
+      {/* Üst: logo + menüyü daralt/genişlet (masaüstü). Daraltılmışta düğme logonun altında. */}
+      <Box sx={{ display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: 'center',
+                 gap: compact ? 0.5 : 0, px: compact ? 1 : 2, pr: compact ? 1 : 1, py: compact ? 1.25 : 1.75 }}>
+        <Box component={Link} to="/" onClick={() => setDrawerOpen(false)}
+             sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0, flexGrow: compact ? 0 : 1,
+                   textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.9 } }}>
+          <Box component="img" src="/favicon.svg" alt="JUMBO" sx={{ width: 36, height: 36, display: 'block' }} />
+          {!compact && (
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" sx={{ lineHeight: 1.1 }}>JUMBO</Typography>
+              <Typography variant="caption" noWrap component="div" sx={{ opacity: 0.8 }}>Sertifika Yönetimi</Typography>
+            </Box>
+          )}
+        </Box>
+        <Tooltip title={compact ? 'Menüyü genişlet' : 'Menüyü daralt'} placement="right">
+          <IconButton size="small" onClick={toggleCollapsed}
+                      aria-label={compact ? 'Menüyü genişlet' : 'Menüyü daralt'}
+                      sx={{ display: { xs: 'none', md: 'inline-flex' }, color: 'rgba(255,255,255,0.75)',
+                            '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.08)' } }}>
+            {compact ? <KeyboardDoubleArrowRightIcon fontSize="small" /> : <KeyboardDoubleArrowLeftIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Box>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       <List sx={{ py: 1, flexGrow: 1, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -195,15 +206,6 @@ export default function AppLayout() {
           )}
         </ButtonBase>
       </Tooltip>
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
-      <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: compact ? 'center' : 'flex-end', p: 0.5 }}>
-        <Tooltip title={compact ? 'Menüyü genişlet' : 'Menüyü daralt'} placement="right">
-          <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.8)' }} onClick={toggleCollapsed}
-                      aria-label={compact ? 'Menüyü genişlet' : 'Menüyü daralt'}>
-            {compact ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-          </IconButton>
-        </Tooltip>
-      </Box>
     </Box>
   )
 
