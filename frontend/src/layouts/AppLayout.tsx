@@ -1,15 +1,25 @@
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import AppsIcon from '@mui/icons-material/Apps'
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import HistoryIcon from '@mui/icons-material/History'
+import LanguageIcon from '@mui/icons-material/Language'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
+import RuleIcon from '@mui/icons-material/Rule'
 import SettingsIcon from '@mui/icons-material/Settings'
+import TravelExploreIcon from '@mui/icons-material/TravelExplore'
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import {
   AppBar, Avatar, Badge, Box, Button, Chip, Container, Divider, Drawer, IconButton, List,
   ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Switch, Toolbar,
-  Typography,
+  Tooltip, Typography,
 } from '@mui/material'
-import { Fragment, useState } from 'react'
+import { Fragment, useState, type ComponentType } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
@@ -18,7 +28,7 @@ import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
 import { usePendingProposalCount } from '../pages/Proposals'
 
-// Navbar: sık kullanılanlar tekil; kalanı 'Analiz' ve 'İşlemler' açılır menülerinde gruplanır.
+// Sol menü: sık kullanılanlar tekil; kalanı 'Analiz' ve 'İşlemler' başlıkları altında gruplanır.
 type NavLink = { to: string; label: string }
 type NavGroup = { label: string; items: NavLink[] }
 type NavEntry = NavLink | NavGroup
@@ -40,6 +50,19 @@ const NAV: NavEntry[] = [
   ] },
 ]
 
+const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
+  '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
+  '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
+  '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
+}
+const NAV_W = 248
+const NAV_W_COMPACT = 68
+const COLLAPSE_KEY = 'jumbo.nav.collapsed'
+
+function readCollapsed() {
+  try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false }
+}
+
 // Sayfa-görünürlük ayarına tabi rotalar → usePageAccess() anahtarı (bkz. security.page_visible)
 const PAGE_FOR_PATH: Record<string, 'policy' | 'proposals' | 'discovery' | 'deployments'> = {
   '/policy': 'policy', '/proposals': 'proposals', '/discovery': 'discovery',
@@ -57,7 +80,11 @@ export default function AppLayout() {
   const navigate = useNavigate()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)   // mobil (xs) navigasyon çekmecesi
-  const [navMenu, setNavMenu] = useState<{ label: string; el: HTMLElement } | null>(null)  // masaüstü grup dropdown'u
+  const [collapsed, setCollapsed] = useState(readCollapsed)  // masaüstü sol menü daraltılmış mı (tarayıcıda hatırlanır)
+  const toggleCollapsed = () => setCollapsed((c) => {
+    try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* gizli pencere: yalnız bu oturum */ }
+    return !c
+  })
   const access = usePageAccess()
   const pendingCount = usePendingProposalCount()
   const shadowCount = useDiscoveredCount()
@@ -68,101 +95,117 @@ export default function AppLayout() {
     to === '/proposals' ? pendingCount
       : to === '/discovery' ? shadowCount
         : to === '/policy' ? violationCount : 0
-  const groupBadge = (g: NavGroup) => g.items.reduce((n, i) => n + badgeFor(i.to), 0)
-  const groupActive = (g: NavGroup) => g.items.some((i) => isActive(i.to))
-  // Üst menüde erişimi olmayan rotaları gizle (bkz. usePageAccess `nav` — SY üyeliği carve-out'u
+  // Menüde erişimi olmayan rotaları gizle (bkz. usePageAccess `nav` — SY üyeliği carve-out'u
   // burada UYGULANMAZ; rota erişimi/onay iş akışı bundan etkilenmez). Boşalan gruplar düşer.
   const canSee = (to: string) => { const page = PAGE_FOR_PATH[to]; return !page || access.nav[page] }
   const navEntries: NavEntry[] = NAV
     .map((e) => (isGroup(e) ? { ...e, items: e.items.filter((i) => canSee(i.to)) } : e))
     .filter((e) => (isGroup(e) ? e.items.length > 0 : canSee(e.to)))
 
+  // Sol menü içeriği: masaüstünde kalıcı kenar çubuğu, mobilde (xs) açılır çekmece olarak kullanılır.
+  // `compact` = daraltılmış masaüstü görünümü (yalnız simgeler; ad tooltip'te).
+  const navItem = (item: NavLink, compact: boolean, nested = false) => {
+    const Icon = NAV_ICONS[item.to]
+    const badge = badgeFor(item.to)
+    const button = (
+      <ListItemButton key={item.to} component={Link} to={item.to} selected={isActive(item.to)}
+                      onClick={() => setDrawerOpen(false)}
+                      sx={{ mx: 1, my: 0.25, borderRadius: 1.5, minHeight: 40,
+                            pl: compact ? 1.5 : nested ? 2 : 1.5, pr: compact ? 1.5 : 1,
+                            justifyContent: compact ? 'center' : 'flex-start',
+                            color: 'rgba(255,255,255,0.82)',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,0.10)' },
+                            '&.Mui-selected, &.Mui-selected:hover': { bgcolor: 'rgba(255,255,255,0.20)', color: '#fff' } }}>
+        <ListItemIcon sx={{ minWidth: compact ? 0 : 36, color: 'inherit' }}>
+          <Badge color="warning" badgeContent={compact ? badge : 0} max={99}>
+            {Icon ? <Icon fontSize="small" /> : null}
+          </Badge>
+        </ListItemIcon>
+        {!compact && (
+          <>
+            <ListItemText primary={item.label}
+                          slotProps={{ primary: { noWrap: true, sx: { fontSize: 14, fontWeight: isActive(item.to) ? 700 : 500 } } }} />
+            {badge > 0 && <Chip size="small" color="warning" label={badge} sx={{ height: 20 }} />}
+          </>
+        )}
+      </ListItemButton>
+    )
+    return compact ? <Tooltip key={item.to} title={item.label} placement="right">{button}</Tooltip> : button
+  }
+
+  const navContent = (compact: boolean) => (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#8f1d22', color: '#fff' }}>
+      <Box component={Link} to="/" onClick={() => setDrawerOpen(false)}
+           sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: compact ? 1.5 : 2, py: 1.75,
+                 justifyContent: compact ? 'center' : 'flex-start',
+                 textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.9 } }}>
+        <Box component="img" src="/favicon.svg" alt="JUMBO" sx={{ width: 36, height: 36, display: 'block' }} />
+        {!compact && (
+          <Box>
+            <Typography variant="h6" sx={{ lineHeight: 1.1 }}>JUMBO</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.8 }}>Sertifika Yönetimi</Typography>
+          </Box>
+        )}
+      </Box>
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+      <List sx={{ py: 1, flexGrow: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+        {navEntries.map((entry) => (isGroup(entry) ? (
+          <Fragment key={entry.label}>
+            {compact ? (
+              <Divider sx={{ my: 1, mx: 1.5, borderColor: 'rgba(255,255,255,0.15)' }} />
+            ) : (
+              <ListSubheader sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,0.6)', lineHeight: '30px', mt: 1,
+                                   fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase' }}>
+                {entry.label}
+              </ListSubheader>
+            )}
+            {entry.items.map((item) => navItem(item, compact, true))}
+          </Fragment>
+        ) : navItem(entry, compact)))}
+      </List>
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+      <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: compact ? 'center' : 'flex-end', p: 0.5 }}>
+        <Tooltip title={compact ? 'Menüyü genişlet' : 'Menüyü daralt'} placement="right">
+          <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.8)' }} onClick={toggleCollapsed}
+                      aria-label={compact ? 'Menüyü genişlet' : 'Menüyü daralt'}>
+            {compact ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+          </IconButton>
+        </Tooltip>
+      </Box>
+    </Box>
+  )
+
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-      <AppBar position="sticky" sx={{ bgcolor: '#8f1d22', backgroundImage: 'none' }}>
-        <Toolbar sx={{ gap: 1 }}>
-          {/* Mobilde (xs) menü hamburger'ı; md+ gizli (butonlar satırda görünür). */}
+    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default', display: 'flex' }}>
+      {/* Masaüstü (md+): kalıcı sol menü. Sayfa kaydırılsa da yerinde durur. */}
+      <Box component="nav" aria-label="Ana menü"
+           sx={{ display: { xs: 'none', md: 'block' }, width: collapsed ? NAV_W_COMPACT : NAV_W,
+                 flexShrink: 0, position: 'sticky', top: 0, height: '100vh',
+                 transition: 'width 150ms ease' }}>
+        {navContent(collapsed)}
+      </Box>
+
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <AppBar position="sticky" elevation={0} color="inherit"
+              sx={{ bgcolor: 'background.paper', backgroundImage: 'none', borderBottom: 1, borderColor: 'divider' }}>
+        <Toolbar variant="dense" sx={{ gap: 1, minHeight: 56 }}>
+          {/* Mobilde (xs) menü hamburger'ı; md+ gizli (sol menü zaten görünür). */}
           <IconButton color="inherit" edge="start" aria-label="Menüyü aç"
                       onClick={() => setDrawerOpen(true)}
                       sx={{ display: { xs: 'inline-flex', md: 'none' } }}>
             <MenuIcon />
           </IconButton>
-          <Box component={Link} to="/"
-               sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: { xs: 0.5, md: 3 },
-                     textDecoration: 'none', color: 'inherit', '&:hover': { opacity: 0.9 } }}>
-            <Box component="img" src="/favicon.svg" alt="JUMBO"
-                 sx={{ width: 38, height: 38, display: 'block' }} />
-            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
-              <Typography variant="h6" sx={{ lineHeight: 1.1 }}>JUMBO</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>Sertifika Yönetimi</Typography>
-            </Box>
-          </Box>
-          {/* Yatay nav yalnız md+; xs'te Drawer'a taşındı. Gruplar açılır menüdür. */}
-          <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1 }}>
-            {navEntries.map((entry) => (isGroup(entry) ? (
-              <Button
-                key={entry.label}
-                color="inherit"
-                onClick={(e) => setNavMenu({ label: entry.label, el: e.currentTarget })}
-                endIcon={<ArrowDropDownIcon sx={{ ml: -0.75 }} />}
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: groupActive(entry) ? '3px solid #fff' : '3px solid transparent',
-                  borderRadius: 0,
-                }}
-              >
-                {groupBadge(entry) > 0 ? (
-                  <Badge color="warning" badgeContent={groupBadge(entry)} sx={{ '& .MuiBadge-badge': { right: -6, top: 2 } }}>
-                    {entry.label}
-                  </Badge>
-                ) : entry.label}
-              </Button>
-            ) : (
-              <Button
-                key={entry.to}
-                component={Link}
-                to={entry.to}
-                color="inherit"
-                sx={{
-                  fontWeight: 600,
-                  borderBottom: isActive(entry.to) ? '3px solid #fff' : '3px solid transparent',
-                  borderRadius: 0,
-                }}
-              >
-                {badgeFor(entry.to) > 0 ? (
-                  <Badge color="warning" badgeContent={badgeFor(entry.to)} sx={{ '& .MuiBadge-badge': { right: -6, top: 2 } }}>
-                    {entry.label}
-                  </Badge>
-                ) : entry.label}
-              </Button>
-            )))}
-          </Box>
-          {/* Grup dropdown menüsü (tek Menu; açık grup navMenu.label ile belirlenir). */}
-          <Menu anchorEl={navMenu?.el} open={!!navMenu} onClose={() => setNavMenu(null)}
-                slotProps={{ paper: { sx: { mt: 0.5, minWidth: 210 } } }}>
-            {navEntries.filter(isGroup).find((g) => g.label === navMenu?.label)?.items.map((item) => (
-              <MenuItem key={item.to} component={Link} to={item.to} selected={isActive(item.to)}
-                        onClick={() => setNavMenu(null)}>
-                <ListItemText slotProps={{ primary: { sx: { fontWeight: isActive(item.to) ? 700 : 500 } } }}>
-                  {item.label}
-                </ListItemText>
-                {badgeFor(item.to) > 0 && (
-                  <Chip size="small" color="warning" label={badgeFor(item.to)} sx={{ ml: 1.5 }} />
-                )}
-              </MenuItem>
-            ))}
-          </Menu>
           <Box sx={{ flexGrow: 1 }} />
           <Button color="inherit" onClick={(e) => setAnchor(e.currentTarget)} sx={{ textTransform: 'none', minWidth: 0 }}>
-            <Avatar sx={{ width: 32, height: 32, mr: { xs: 0, sm: 1 }, bgcolor: 'rgba(255,255,255,0.25)' }}>
+            <Avatar sx={{ width: 32, height: 32, mr: { xs: 0, sm: 1 }, bgcolor: '#8f1d22', color: '#fff' }}>
               {(fullName || username || '?')[0]?.toUpperCase()}
             </Avatar>
-            {/* Uzun LDAP Ad Soyad'ı navbar'ı bozmasın: tek satır + kısaltma (…); xs'te yalnız avatar. */}
+            {/* Uzun LDAP Ad Soyad'ı üst çubuğu bozmasın: tek satır + kısaltma (…); xs'te yalnız avatar. */}
             <Box sx={{ textAlign: 'left', minWidth: 0, maxWidth: { xs: 110, sm: 200 }, display: { xs: 'none', sm: 'block' } }}>
               <Typography variant="body2" noWrap title={fullName || username || undefined}
                           sx={{ fontWeight: 700 }}>{fullName || username}</Typography>
-              <Typography variant="caption" noWrap
-                          sx={{ opacity: 0.8, display: 'block' }}>{ROLE_LABELS[role ?? ''] ?? role}</Typography>
+              <Typography variant="caption" noWrap color="text.secondary"
+                          sx={{ display: 'block' }}>{ROLE_LABELS[role ?? ''] ?? role}</Typography>
             </Box>
           </Button>
           <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}
@@ -200,51 +243,18 @@ export default function AppLayout() {
         </Toolbar>
       </AppBar>
 
-      {/* Mobil navigasyon çekmecesi (xs). Masaüstünde açılmaz — hamburger yalnız xs'te görünür. */}
+      {/* Mobil navigasyon çekmecesi (xs): aynı sol menü, tam genişlikte. */}
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}
-              ModalProps={{ keepMounted: true }}>
-        <Box sx={{ width: 264 }} role="presentation">
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.75,
-                     bgcolor: '#8f1d22', color: '#fff' }}>
-            <Box component="img" src="/favicon.svg" alt="JUMBO" sx={{ width: 32, height: 32 }} />
-            <Box>
-              <Typography variant="h6" sx={{ lineHeight: 1.1 }}>JUMBO</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.8 }}>Sertifika Yönetimi</Typography>
-            </Box>
-          </Box>
-          <List sx={{ py: 1 }}>
-            {navEntries.map((entry) => (isGroup(entry) ? (
-              <Fragment key={entry.label}>
-                <ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '30px', mt: 0.5,
-                                     fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase' }}>
-                  {entry.label}
-                </ListSubheader>
-                {entry.items.map((item) => (
-                  <ListItemButton key={item.to} component={Link} to={item.to} sx={{ pl: 3,
-                                    '&.Mui-selected': { borderLeft: '3px solid', borderColor: 'primary.main' } }}
-                                  selected={isActive(item.to)} onClick={() => setDrawerOpen(false)}>
-                    <ListItemText primary={item.label}
-                                  slotProps={{ primary: { sx: { fontWeight: isActive(item.to) ? 700 : 500 } } }} />
-                    {badgeFor(item.to) > 0 && <Chip size="small" color="warning" label={badgeFor(item.to)} />}
-                  </ListItemButton>
-                ))}
-              </Fragment>
-            ) : (
-              <ListItemButton key={entry.to} component={Link} to={entry.to}
-                              selected={isActive(entry.to)} onClick={() => setDrawerOpen(false)}
-                              sx={{ '&.Mui-selected': { borderLeft: '3px solid', borderColor: 'primary.main' } }}>
-                <ListItemText primary={entry.label}
-                              slotProps={{ primary: { sx: { fontWeight: isActive(entry.to) ? 700 : 500 } } }} />
-                {badgeFor(entry.to) > 0 && <Chip size="small" color="warning" label={badgeFor(entry.to)} />}
-              </ListItemButton>
-            )))}
-          </List>
+              ModalProps={{ keepMounted: true }} sx={{ display: { md: 'none' } }}>
+        <Box sx={{ width: NAV_W, height: '100%' }} role="presentation">
+          {navContent(false)}
         </Box>
       </Drawer>
 
       <Container maxWidth={false} sx={{ py: 3 }}>
         <Outlet />
       </Container>
+      </Box>
     </Box>
   )
 }

@@ -190,8 +190,10 @@ export interface MappedCert {
   name: string
   mapping_type: 'server' | 'client'
   cert_type: 'root' | 'intermediate' | 'leaf'
+  valid_from?: string | null
   valid_to?: string | null
   days_left?: number | null
+  issuer?: string | null
   serial_number?: string | null
   subject_key_identifier?: string | null
   is_active?: boolean

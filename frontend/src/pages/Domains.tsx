@@ -15,7 +15,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import {
   Box, Button, Card, CardActions, CardContent, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, Grid, IconButton, InputAdornment, MenuItem, Paper, Skeleton,
+  DialogTitle, Grid, IconButton, InputAdornment, Link, MenuItem, Paper, Skeleton,
   Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography,
 } from '@mui/material'
@@ -305,7 +305,11 @@ export default function Domains() {
                       sx={{ height: '100%', display: 'flex', flexDirection: 'column',
                             borderColor: st === 'expired' ? 'error.main' : st === 'expiring' ? 'warning.main' : 'divider' }}>
                   <CardContent sx={{ pb: 1, flexGrow: 1 }}>
-                    <Typography noWrap title={d.domain} sx={{ fontWeight: 700 }}>{d.domain}</Typography>
+                    <Link component="button" underline="hover" color="inherit" noWrap title={d.domain}
+                          onClick={() => setDetailId(d.id)}
+                          sx={{ display: 'block', maxWidth: '100%', textAlign: 'left', fontWeight: 700, fontSize: 16 }}>
+                      {d.domain}
+                    </Link>
                     <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
                       <Chip size="small" color={daysLeftColor(d.server_days_left)}
                             label={`Server: ${d.server_days_left != null ? daysLeftLabel(d.server_days_left) : '—'}`} />
@@ -345,7 +349,12 @@ export default function Domains() {
             <TableBody>
               {tableRows.map((d) => (
                 <TableRow key={d.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{d.domain}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    <Link component="button" underline="hover" color="inherit" onClick={() => setDetailId(d.id)}
+                          sx={{ fontWeight: 600, textAlign: 'left' }}>
+                      {d.domain}
+                    </Link>
+                  </TableCell>
                   <TableCell>{d.sy_team?.name ?? '—'}</TableCell>
                   <TableCell>{d.ug_team_name ?? d.ug_team?.name ?? '—'}</TableCell>
                   <TableCell>

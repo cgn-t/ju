@@ -322,8 +322,10 @@ class MappedCertOut(BaseModel):
     name: str
     mapping_type: str
     cert_type: str
+    valid_from: datetime | None = None
     valid_to: datetime | None
     days_left: int | None
+    issuer: str | None = None
     serial_number: str | None = None
     subject_key_identifier: str | None = None
     is_active: bool = True

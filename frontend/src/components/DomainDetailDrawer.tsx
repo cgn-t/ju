@@ -1,11 +1,14 @@
 import AddLinkIcon from '@mui/icons-material/AddLink'
+import CloseIcon from '@mui/icons-material/Close'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
+import LanguageIcon from '@mui/icons-material/Language'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
 import {
-  Alert, Box, Button, Checkbox, Chip, Divider, Drawer, FormControlLabel, IconButton, MenuItem,
-  Skeleton, Stack, TextField, Tooltip, Typography,
+  Alert, Box, Button, ButtonBase, Checkbox, Chip, Dialog, DialogContent, DialogTitle, FormControlLabel,
+  IconButton, LinearProgress, MenuItem, Skeleton, Stack, Tab, Tabs, TextField, Tooltip, Typography,
+  useMediaQuery, useTheme,
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
@@ -13,7 +16,7 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate, ChainImportResult, Domain } from '../api/types'
+import type { Certificate, ChainImportResult, Domain, MappedCert } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, mappingTypeLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
 import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummary } from '../utils/chainImport'
@@ -72,6 +75,10 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const [nameMismatch, setNameMismatch] = useState<string | null>(null)
   useEffect(() => setNameMismatch(null), [domainId])
   const [importEnvironment, setImportEnvironment] = useState('')
+  const [tab, setTab] = useState<'summary' | 'certs' | 'internal' | 'live'>('summary')
+  useEffect(() => setTab('summary'), [domainId])
+  const theme = useTheme()
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
 
   const { data: domain, isLoading } = useQuery<Domain>({
     queryKey: ['domain', domainId],
@@ -164,19 +171,70 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
     },
   })
 
-  return (
-    <Drawer anchor="right" open={domainId !== null} onClose={onClose}
-            slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 } } } }}>
-      <Box sx={{ p: 3 }}>
-        {isLoading || !domain ? (
-          <Skeleton variant="rounded" height={500} />
-        ) : (
-          <Stack spacing={2}>
-            <Typography variant="h6">Domain Detayı</Typography>
-            <Field label="Domain" value={domain.domain} />
+  const server = domain?.certificates.find((c) => c.mapping_type === 'server' && c.cert_type === 'leaf')
+  const trusted = (domain?.certificates ?? []).filter((c) => c.mapping_type === 'client')
+  const live = domain ? liveStatus(domain) : undefined
 
-            {/* Haritadan bir domaine tıklayınca EN ÖNCE bunu görmek isteniyor:
-                domaine bağlı (server/client) sertifikalar → drawer'ın en üstünde. */}
+  return (
+    <Dialog open={domainId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
+            slotProps={{ paper: { sx: { height: { md: '88vh' } } } }}>
+      {isLoading || !domain ? (
+        <Box sx={{ p: 3 }}><Skeleton variant="rounded" height={500} /></Box>
+      ) : (
+        <>
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.25, pb: 0.5, pr: 7 }}>
+            <LanguageIcon color="action" />
+            <Typography variant="h6" component="span" noWrap title={domain.domain} sx={{ fontWeight: 700 }}>
+              {domain.domain}
+            </Typography>
+            <Chip size="small" color={daysLeftColor(domain.server_days_left)} label={statusLabel(domain.server_days_left)} />
+            <IconButton aria-label="Kapat" onClick={onClose} sx={{ position: 'absolute', right: 12, top: 12 }}>
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" allowScrollButtonsMobile
+                sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Tab value="summary" label="Özet" />
+            <Tab value="certs" label={`Sertifikalar (${domain.certificates.length})`} />
+            <Tab value="internal" label="Kurum İçi Bilgiler" />
+            <Tab value="live" label="Canlı Doğrulama" />
+          </Tabs>
+          <DialogContent sx={{ pt: 2.5 }}>
+            {(domain.pending_proposals ?? 0) > 0 && (
+              <Alert severity="warning" icon={<SwapHorizIcon />} sx={{ mb: 2 }}
+                     action={<Button color="inherit" size="small" component={RouterLink} to="/proposals">
+                               Onaya git</Button>}>
+                Bu domain için <b>{domain.pending_proposals}</b> değişiklik talebi SY onayı bekliyor.
+              </Alert>
+            )}
+
+            {tab === 'summary' && (
+              <Stack spacing={2}>
+                <ValidityCard cert={server} />
+                <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' } }}>
+                  <InfoCard title="Sertifika" onClick={() => setTab('certs')}
+                            value={server?.name ?? 'Bağlanmamış'}
+                            sub={server ? `Veren: ${issuerName(server.issuer)}` : 'Server sertifikası yok'} />
+                  <InfoCard title="Canlı Doğrulama" onClick={() => setTab('live')}
+                            value={live ? <Chip size="small" color={live.color} label={live.label.split(' — ')[0]} /> : 'Henüz kontrol edilmedi'}
+                            sub={domain.live_check_at ? `Son kontrol: ${new Date(domain.live_check_at).toLocaleString('tr-TR')}` : undefined} />
+                  <InfoCard title="Ekipler" onClick={() => setTab('internal')}
+                            value={domain.sy_team?.name ?? 'SY ekibi yok'}
+                            sub={`UG: ${domain.ug_team_name ?? domain.ug_team?.name ?? '—'}`} />
+                  <InfoCard title="Trusted" onClick={() => setTab('certs')}
+                            value={trusted.length ? `${trusted.length} sertifika` : 'Yok'}
+                            sub={trusted.length ? `En yakın bitiş: ${daysLeftLabel(domain.client_days_left)}` : undefined} />
+                </Box>
+                <Stack direction="row" spacing={4} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                  <Field label="Dış Adres" value={domain.external_address} />
+                  <Field label="Bildirim Gün Sayısı"
+                         value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
+                </Stack>
+              </Stack>
+            )}
+
+            {tab === 'certs' && (
+              <Stack spacing={2}>
             <Typography variant="subtitle2">
               Bağlı Sertifikalar{domain.certificates.length ? ` (${domain.certificates.length})` : ''}
             </Typography>
@@ -243,41 +301,30 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 </Stack>
               </>
             )}
-            <Divider />
-
-            <Stack direction="row" spacing={4}>
-              <Field label="Dış Adres" value={domain.external_address} />
-              <Field label="E-Mail (SY takımı)" value={domain.sy_team?.email} />
-            </Stack>
-            <Stack direction="row" spacing={4}>
-              <Field label="UG Takımı" value={domain.ug_team_name ?? domain.ug_team?.name} />
-              <Field label="SY Takımı" value={domain.sy_team?.name} />
-            </Stack>
-            <Stack direction="row" spacing={4}>
-              <Field label="LoadBalancer Güncelleme" value={domain.lb_update} />
-              <Field label="WAF Güncelleme" value={domain.waf_update} />
-            </Stack>
-            <Field label="Güncellenecek Sunucular" value={domain.servers_to_update} />
-            <Field label="Bildirim Gün Sayısı"
-                   value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
-            <Field label="Dış Firma" value={domain.external_company} />
-            <Field label="Detay" value={domain.info} />
-            <Stack direction="row" spacing={4}>
-              <Field label="Aksiyon Alma" value={domain.action_required} />
-              <Field label="SSL Pinning" value={domain.ssl_pinning} />
-            </Stack>
-            <Field label="Keystore" value={domain.keystore} />
-            <Divider />
-
-            {(domain.pending_proposals ?? 0) > 0 && (
-              <Alert severity="warning" icon={<SwapHorizIcon />}
-                     action={<Button color="inherit" size="small" component={RouterLink} to="/proposals">
-                               Onaya git</Button>}>
-                Bu domain için <b>{domain.pending_proposals}</b> değişiklik talebi SY onayı bekliyor.
-              </Alert>
+              </Stack>
             )}
 
-            <Typography variant="subtitle2">Canlı Doğrulama (Drift Detection)</Typography>
+            {tab === 'internal' && (
+              <Box sx={{ display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+                <Field label="SY Takımı" value={domain.sy_team?.name} />
+                <Field label="E-Mail (SY takımı)" value={domain.sy_team?.email} />
+                <Field label="UG Takımı" value={domain.ug_team_name ?? domain.ug_team?.name} />
+                <Field label="Dış Adres" value={domain.external_address} />
+                <Field label="LoadBalancer Güncelleme" value={domain.lb_update} />
+                <Field label="WAF Güncelleme" value={domain.waf_update} />
+                <Field label="Aksiyon Alma" value={domain.action_required} />
+                <Field label="SSL Pinning" value={domain.ssl_pinning} />
+                <Field label="Dış Firma" value={domain.external_company} />
+                <Field label="Bildirim Gün Sayısı"
+                       value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
+                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Güncellenecek Sunucular" value={domain.servers_to_update} /></Box>
+                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Keystore" value={domain.keystore} /></Box>
+                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Detay" value={domain.info} /></Box>
+              </Box>
+            )}
+
+            {tab === 'live' && (
+              <Stack spacing={2}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }} useFlexGap>
               <Button size="small" variant="outlined" startIcon={<WifiTetheringIcon />}
                       disabled={liveCheck.isPending} onClick={() => liveCheck.mutate()}>
@@ -346,10 +393,92 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 )}
               </Box>
             )}
-            <Button onClick={onClose}>Kapat</Button>
-          </Stack>
-        )}
+              </Stack>
+            )}
+          </DialogContent>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+function statusLabel(days: number | null | undefined) {
+  if (days === null || days === undefined) return 'Sertifika yok'
+  if (days < 0) return 'Süresi dolmuş'
+  if (days <= 30) return 'Süresi yaklaşıyor'
+  return 'Geçerli'
+}
+
+// Issuer DN'den okunur ad: "CN=DigiCert EV RSA CA G2,O=..." → "DigiCert EV RSA CA G2"
+function issuerName(issuer?: string | null) {
+  if (!issuer) return '—'
+  const cn = /(?:^|,\s*)CN=([^,]+)/.exec(issuer)
+  return cn ? cn[1] : issuer
+}
+
+const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
+
+// Özet sekmesinin üstündeki kart: kalan gün, bitiş, kullanılan geçerlilik süresi çubuğu.
+function ValidityCard({ cert }: { cert?: MappedCert }) {
+  if (!cert) {
+    return (
+      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2.5 }}>
+        <Typography variant="body2" color="text.secondary">
+          Bu domaine bağlı server sertifikası yok. Sertifikalar sekmesinden bağlayabilirsiniz.
+        </Typography>
       </Box>
-    </Drawer>
+    )
+  }
+  const days = cert.days_left
+  const color = daysLeftColor(days)
+  const from = cert.valid_from ? new Date(cert.valid_from).getTime() : null
+  const to = cert.valid_to ? new Date(cert.valid_to).getTime() : null
+  const total = from !== null && to !== null ? Math.round((to - from) / 86_400_000) : null
+  const used = from !== null && to !== null && to > from
+    ? Math.min(100, Math.max(0, Math.round(((Date.now() - from) / (to - from)) * 100))) : null
+  return (
+    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2.5 }}>
+      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
+        <Box>
+          <Typography variant="h3" color={color === 'default' ? 'text.primary' : `${color}.main`} sx={{ fontWeight: 800, lineHeight: 1 }}>
+            {days === null || days === undefined ? '—' : Math.abs(days)}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {days !== null && days !== undefined && days < 0 ? 'gün önce doldu' : 'gün kaldı'}
+          </Typography>
+        </Box>
+        <Box sx={{ textAlign: 'right' }}>
+          <Typography variant="caption" color="text.secondary">BİTİŞ</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>{fmtDate(cert.valid_to)}</Typography>
+        </Box>
+      </Stack>
+      {used !== null && (
+        <Box sx={{ mt: 2 }}>
+          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+            <Typography variant="caption" color="text.secondary">Kullanılan geçerlilik süresi</Typography>
+            <Typography variant="caption" sx={{ fontWeight: 700 }}>%{used}</Typography>
+          </Stack>
+          <LinearProgress variant="determinate" value={used} color={color === 'default' ? 'primary' : color}
+                          sx={{ height: 8, borderRadius: 4, my: 0.75 }} />
+          <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
+            <Typography variant="caption" color="text.secondary">Başlangıç: {fmtDate(cert.valid_from)}</Typography>
+            {total !== null && <Typography variant="caption" color="text.secondary">{total} günlük geçerlilik</Typography>}
+          </Stack>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+function InfoCard({ title, value, sub, onClick }: {
+  title: string; value: React.ReactNode; sub?: string; onClick?: () => void
+}) {
+  return (
+    <ButtonBase onClick={onClick} sx={{ display: 'block', textAlign: 'left', border: 1, borderColor: 'divider',
+                                        borderRadius: 2, p: 2, '&:hover': { bgcolor: 'action.hover' } }}>
+      <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.6 }}>{title}</Typography>
+      <Box sx={{ typography: 'subtitle1', fontWeight: 700, wordBreak: 'break-word' }}>{value}</Box>
+      {sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{sub}</Typography>}
+    </ButtonBase>
   )
 }
