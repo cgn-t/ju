@@ -332,7 +332,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   <CertificatePicker
                     options={(certs ?? []).filter((c) => c.is_active
                       && (mappingType !== 'server' || c.cert_type === 'leaf'))}
-                    label="Sertifika seç (ad, SKI, seri no ile ara)"
+                    label="Sertifika seç (ad, SKI, Serial Number ile ara)"
                     value={selectedCert} onChange={setSelectedCert}
                     disabledIds={alreadyMapped} disabledLabel="zaten bağlı"
                   />
@@ -408,7 +408,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 const d = JSON.parse(domain.live_check_detail)
                 return (
                   <Box sx={{ bgcolor: 'background.default', borderRadius: 1, p: 1.5 }}>
-                    {d.served_cn && <Field label="Sunulan Sertifika (CN)" value={`${d.served_cn} — bitiş: ${d.served_valid_to ? new Date(d.served_valid_to).toLocaleDateString('tr-TR') : '—'}`} />}
+                    {d.served_cn && <Field label="Sunulan Sertifika (CN)" value={`${d.served_cn} — ValidTo: ${d.served_valid_to ? new Date(d.served_valid_to).toLocaleDateString('tr-TR') : '—'}`} />}
                     {d.matched_certificate && <Field label="Eşleşen Kayıt" value={d.matched_certificate} />}
                     {d.expected && <Field label="Beklenen (bağlı)" value={d.expected.join(', ')} />}
                     {d.error && <Field label="Hata" value={d.error} />}
@@ -478,6 +478,6 @@ function chainChip(d: Domain, chain: MappedCert[]): { label: string; color: Tone
   if (!chain.length) return { label: 'Bağlı sertifika yok', color: 'default' }
   if (chain.some((c) => (c.days_left ?? 0) < 0)) return { label: 'Süresi dolmuş sertifika var', color: 'error' }
   return chain.some((c) => c.cert_type === 'root') ? { label: 'Zincir tam', color: 'success' }
-    : { label: 'Kök kayıtlı değil', color: 'default' }
+    : { label: 'Root kayıtlı değil', color: 'default' }
 }
 

@@ -446,7 +446,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   items={[
                     { label: 'İşlem', value: 'Sertifika güncelleme' },
                     { label: 'Sertifika', value: form.name || cert?.name || '—' },
-                    { label: 'Bitiş (ValidTo)', highlight: true,
+                    { label: 'ValidTo', highlight: true,
                       value: cert?.valid_to ? cert.valid_to.slice(0, 10) : '—' },
                   ]} />
               </Stack>

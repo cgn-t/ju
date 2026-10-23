@@ -39,7 +39,7 @@ import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
-  root: 'Kök CA (Root)', intermediate: 'Ara CA (Intermediate)', leaf: 'Uç Sertifika (Leaf)',
+  root: 'Root', intermediate: 'Intermediate', leaf: 'Leaf',
 }
 
 // Kolon-başı (huni) filtreleri. Kaynak + Geçerlilik durum kolonları; gerisi metin.
