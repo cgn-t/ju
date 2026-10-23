@@ -112,10 +112,10 @@ def test_chain_check_finds_and_fixes_old_records(client, auth_headers):
     found = {(f["certificate_id"], f["kind"]): f
              for f in client.get("/api/certificates/chain-check", headers=h).json()
              if f["certificate_id"] in mine}
-    assert found[(ids["zk-cihaz.test"], "type")]["expected"] == "Uç Sertifika"
+    assert found[(ids["zk-cihaz.test"], "type")]["expected"] == "Leaf"
     assert found[(ids["ss_old"], "parent")]["expected"] == "— (üstü yok)"
     assert found[(ids["ss_new"], "parent")]["expected"] == "— (üstü yok)"
-    assert found[(ids["ZK V1 Kok"], "type")]["expected"] == "Kök CA"
+    assert found[(ids["ZK V1 Kok"], "type")]["expected"] == "Root"
     assert found[(ids["zk-v1.test"], "parent")]["expected"] == "ZK V1 Kok"
     assert (ids["ZK Ara"], "subject_key_identifier") in found
     assert len(found) == 6, found

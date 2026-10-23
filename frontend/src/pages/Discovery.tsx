@@ -213,7 +213,7 @@ export default function Discovery() {
               <TableCell>Endpoint / Domain</TableCell>
               <TableCell>Sertifika (CN)</TableCell>
               <TableCell>Issuer (CA)</TableCell>
-              <TableCell>Bitiş</TableCell>
+              <TableCell>ValidTo</TableCell>
               <TableCell>Durum</TableCell>
               <TableCell align="right">İşlem</TableCell>
             </TableRow>

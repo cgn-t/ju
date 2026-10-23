@@ -39,7 +39,7 @@ import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
-  root: 'Kök CA (Root)', intermediate: 'Ara CA (Intermediate)', leaf: 'Uç Sertifika (Leaf)',
+  root: 'Root', intermediate: 'Intermediate', leaf: 'Leaf',
 }
 
 // Kolon-başı (huni) filtreleri. Kaynak + Geçerlilik durum kolonları; gerisi metin.
@@ -349,7 +349,9 @@ export default function Certificates() {
         {typeChip(cert)}
         <Typography variant="body2" noWrap
                     title={cert.san ? `${cert.name} — SAN: ${cert.san}` : cert.name}
-                    sx={{ fontWeight: depth === 0 ? 700 : 500, minWidth: 0 }}>
+                    onClick={(e) => { e.stopPropagation(); setDetailId(cert.id) }}
+                    sx={{ fontWeight: depth === 0 ? 700 : 500, minWidth: 0, cursor: 'pointer',
+                          '&:hover': { textDecoration: 'underline' } }}>
           {cert.name}
         </Typography>
         {cert.environment && (
@@ -543,7 +545,9 @@ export default function Certificates() {
                               sx={{ mr: 1, flexShrink: 0, bgcolor: nodeColors[cert.cert_type],
                                     color: 'rgba(0,0,0,0.87)', fontWeight: 700, width: 28 }} />
                       </Tooltip>
-                      <Typography variant="body2" sx={{ fontWeight: depth === 0 ? 700 : 400, minWidth: 0 }}>
+                      <Typography variant="body2" onClick={(e) => { e.stopPropagation(); setDetailId(cert.id) }}
+                                  sx={{ fontWeight: depth === 0 ? 700 : 400, minWidth: 0, cursor: 'pointer',
+                                        '&:hover': { textDecoration: 'underline' } }}>
                         {cert.name}
                       </Typography>
                       {cert.is_internal && <Chip size="small" label="Internal" variant="outlined" sx={{ ml: 1, flexShrink: 0 }} />}

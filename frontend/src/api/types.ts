@@ -65,6 +65,22 @@ export interface Certificate {
   revocation_status?: string | null      // good | revoked | unknown | unreachable | not_checkable | null(denetlenmemiş)
   revocation_checked_at?: string | null
   revocation_detail?: string | null
+  // PEM'den okunan ek bilgiler — yalnız tekil GET doldurur
+  extras?: CertExtras | null
+}
+
+export interface CertExtras {
+  spki_pin_sha256: string
+  signature_algorithm?: string | null
+  validation_type?: 'EV' | 'OV' | 'DV' | 'IV' | null
+  policy_oids: string[]
+  ocsp_urls: string[]
+  ca_issuers_urls: string[]
+  crl_urls: string[]
+  key_usage: string[]
+  basic_constraints_ca?: boolean | null
+  basic_constraints_path_length?: number | null
+  sct_count?: number | null
 }
 
 // ---- Politika / Uyum ----
@@ -190,8 +206,10 @@ export interface MappedCert {
   name: string
   mapping_type: 'server' | 'client'
   cert_type: 'root' | 'intermediate' | 'leaf'
+  valid_from?: string | null
   valid_to?: string | null
   days_left?: number | null
+  issuer?: string | null
   serial_number?: string | null
   subject_key_identifier?: string | null
   is_active?: boolean

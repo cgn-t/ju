@@ -282,10 +282,10 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Tür</TableCell>
+                      <TableCell>Type</TableCell>
                       <TableCell>CN</TableCell>
-                      <TableCell>Bitiş</TableCell>
-                      <TableCell>Üst Sertifika</TableCell>
+                      <TableCell>ValidTo</TableCell>
+                      <TableCell>Issuer</TableCell>
                       <TableCell>Durum</TableCell>
                     </TableRow>
                   </TableHead>

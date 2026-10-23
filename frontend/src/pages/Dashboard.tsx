@@ -117,7 +117,7 @@ export default function Dashboard() {
                 <TableCell>SerialNumber</TableCell>
                 <TableCell>Domainler</TableCell>
                 <TableCell>SY</TableCell>
-                <TableCell align="right">Bitiş Tarihi</TableCell>
+                <TableCell align="right">ValidTo</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>

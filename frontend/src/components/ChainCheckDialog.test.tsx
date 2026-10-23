@@ -14,7 +14,7 @@ const apiGet = vi.mocked(api.get)
 const apiPost = vi.mocked(api.post)
 
 const FINDINGS: ChainCheckFinding[] = [
-  { certificate_id: 4, name: 'cihaz.jumbo.local', kind: 'type', current: 'Ara CA', expected: 'Uç Sertifika' },
+  { certificate_id: 4, name: 'cihaz.jumbo.local', kind: 'type', current: 'Intermediate', expected: 'Leaf' },
   { certificate_id: 9, name: 'srv.jumbo.local', kind: 'parent', current: '—', expected: 'Jumbo Kök CA' },
 ]
 
@@ -30,8 +30,8 @@ describe('ChainCheckDialog', () => {
     const onClose = vi.fn()
     renderPage(<ChainCheckDialog open onClose={onClose} />, { url: '/certificates' })
     expect(await screen.findByText('cihaz.jumbo.local')).toBeInTheDocument()
-    expect(screen.getByText('Uç Sertifika')).toBeInTheDocument()
-    expect(screen.getByText('Üst sertifika')).toBeInTheDocument()
+    expect(screen.getByText('Leaf')).toBeInTheDocument()
+    expect(screen.getByText('Parent (Issuer)')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Düzelt (2)' }))
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/certificates/chain-check/apply'))
     expect(await screen.findByText('2 düzeltme yapıldı')).toBeInTheDocument()

@@ -283,33 +283,33 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   const delta = typeof oldDays === 'number' && typeof newDays === 'number' ? newDays - oldDays : null
 
   const fields: Field[] = oldCert && newCert ? [
-    { label: 'Subject (CN)', kind: 'expect-same', oldVal: oldCert.subject, newVal: newCert.subject, same: norm(oldCert.subject) === norm(newCert.subject), mono: true },
-    { label: 'SAN', kind: 'expect-same', oldVal: oldCert.san, newVal: newCert.san, same: norm(oldCert.san) === norm(newCert.san) },
-    { label: 'Issuer (CA)', kind: 'expect-same', oldVal: oldCert.issuer, newVal: newCert.issuer, same: norm(oldCert.issuer) === norm(newCert.issuer), mono: true },
-    { label: 'SKI (anahtar)', kind: 'expect-same', oldVal: oldCert.subject_key_identifier, newVal: newCert.subject_key_identifier, same: normHex(oldCert.subject_key_identifier) === normHex(newCert.subject_key_identifier), mono: true },
-    { label: 'AKI', kind: 'expect-same', oldVal: oldCert.authority_key_identifier, newVal: newCert.authority_key_identifier, same: normHex(oldCert.authority_key_identifier) === normHex(newCert.authority_key_identifier), mono: true },
-    { label: 'SHA-256 parmak izi', kind: 'expect-change', oldVal: oldCert.fingerprint_sha256, newVal: newCert.fingerprint_sha256, same: normHex(oldCert.fingerprint_sha256) === normHex(newCert.fingerprint_sha256), mono: true },
-    { label: 'Serial', kind: 'expect-change', oldVal: oldCert.serial_number, newVal: newCert.serial_number, same: normHex(oldCert.serial_number) === normHex(newCert.serial_number), mono: true },
-    { label: 'Başlangıç', kind: 'expect-change', oldVal: oldCert.valid_from, newVal: newCert.valid_from, same: oldCert.valid_from === newCert.valid_from, render: 'date' },
-    { label: 'Bitiş', kind: 'expect-change', oldVal: oldCert.valid_to, newVal: newCert.valid_to, same: oldCert.valid_to === newCert.valid_to, render: 'date' },
+    { label: 'Subject', kind: 'expect-same', oldVal: oldCert.subject, newVal: newCert.subject, same: norm(oldCert.subject) === norm(newCert.subject), mono: true },
+    { label: 'SubjectAltName (SAN)', kind: 'expect-same', oldVal: oldCert.san, newVal: newCert.san, same: norm(oldCert.san) === norm(newCert.san) },
+    { label: 'Issuer', kind: 'expect-same', oldVal: oldCert.issuer, newVal: newCert.issuer, same: norm(oldCert.issuer) === norm(newCert.issuer), mono: true },
+    { label: 'SubjectKeyIdentifier', kind: 'expect-same', oldVal: oldCert.subject_key_identifier, newVal: newCert.subject_key_identifier, same: normHex(oldCert.subject_key_identifier) === normHex(newCert.subject_key_identifier), mono: true },
+    { label: 'AuthorityKeyIdentifier', kind: 'expect-same', oldVal: oldCert.authority_key_identifier, newVal: newCert.authority_key_identifier, same: normHex(oldCert.authority_key_identifier) === normHex(newCert.authority_key_identifier), mono: true },
+    { label: 'SHA-256 Fingerprint', kind: 'expect-change', oldVal: oldCert.fingerprint_sha256, newVal: newCert.fingerprint_sha256, same: normHex(oldCert.fingerprint_sha256) === normHex(newCert.fingerprint_sha256), mono: true },
+    { label: 'Serial Number', kind: 'expect-change', oldVal: oldCert.serial_number, newVal: newCert.serial_number, same: normHex(oldCert.serial_number) === normHex(newCert.serial_number), mono: true },
+    { label: 'ValidFrom', kind: 'expect-change', oldVal: oldCert.valid_from, newVal: newCert.valid_from, same: oldCert.valid_from === newCert.valid_from, render: 'date' },
+    { label: 'ValidTo', kind: 'expect-change', oldVal: oldCert.valid_to, newVal: newCert.valid_to, same: oldCert.valid_to === newCert.valid_to, render: 'date' },
   ] : []
 
   // EKLE / KALDIR talebi: tek sertifika — yenileme karşılaştırmasındaki alanlar, aynı sırada
   const single = newCert
   const singleIdentity: SingleField[] = single ? [
-    { label: 'Subject (CN)', val: single.subject, mono: true },
-    { label: 'SAN', val: single.san },
-    { label: 'Issuer (CA)', val: single.issuer, mono: true },
-    { label: 'SKI (anahtar)', val: single.subject_key_identifier, mono: true },
-    { label: 'AKI', val: single.authority_key_identifier, mono: true },
+    { label: 'Subject', val: single.subject, mono: true },
+    { label: 'SubjectAltName (SAN)', val: single.san },
+    { label: 'Issuer', val: single.issuer, mono: true },
+    { label: 'SubjectKeyIdentifier', val: single.subject_key_identifier, mono: true },
+    { label: 'AuthorityKeyIdentifier', val: single.authority_key_identifier, mono: true },
   ] : []
   const singleUnique: SingleField[] = single ? [
-    { label: 'SHA-256 parmak izi', val: single.fingerprint_sha256, mono: true },
-    { label: 'Serial', val: single.serial_number, mono: true },
-    { label: 'Başlangıç', val: single.valid_from, render: 'date' },
-    { label: 'Bitiş', val: single.valid_to, render: 'date' },
-    { label: 'Anahtar', val: keyLabel(single) },
-    { label: 'İmza algoritması', val: single.signature_hash },
+    { label: 'SHA-256 Fingerprint', val: single.fingerprint_sha256, mono: true },
+    { label: 'Serial Number', val: single.serial_number, mono: true },
+    { label: 'ValidFrom', val: single.valid_from, render: 'date' },
+    { label: 'ValidTo', val: single.valid_to, render: 'date' },
+    { label: 'Public Key', val: keyLabel(single) },
+    { label: 'Signature Algorithm', val: single.signature_hash },
   ] : []
   // Sertifikanın şu anki diğer bağlantıları — talebin etkisini anlamak için
   const otherDomains = (single?.domains ?? []).filter((d) => !(d.domain_id === proposal?.domain_id && d.mapping_type === 'server'))
@@ -325,9 +325,9 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
   // Canlı doğrulamanın TARİH GÜNCELLEME talebi: aynı sertifika, kayıttaki tarih farklı
   const dateKind = proposal?.kind === 'date_fix'
   const dateFields: Field[] = proposal && dateKind ? [
-    { label: 'Başlangıç', kind: 'expect-change', oldVal: proposal.record_valid_from, newVal: proposal.cert_valid_from,
+    { label: 'ValidFrom', kind: 'expect-change', oldVal: proposal.record_valid_from, newVal: proposal.cert_valid_from,
       same: fmtDateTime(proposal.record_valid_from) === fmtDateTime(proposal.cert_valid_from), render: 'date' },
-    { label: 'Bitiş', kind: 'expect-change', oldVal: proposal.record_valid_to, newVal: proposal.cert_valid_to,
+    { label: 'ValidTo', kind: 'expect-change', oldVal: proposal.record_valid_to, newVal: proposal.cert_valid_to,
       same: fmtDateTime(proposal.record_valid_to) === fmtDateTime(proposal.cert_valid_to), render: 'date' },
   ] : []
   const title = proposal?.kind === 'trusted_add' ? 'Trust Store İncelemesi'
@@ -544,8 +544,8 @@ export default function ProposalReviewDrawer({ proposal, group, onClose, onDecid
                               detail={`Eski ${daysLeftLabel(oldDays)} → Yeni ${daysLeftLabel(newDays)}${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta} gün)` : ''}`} />
                     <Evidence ok={fpChanged} warn={!fpChanged}
                               icon={<FingerprintIcon fontSize="small" />}
-                              title={fpChanged ? 'Benzersiz sertifika' : 'Parmak izi doğrulanamadı'}
-                              detail={fpChanged ? 'SHA-256 parmak izi eski≠yeni — gerçekten yeni bir sertifika' : 'Eski/yeni parmak izi kayıtlı değil ya da aynı'} />
+                              title={fpChanged ? 'Benzersiz sertifika' : 'Fingerprint doğrulanamadı'}
+                              detail={fpChanged ? 'SHA-256 Fingerprint eski≠yeni — gerçekten yeni bir sertifika' : 'Eski/yeni Fingerprint kayıtlı değil ya da aynı'} />
                     <Evidence ok={proposal.live_seen}
                               icon={<TravelExploreIcon fontSize="small" />}
                               title={proposal.live_seen ? 'Canlıda görüldü' : 'Henüz canlıda görülmedi'}
