@@ -67,9 +67,29 @@ export function createAppTheme(mode: ThemeMode) {
       },
       MuiChip: { styleOverrides: { root: { fontWeight: 600 } } },
       MuiButton: { styleOverrides: { root: { textTransform: 'none' } } },
+      // Tablolar: sakin başlık şeridi (hafif zemin, gri küçük harf), ferah ama yoğun satırlar
       MuiTableCell: {
         styleOverrides: {
-          head: { fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.04em' },
+          head: {
+            fontWeight: 600, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.05em',
+            color: mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#5f6b7a',
+            backgroundColor: mode === 'dark' ? '#1d232a' : '#f8f9fb',
+            paddingTop: 9, paddingBottom: 9, whiteSpace: 'nowrap',
+          },
+          sizeSmall: { paddingTop: 9, paddingBottom: 9, paddingLeft: 12, paddingRight: 12, '&:first-of-type': { paddingLeft: 16 }, '&:last-of-type': { paddingRight: 16 } },
+          body: { borderColor: mode === 'dark' ? 'rgba(255,255,255,0.07)' : '#eef0f3' },
+        },
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: { '&.MuiTableRow-hover:hover': { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.035)' : '#fafbfc' } },
+        },
+      },
+      MuiTablePagination: {
+        styleOverrides: {
+          toolbar: { minHeight: 48 },
+          selectLabel: { fontSize: 13, color: mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#5f6b7a' },
+          displayedRows: { fontSize: 13, fontVariantNumeric: 'tabular-nums' },
         },
       },
       MuiDialogContent: {

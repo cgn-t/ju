@@ -3,12 +3,11 @@ import AppsOutlinedIcon from '@mui/icons-material/AppsOutlined'
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
-import SearchIcon from '@mui/icons-material/Search'
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import {
   Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Grid,
-  IconButton, InputAdornment, LinearProgress, MenuItem, Paper, Skeleton, Stack, Table, TableBody, TableCell,
+  IconButton, MenuItem, Paper, Skeleton, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,6 +20,7 @@ import type {
 import { useAuth } from '../auth/AuthContext'
 import ApplicationDetailDrawer from '../components/ApplicationDetailDrawer'
 import CertificatePicker, { type PickerCert } from '../components/CertificatePicker'
+import { ActiveFilters, ListCard, SearchBox } from '../components/ListKit'
 import ListPagination from '../components/ListPagination'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import PageHeader from '../components/PageHeader'
@@ -333,30 +333,34 @@ export default function Applications() {
 
   return (
     <Box>
-      <PageHeader title="Uygulamalar" subtitle="Uygulama envanteri, sunucu ve domain ilişkileri" />
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        {canEdit && (
-          <Button variant="contained" startIcon={<AddIcon />}
-                  onClick={() => { setEditTarget(null); setFormOpen(true) }}>
-            Yeni Ekle
-          </Button>
+      <PageHeader title="Uygulamalar" subtitle="Uygulama envanteri, sunucu ve domain ilişkileri"
+                  actions={canEdit && (
+                    <Button variant="contained" disableElevation startIcon={<AddIcon />}
+                            onClick={() => { setEditTarget(null); setFormOpen(true) }}>
+                      Yeni Ekle
+                    </Button>
+                  )} />
+      <ListCard
+        busy={isFetching && !isLoading}
+        toolbar={
+          <>
+            <SearchBox value={search} onChange={setSearch} placeholder="Uygulama, sunucu, DNS veya etiket ara" width={360} />
+            <Box sx={{ flexGrow: 1 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {(data?.total ?? 0).toLocaleString('tr-TR')} uygulama
+            </Typography>
+          </>
+        }
+        chips={cf.anyActive ? <ActiveFilters onClearAll={cf.clearAll} chips={cf.defs.filter((c) => cf.active(c.key)).map((c) => {
+          const v = cf.values[c.key]
+          const shown = c.kind === 'status' ? (c.options?.find((o) => o.value === v)?.label ?? v) : `"${v}"`
+          return { key: c.key, label: `${c.label}: ${shown}`, onDelete: () => cf.set(c.key, c.kind === 'status' ? 'all' : '') }
+        })} /> : undefined}
+        footer={!isError && !isLoading && (data?.total ?? 0) > 0 && (
+          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                          onPage={paging.setPage} onSize={paging.setSize} unit="uygulama" />
         )}
-        <Box sx={{ flexGrow: 1 }} />
-        {cf.anyActive && (
-          <Typography variant="body2" color="text.secondary">
-            {data?.total ?? 0}
-          </Typography>
-        )}
-        {cf.anyActive && (
-          <Chip label="Kolon filtreleri" color="primary" variant="outlined" onDelete={cf.clearAll} />
-        )}
-        <TextField size="small" placeholder="Ara… (uygulama, sunucu, dns, etiket)" value={search}
-                   onChange={(e) => setSearch(e.target.value)} sx={{ width: 320 }}
-                   slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> } }} />
-      </Box>
-
-      <LinearProgress sx={{ mb: 0.5, height: 2, visibility: isFetching && !isLoading ? 'visible' : 'hidden' }} />
-      <Paper>
+      >
         {isError ? (
           <Box sx={{ p: 2 }}><QueryError error={error} onRetry={() => refetch()} /></Box>
         ) : isLoading ? (
@@ -440,11 +444,7 @@ export default function Applications() {
             </TableBody>
           </Table>
         )}
-        {!isError && !isLoading && (
-          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
-                          onPage={paging.setPage} onSize={paging.setSize} unit="uygulama" />
-        )}
-      </Paper>
+      </ListCard>
 
       <ColumnFilterMenu cf={cf} facetCounts={data?.facets} />
 

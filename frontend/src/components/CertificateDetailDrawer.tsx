@@ -1,4 +1,5 @@
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined'
 import CategoryOutlinedIcon from '@mui/icons-material/CategoryOutlined'
@@ -45,6 +46,7 @@ import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
+import { EditFooter, FormSection } from './FormKit'
 import {
   basicConstraintsText, CARD_SX, CERT_TYPE_FULL, ChainArrow, ChainCertCard, DetailHeader, DetailTabs, DIALOG_BODY_SX,
   DIALOG_PAPER_SX, dnPart, fmtDate, GRID3, GRID4, IconBadge, InfoCard, keyText, MetaItem, PropList, REVOCATION,
@@ -60,6 +62,8 @@ interface Props {
   onClose: () => void
   onSelectCert?: (id: number) => void // zincirde başka sertifikaya geçiş
 }
+
+const SHRINK = { inputLabel: { shrink: true } }
 
 interface EditForm {
   name: string; purchased_by: string; creator: string; environment: string; notes: string
@@ -198,10 +202,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
         <>
           <DetailHeader
             icon={<VerifiedUserOutlinedIcon />} iconColor={nodeColors[cert.cert_type]} tone={daysTone(cert.days_left)} onClose={onClose}
-            title={editing ? (
-              <TextField size="small" label="Sertifika Adı" value={form.name} sx={{ minWidth: { xs: 200, md: 420 } }}
-                         onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            ) : <span title={cert.name}>{cert.name}</span>}
+            title={<span title={cert.name}>{cert.name}</span>}
             titleExtra={!editing && (
               <>
                 {editable && (
@@ -479,52 +480,67 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
             {tab === 'corporate' && (
               editing ? (
-              <Stack spacing={2}>
-                <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by}
-                           onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
-                <TextField select size="small" fullWidth label="Oluşturan Ekip" value={form.creator}
-                           onChange={(e) => setForm({ ...form, creator: e.target.value })}
-                           helperText={syTeams.length ? 'Sertifikayı oluşturan SY ekibini seçin' : 'Tanımlı SY ekibi yok'}>
-                  <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
-                  {form.creator && !syTeams.some((t) => t.name === form.creator) && (
-                    <MenuItem value={form.creator}>{form.creator} (mevcut)</MenuItem>
-                  )}
-                  {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
-                </TextField>
-                <TextField select required size="small" fullWidth label="Ortam" value={form.environment}
-                           onChange={(e) => setForm({ ...form, environment: e.target.value })}
-                           error={!form.environment}
-                           helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
-                  <MenuItem value="prod">Prod</MenuItem>
-                  <MenuItem value="test">Test</MenuItem>
-                </TextField>
-                <TextField select size="small" fullWidth label="Type" value={form.cert_type}
-                           onChange={(e) => setForm({ ...form, cert_type: e.target.value as EditForm['cert_type'] })}
-                           helperText={form.cert_type !== cert.cert_type
-                             ? 'Tür normalde sertifikanın kendisinden okunur; yalnız yanlış algılandıysa değiştirin.'
-                             : 'Leaf / Intermediate / Root'}>
-                  <MenuItem value="leaf">Leaf</MenuItem>
-                  <MenuItem value="intermediate">Intermediate</MenuItem>
-                  <MenuItem value="root">Root</MenuItem>
-                </TextField>
-                <CertificatePicker
-                  remote={{ exclude: (c) => c.id === cert.id || c.cert_type === 'leaf' }}
-                  value={form.parent} onChange={(v) => setForm({ ...form, parent: v })}
-                  label="Üst sertifika (Issuer) — boş bırakılırsa zincirin başı" />
-                <FormControlLabel
-                  control={<Switch checked={form.is_internal} onChange={(e) => setForm({ ...form, is_internal: e.target.checked })} />}
-                  label={<Typography variant="body2">Internal (kurum içi CA ile imzalı)</Typography>} />
-                <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes}
-                           placeholder="Bu sertifikayla ilgili notlar…"
-                           onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                  <Button onClick={() => setEditing(false)} disabled={save.isPending}>Vazgeç</Button>
-                  {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
-                  <Button variant="contained" onClick={() => setConfirmOpen(true)}
-                          disabled={save.isPending || !form.environment}>
-                    Kaydet
-                  </Button>
-                </Box>
+              <Box>
+                <Stack spacing={2}>
+                  <FormSection icon={<BadgeOutlinedIcon />} title="Kimlik" hint="Ad, tür ve ortam">
+                    <TextField size="small" fullWidth label="Sertifika Adı" value={form.name} required
+                               error={!form.name.trim()} helperText={!form.name.trim() ? 'Zorunlu alan' : undefined}
+                               slotProps={SHRINK} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    <TextField select size="small" fullWidth label="Type" value={form.cert_type} slotProps={SHRINK}
+                               onChange={(e) => setForm({ ...form, cert_type: e.target.value as EditForm['cert_type'] })}
+                               helperText={form.cert_type !== cert.cert_type
+                                 ? 'Tür normalde sertifikadan okunur; yalnız yanlış algılandıysa değiştirin.'
+                                 : 'Leaf / Intermediate / Root'}>
+                      <MenuItem value="leaf">Leaf</MenuItem>
+                      <MenuItem value="intermediate">Intermediate</MenuItem>
+                      <MenuItem value="root">Root</MenuItem>
+                    </TextField>
+                    <TextField select required size="small" fullWidth label="Ortam" value={form.environment} slotProps={SHRINK}
+                               onChange={(e) => setForm({ ...form, environment: e.target.value })}
+                               error={!form.environment}
+                               helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
+                      <MenuItem value="prod">Prod</MenuItem>
+                      <MenuItem value="test">Test</MenuItem>
+                    </TextField>
+                  </FormSection>
+                  <FormSection icon={<AccountTreeIcon />} title="Zincir" hint="Bu sertifikayı imzalayan üst sertifika" columns={1}>
+                    <CertificatePicker
+                      remote={{ exclude: (c) => c.id === cert.id || c.cert_type === 'leaf' }}
+                      value={form.parent} onChange={(v) => setForm({ ...form, parent: v })}
+                      label="Üst sertifika (Issuer) — boş bırakılırsa zincirin başı" />
+                    <FormControlLabel sx={{ ml: 0, gap: 1 }}
+                      control={<Switch checked={form.is_internal} onChange={(e) => setForm({ ...form, is_internal: e.target.checked })} />}
+                      label={<Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>Internal</Typography>
+                        <Typography variant="caption" color="text.secondary">Kurum içi CA ile imzalı</Typography>
+                      </Box>} />
+                  </FormSection>
+                  <FormSection icon={<GroupsOutlinedIcon />} title="Kurumsal bilgiler" columns={2}>
+                    <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by} slotProps={SHRINK}
+                               placeholder="ör. Altyapı Satın Alma"
+                               onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
+                    <TextField select size="small" fullWidth label="Oluşturan Ekip" value={form.creator}
+                               slotProps={{ ...SHRINK, select: { displayEmpty: true } }}
+                               onChange={(e) => setForm({ ...form, creator: e.target.value })}
+                               helperText={syTeams.length ? 'Sertifikayı oluşturan SY ekibi' : 'Tanımlı SY ekibi yok'}>
+                      <MenuItem value=""><Typography component="span" color="text.secondary">Seçilmedi</Typography></MenuItem>
+                      {form.creator && !syTeams.some((t) => t.name === form.creator) && (
+                        <MenuItem value={form.creator}>{form.creator} (mevcut)</MenuItem>
+                      )}
+                      {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
+                    </TextField>
+                  </FormSection>
+                  <FormSection icon={<NotesOutlinedIcon />} title="Notlar" columns={1}>
+                    <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes} slotProps={SHRINK}
+                               placeholder="Bu sertifikayla ilgili notlar…"
+                               onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                  </FormSection>
+                </Stack>
+                {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
+                <EditFooter status="Tarihler sertifikanın kendisinden okunur, burada değiştirilmez."
+                            onCancel={() => setEditing(false)} busy={save.isPending}
+                            saveDisabled={!form.environment || !form.name.trim()}
+                            onSave={() => setConfirmOpen(true)} />
                 <ConfirmSaveDialog
                   open={confirmOpen}
                   onClose={() => setConfirmOpen(false)}
@@ -535,7 +551,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     { label: 'ValidTo', highlight: true,
                       value: cert?.valid_to ? cert.valid_to.slice(0, 10) : '—' },
                   ]} />
-              </Stack>
+              </Box>
               ) : (
                 <Stack spacing={2}>
                   <Box sx={GRID3}>
