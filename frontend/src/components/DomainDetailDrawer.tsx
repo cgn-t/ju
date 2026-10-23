@@ -1,6 +1,7 @@
 import AddLinkIcon from '@mui/icons-material/AddLink'
 import CloseIcon from '@mui/icons-material/Close'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import LanguageIcon from '@mui/icons-material/Language'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
@@ -13,12 +14,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useSnackbar } from 'notistack'
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate, ChainImportResult, Domain, MappedCert } from '../api/types'
+import type { Application, Certificate, ChainImportResult, Domain, MappedCert } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { daysLeftColor, daysLeftLabel, mappingTypeLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
+import { daysLeftColor, daysLeftLabel, mappingTypeLabel, MONO_FONT, nodeColors, sourceLabel, TRANSFER_TOAST_MS } from '../theme'
 import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummary } from '../utils/chainImport'
 import CertificatePicker from './CertificatePicker'
 import SkiText from './SkiText'
@@ -83,6 +84,18 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const { data: domain, isLoading } = useQuery<Domain>({
     queryKey: ['domain', domainId],
     queryFn: async () => (await api.get(`/domains/${domainId}`)).data,
+    enabled: domainId !== null,
+  })
+
+  const serverLeafId = domain?.certificates.find((c) => c.mapping_type === 'server' && c.cert_type === 'leaf')?.certificate_id
+  const { data: leafDetail } = useQuery<Certificate>({
+    queryKey: ['certificate', serverLeafId],
+    queryFn: async () => (await api.get(`/certificates/${serverLeafId}`)).data,
+    enabled: domainId !== null && serverLeafId !== undefined,
+  })
+  const { data: allApps } = useQuery<Application[]>({
+    queryKey: ['applications', ''],
+    queryFn: async () => (await api.get('/applications')).data,
     enabled: domainId !== null,
   })
 
@@ -174,6 +187,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const server = domain?.certificates.find((c) => c.mapping_type === 'server' && c.cert_type === 'leaf')
   const trusted = (domain?.certificates ?? []).filter((c) => c.mapping_type === 'client')
   const live = domain ? liveStatus(domain) : undefined
+  const leaf = server ? leafDetail : undefined
+  const sans = (leaf?.san ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  const host = (domain?.domain ?? '').replace(/^https?:\/\//, '').split('/')[0].replace(/:\d+$/, '').toLowerCase()
+  const covers = sans.some((n) => hostMatches(host, n))
+  const serverChain = (domain?.certificates ?? []).filter((c) => c.mapping_type === 'server')
+  const apps = (allApps ?? []).filter((a) => a.domain_id === domainId
+    || (a.dependencies ?? []).some((d) => d.target_domain_id === domainId))
 
   return (
     <Dialog open={domainId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
@@ -192,7 +212,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               <CloseIcon />
             </IconButton>
           </DialogTitle>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" allowScrollButtonsMobile
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} variant={fullScreen ? "scrollable" : "standard"} scrollButtons={false}
                 sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Tab value="summary" label="Özet" />
             <Tab value="certs" label={`Sertifikalar (${domain.certificates.length})`} />
@@ -211,25 +231,66 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
             {tab === 'summary' && (
               <Stack spacing={2}>
                 <ValidityCard cert={server} />
-                <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' } }}>
-                  <InfoCard title="Sertifika" onClick={() => setTab('certs')}
+                <Box sx={GRID4}>
+                  <InfoCard title="Sertifika (CN)" onClick={() => setTab('certs')}
                             value={server?.name ?? 'Bağlanmamış'}
-                            sub={server ? `Veren: ${issuerName(server.issuer)}` : 'Server sertifikası yok'} />
+                            sub={server ? [CERT_TYPE_FULL[server.cert_type], envLabel(leaf?.environment)].filter(Boolean).join(' · ') : 'Server sertifikası yok'} />
+                  <InfoCard title="Sertifika Otoritesi" value={server ? dnPart(server.issuer, 'CN') ?? '—' : '—'}
+                            sub={dnPart(server?.issuer, 'O') ?? undefined} />
+                  <InfoCard title="Anahtar" value={keyText(leaf)}
+                            sub={leaf?.signature_hash ? `${leaf.signature_hash.toUpperCase().replace('SHA', 'SHA-')} ile imzalı` : undefined} />
+                  <InfoCard title="Alternatif Adlar (SAN)" value={sans.length ? `${sans.length} ad` : '—'}
+                            chip={leaf ? (covers ? { label: 'Alan adını kapsıyor', color: 'success' } : { label: 'Alan adını kapsamıyor', color: 'error' }) : undefined} />
+                  <InfoCard title="Zincir" onClick={() => setTab('certs')}
+                            value={`${serverChain.length} sertifika`}
+                            chip={chainChip(domain, serverChain)} />
+                  <InfoCard title="İptal Durumu" value={leaf ? (REVOCATION[leaf.revocation_status ?? 'null'] ?? REVOCATION.null).label : '—'}
+                            color={leaf ? (REVOCATION[leaf.revocation_status ?? 'null'] ?? REVOCATION.null).color : 'default'}
+                            sub={leaf?.revocation_checked_at ? `Son kontrol: ${fmtDate(leaf.revocation_checked_at)}` : 'Henüz kontrol edilmedi'} />
                   <InfoCard title="Canlı Doğrulama" onClick={() => setTab('live')}
-                            value={live ? <Chip size="small" color={live.color} label={live.label.split(' — ')[0]} /> : 'Henüz kontrol edilmedi'}
-                            sub={domain.live_check_at ? `Son kontrol: ${new Date(domain.live_check_at).toLocaleString('tr-TR')}` : undefined} />
-                  <InfoCard title="Ekipler" onClick={() => setTab('internal')}
-                            value={domain.sy_team?.name ?? 'SY ekibi yok'}
-                            sub={`UG: ${domain.ug_team_name ?? domain.ug_team?.name ?? '—'}`} />
-                  <InfoCard title="Trusted" onClick={() => setTab('certs')}
+                            value={live ? live.label.split(' — ')[0] : 'Kontrol edilmedi'}
+                            color={live?.color ?? 'default'}
+                            sub={domain.live_check_at ? `Son kontrol: ${fmtDate(domain.live_check_at)}` : undefined} />
+                  <InfoCard title="Değişiklik Talepleri" value={`${domain.pending_proposals ?? 0} bekleyen`}
+                            color={(domain.pending_proposals ?? 0) > 0 ? 'warning' : 'default'}
+                            sub={(domain.pending_proposals ?? 0) > 0 ? 'SY onayı bekliyor' : 'Onay bekleyen yok'} />
+                  <InfoCard title="SY Takımı" onClick={() => setTab('internal')}
+                            value={domain.sy_team?.name ?? '—'} sub={domain.sy_team?.email ?? undefined} />
+                  <InfoCard title="UG Takımı" onClick={() => setTab('internal')}
+                            value={domain.ug_team_name ?? domain.ug_team?.name ?? '—'} />
+                  <InfoCard title="Bağlı Uygulamalar" value={apps.length ? `${apps.length} uygulama` : 'Yok'}
+                            sub={apps.length ? apps.slice(0, 3).map((a) => a.app_name).join(', ') + (apps.length > 3 ? '…' : '') : undefined} />
+                  <InfoCard title="Trusted Sertifikalar" onClick={() => setTab('certs')}
                             value={trusted.length ? `${trusted.length} sertifika` : 'Yok'}
                             sub={trusted.length ? `En yakın bitiş: ${daysLeftLabel(domain.client_days_left)}` : undefined} />
+                  <InfoCard title="Dış Adres" value={domain.external_address || '—'} />
+                  <InfoCard title="Bildirim Gün Sayısı"
+                            value={domain.notify_days ? `${domain.notify_days} gün` : '30 gün'}
+                            sub={domain.notify_days ? 'Bitişten önce uyarı' : 'Varsayılan'} />
+                  <InfoCard title="Kaynak" value={leaf ? sourceLabel(leaf.source) : '—'}
+                            sub={leaf?.creator ? `Oluşturan: ${leaf.creator}` : undefined} />
+                  <InfoCard title="Ortam" value={envLabel(leaf?.environment) ?? '—'} />
                 </Box>
-                <Stack direction="row" spacing={4} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                  <Field label="Dış Adres" value={domain.external_address} />
-                  <Field label="Bildirim Gün Sayısı"
-                         value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
-                </Stack>
+                {leaf && (
+                  <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 2 }}>
+                    <Typography variant="overline" color="text.secondary">Kimlik</Typography>
+                    <Box sx={{ display: 'grid', gap: 2, mt: 0.5, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+                      <CopyField label="Seri Numarası" value={leaf.serial_number} />
+                      <CopyField label="SHA-256 Parmak İzi" value={leaf.fingerprint_sha256} />
+                      <CopyField label="Konu (Subject)" value={leaf.subject} />
+                      <CopyField label="Veren (Issuer)" value={leaf.issuer} />
+                      <Box sx={{ gridColumn: '1 / -1' }}>
+                        <Typography variant="caption" color="text.secondary">Alternatif Adlar (SAN)</Typography>
+                        <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.5 }}>
+                          {sans.length ? sans.map((n) => (
+                            <Chip key={n} size="small" variant={hostMatches(host, n) ? 'filled' : 'outlined'}
+                                  color={hostMatches(host, n) ? 'primary' : 'default'} label={n} sx={{ fontFamily: MONO_FONT }} />
+                          )) : <Typography variant="body2">—</Typography>}
+                        </Stack>
+                      </Box>
+                    </Box>
+                  </Box>
+                )}
               </Stack>
             )}
 
@@ -305,21 +366,27 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
             )}
 
             {tab === 'internal' && (
-              <Box sx={{ display: 'grid', gap: 2.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
-                <Field label="SY Takımı" value={domain.sy_team?.name} />
-                <Field label="E-Mail (SY takımı)" value={domain.sy_team?.email} />
-                <Field label="UG Takımı" value={domain.ug_team_name ?? domain.ug_team?.name} />
-                <Field label="Dış Adres" value={domain.external_address} />
-                <Field label="LoadBalancer Güncelleme" value={domain.lb_update} />
-                <Field label="WAF Güncelleme" value={domain.waf_update} />
-                <Field label="Aksiyon Alma" value={domain.action_required} />
-                <Field label="SSL Pinning" value={domain.ssl_pinning} />
-                <Field label="Dış Firma" value={domain.external_company} />
-                <Field label="Bildirim Gün Sayısı"
-                       value={domain.notify_days ? `${domain.notify_days} gün (süre bitişine)` : 'Varsayılan (30 gün)'} />
-                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Güncellenecek Sunucular" value={domain.servers_to_update} /></Box>
-                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Keystore" value={domain.keystore} /></Box>
-                <Box sx={{ gridColumn: '1 / -1' }}><Field label="Detay" value={domain.info} /></Box>
+              <Box sx={GRID3}>
+                <InfoCard title="SY Takımı" value={domain.sy_team?.name ?? '—'} />
+                <InfoCard title="E-Mail (SY takımı)" value={domain.sy_team?.email ?? '—'} />
+                <InfoCard title="UG Takımı" value={domain.ug_team_name ?? domain.ug_team?.name ?? '—'} />
+                <InfoCard title="Sertifika Sahibi" value={domain.cert_owner || '—'} />
+                <InfoCard title="Mail Adresleri" value={domain.mail_addresses || '—'} />
+                <InfoCard title="Dış Adres" value={domain.external_address || '—'} />
+                <InfoCard title="LoadBalancer Güncelleme" value={domain.lb_update || '—'} />
+                <InfoCard title="WAF Güncelleme" value={domain.waf_update || '—'} />
+                <InfoCard title="Ortam Güncelleme" value={domain.env_update || '—'} />
+                <InfoCard title="Aksiyon Alma" value={domain.action_required || '—'} />
+                <InfoCard title="SSL Pinning" value={domain.ssl_pinning || '—'} />
+                <InfoCard title="Dış Firma" value={domain.external_company || '—'} />
+                <InfoCard title="Bildirim Gün Sayısı"
+                          value={domain.notify_days ? `${domain.notify_days} gün` : '30 gün'}
+                          sub={domain.notify_days ? 'Bitişten önce uyarı' : 'Varsayılan'} />
+                <InfoCard title="Güncellenecek Sunucular" value={domain.servers_to_update || '—'} />
+                <InfoCard title="Keystore" value={domain.keystore || '—'} />
+                <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
+                  <InfoCard title="Detay" value={domain.info || '—'} />
+                </Box>
               </Box>
             )}
 
@@ -409,11 +476,48 @@ function statusLabel(days: number | null | undefined) {
   return 'Geçerli'
 }
 
-// Issuer DN'den okunur ad: "CN=DigiCert EV RSA CA G2,O=..." → "DigiCert EV RSA CA G2"
-function issuerName(issuer?: string | null) {
-  if (!issuer) return '—'
-  const cn = /(?:^|,\s*)CN=([^,]+)/.exec(issuer)
-  return cn ? cn[1] : issuer
+type Tone = 'success' | 'error' | 'warning' | 'info' | 'default'
+
+const GRID4 = { display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' } }
+const GRID3 = { display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' } }
+
+const REVOCATION: Record<string, { label: string; color: Tone }> = {
+  good: { label: 'İptal edilmemiş', color: 'success' },
+  revoked: { label: 'İPTAL EDİLMİŞ', color: 'error' },
+  unknown: { label: 'Bilinmiyor', color: 'warning' },
+  unreachable: { label: 'Ulaşılamadı', color: 'warning' },
+  not_checkable: { label: 'Kontrol edilemez', color: 'default' },
+  null: { label: 'Denetlenmedi', color: 'default' },
+}
+
+// DN içinden tek bir alan: dnPart("CN=X,O=Y", "O") → "Y". DN değilse CN için metnin kendisi.
+function dnPart(dn: string | null | undefined, key: string) {
+  if (!dn) return null
+  const m = new RegExp(`(?:^|,\\s*)${key}=([^,]+)`).exec(dn)
+  if (m) return m[1]
+  return key === 'CN' && !dn.includes('=') ? dn : null
+}
+
+// SAN girdisi adresi kapsıyor mu (wildcard tek seviye).
+function hostMatches(host: string, name: string) {
+  const n = name.toLowerCase().replace(/^dns:/, '')
+  if (n === host) return true
+  return n.startsWith('*.') && host.endsWith(n.slice(1)) && !host.slice(0, -n.length + 1).includes('.')
+}
+
+function keyText(c?: Certificate) {
+  if (!c?.public_key_type) return '—'
+  return [c.public_key_type, c.key_curve ?? c.key_size].filter(Boolean).join(' ')
+}
+
+const envLabel = (e?: string | null) => (e === 'prod' ? 'Prod' : e === 'test' ? 'Test' : undefined)
+
+function chainChip(d: Domain, chain: MappedCert[]): { label: string; color: Tone } {
+  if (d.live_check_status === 'chain_incomplete') return { label: 'Ara sertifika sunucuda eksik', color: 'warning' }
+  if (!chain.length) return { label: 'Bağlı sertifika yok', color: 'default' }
+  if (chain.some((c) => (c.days_left ?? 0) < 0)) return { label: 'Süresi dolmuş sertifika var', color: 'error' }
+  return chain.some((c) => c.cert_type === 'root') ? { label: 'Zincir tam', color: 'success' }
+    : { label: 'Kök kayıtlı değil', color: 'default' }
 }
 
 const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
@@ -470,15 +574,40 @@ function ValidityCard({ cert }: { cert?: MappedCert }) {
   )
 }
 
-function InfoCard({ title, value, sub, onClick }: {
-  title: string; value: React.ReactNode; sub?: string; onClick?: () => void
+function InfoCard({ title, value, sub, chip, color = 'default', onClick }: {
+  title: string; value: ReactNode; sub?: string; chip?: { label: string; color: Tone }; color?: Tone; onClick?: () => void
 }) {
   return (
-    <ButtonBase onClick={onClick} sx={{ display: 'block', textAlign: 'left', border: 1, borderColor: 'divider',
-                                        borderRadius: 2, p: 2, '&:hover': { bgcolor: 'action.hover' } }}>
+    <ButtonBase component="div" disabled={!onClick} onClick={onClick}
+                sx={{ display: 'block', textAlign: 'left', border: 1, borderColor: 'divider', borderRadius: 2, p: 2,
+                      borderLeft: color !== 'default' ? 4 : 1, borderLeftColor: color !== 'default' ? `${color}.main` : 'divider',
+                      '&:hover': onClick ? { bgcolor: 'action.hover' } : undefined }}>
       <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.6 }}>{title}</Typography>
-      <Box sx={{ typography: 'subtitle1', fontWeight: 700, wordBreak: 'break-word' }}>{value}</Box>
-      {sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{sub}</Typography>}
+      <Box sx={{ typography: 'subtitle1', fontWeight: 700, wordBreak: 'break-word',
+                 color: color !== 'default' ? `${color}.main` : 'text.primary' }}>{value}</Box>
+      {chip && <Chip size="small" color={chip.color} label={chip.label} sx={{ mt: 0.75 }} />}
+      {sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, wordBreak: 'break-word' }}>{sub}</Typography>}
     </ButtonBase>
+  )
+}
+
+function CopyField({ label, value }: { label: string; value?: string | null }) {
+  const { enqueueSnackbar } = useSnackbar()
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary">{label}</Typography>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
+        <Typography variant="body2" sx={{ fontFamily: MONO_FONT, fontSize: 12.5, wordBreak: 'break-all', flexGrow: 1 }}>
+          {value || '—'}
+        </Typography>
+        {value && (
+          <Tooltip title="Kopyala">
+            <IconButton size="small" onClick={() => { void navigator.clipboard?.writeText(value); enqueueSnackbar('Kopyalandı', { variant: 'success' }) }}>
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
+    </Box>
   )
 }
