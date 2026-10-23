@@ -1,39 +1,37 @@
 import AddIcon from '@mui/icons-material/Add'
-import BusinessIcon from '@mui/icons-material/Business'
 import CloseIcon from '@mui/icons-material/Close'
-import DeleteIcon from '@mui/icons-material/Delete'
+import DeleteIcon from '@mui/icons-material/DeleteOutlined'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
-import EditIcon from '@mui/icons-material/Edit'
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined'
-import FileDownloadIcon from '@mui/icons-material/FileDownload'
-import FileUploadIcon from '@mui/icons-material/FileUpload'
+import EditIcon from '@mui/icons-material/EditOutlined'
+import FileDownloadIcon from '@mui/icons-material/FileDownloadOutlined'
+import FileUploadIcon from '@mui/icons-material/FileUploadOutlined'
 import GridViewIcon from '@mui/icons-material/GridView'
-import SearchIcon from '@mui/icons-material/Search'
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
 import TableRowsIcon from '@mui/icons-material/TableRows'
-import VerifiedIcon from '@mui/icons-material/Verified'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import WarningAmberIcon from '@mui/icons-material/WarningAmber'
+import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
 import {
-  Box, Button, Card, CardActions, CardContent, Chip, Dialog, DialogActions, DialogContent,
-  DialogTitle, Grid, IconButton, InputAdornment, Link, MenuItem, Paper, Skeleton,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
-  Tooltip, Typography,
+  Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, ListItemIcon, ListItemText,
+  Menu, MenuItem, Skeleton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Domain } from '../api/types'
+import type { Domain, DomainPage } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import DomainDetailDrawer from '../components/DomainDetailDrawer'
 import DomainFormDialog from '../components/DomainFormDialog'
+import ListPagination from '../components/ListPagination'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
-import StatCard from '../components/StatCard'
+import { CARD_SX } from '../components/DetailCards'
+import { ActiveFilters, DaysLeftPill, Ellipsis, EmptyState, ListCard, RowMenu, SearchBox, StatusTabs } from '../components/ListKit'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { daysLeftColor, daysLeftLabel, mappingTypeLabel } from '../theme'
+import { mappingTypeLabel } from '../theme'
 import { exportSheet } from '../utils/exportSheet'
+import { useDebounced, usePaging } from '../hooks/usePaging'
 import { useUrlId, useUrlParams, useUrlPatch, useUrlState } from '../hooks/useUrlState'
 
 type StatusFilter = 'all' | 'valid' | 'expiring' | 'expired' | 'nocert'
@@ -43,13 +41,17 @@ function domainStatus(d: Domain): StatusFilter {
   return certStatus(days)
 }
 
-// Tek bir "kalan gün" değerinin durumu — kolon (server/client) filtresinde kullanılır.
+// Tek bir "kalan gün" değerinin durumu — kart kenar rengi için (filtre/sayaç sunucuda).
 function certStatus(days: number | null | undefined): StatusFilter {
   if (days === null || days === undefined) return 'nocert'
   if (days < 0) return 'expired'
   if (days <= 30) return 'expiring'
   return 'valid'
 }
+
+// Sıralanabilir kolonlar (sunucu tarafında sıralanır)
+const SORTABLE = ['domain', 'sy', 'ug', 'server', 'client', 'email'] as const
+type SortKey = (typeof SORTABLE)[number]
 
 const STATUS_OPTS = [
   { value: 'all', label: 'Tümü' },
@@ -65,8 +67,8 @@ const COLS: ColDef<Domain>[] = [
   { key: 'sy', label: 'SY Takımı', kind: 'text', get: (d) => d.sy_team?.name },
   { key: 'ug', label: 'UG Takımı', kind: 'text', get: (d) => d.ug_team_name ?? d.ug_team?.name },
   { key: 'server', label: 'Server Sertifika', kind: 'status', options: STATUS_OPTS, get: (d) => certStatus(d.server_days_left) },
-  { key: 'client', label: 'Trusted Sertifika', kind: 'status', options: STATUS_OPTS, get: (d) => certStatus(d.client_days_left) },
-  { key: 'email', label: 'E-Mail', kind: 'text', get: (d) => d.sy_team?.email },
+  { key: 'client', label: 'Trusted', kind: 'status', options: STATUS_OPTS, get: (d) => certStatus(d.client_days_left) },
+  { key: 'email', label: 'SY E-posta', kind: 'text', get: (d) => d.sy_team?.email },
 ]
 
 export default function Domains() {
@@ -86,17 +88,37 @@ export default function Domains() {
   const patchUrl = useUrlPatch()
   const syFilter = searchParams.get('sy')
   const excelInput = useRef<HTMLInputElement>(null)
+  const [excelMenu, setExcelMenu] = useState<HTMLElement | null>(null)
+  const [sort, setSort] = useUrlState<SortKey>('sort', 'domain', SORTABLE)
+  const [dir, setDir] = useUrlState<'asc' | 'desc'>('dir', 'asc', ['asc', 'desc'])
+  const toggleSort = (key: SortKey) => {
+    if (sort === key) setDir(dir === 'asc' ? 'desc' : 'asc')
+    else { setSort(key); setDir('asc') }
+  }
 
-  const { data: domains, isLoading, isError, error, refetch } = useQuery<Domain[]>({
-    queryKey: ['domains', search],
-    queryFn: async () => (await api.get('/domains', { params: { search: search || undefined } })).data,
+  // Arama / filtre / sıralama → sunucu sorgusu. Metin girişleri gecikmeli (her tuşta istek yok).
+  const filterParams = useDebounced(JSON.stringify({
+    q: search.trim() || undefined, status: status === 'all' ? undefined : status,
+    sy: syFilter || undefined, sort, dir, ...cf.params,
+  }))
+  const paging = usePaging(filterParams)
+
+  // 2.000+ domainde tüm listeyi çekmek sayfayı yavaşlatıyordu: sunucu yalnız görünen sayfayı döner.
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<DomainPage>({
+    queryKey: ['domains', 'page', filterParams, paging.page, paging.size],
+    queryFn: async () => (await api.get('/domains/page', {
+      params: { ...JSON.parse(filterParams), page: paging.page, size: paging.size },
+    })).data,
+    placeholderData: keepPreviousData,
   })
+  const items = data?.items ?? []
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => api.delete(`/domains/${id}`),
     onSuccess: () => {
       enqueueSnackbar('Domain silindi', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['domains'] })
+      queryClient.invalidateQueries({ queryKey: ['domain-options'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       setDeleteTarget(null)
     },
@@ -149,19 +171,17 @@ export default function Domains() {
     ])
   }
 
-  const filtered = useMemo(
-    () => (domains ?? []).filter((d) =>
-      (status === 'all' || domainStatus(d) === status) &&
-      (!syFilter || d.sy_team?.name === syFilter)),
-    [domains, status, syFilter],
-  )
-
-  // Kolon-başı (huni) filtreleri genel arama/durum filtresinin ÜSTÜNE uygulanır.
-  const tableRows = useMemo(() => filtered.filter(cf.matches), [filtered, cf.values])
-  // CSV/sayaç: tablo görünümünde kolon filtreleri de dâhil "görünen" set.
-  const visibleRows = view === 'table' ? tableRows : filtered
-
-  const handleExport = () => {
+  const handleExport = async () => {
+    // Filtrelenen TÜM kayıtlar (yalnız görünen sayfa değil) — sunucudan tek seferde alınır
+    let visibleRows: Domain[]
+    try {
+      visibleRows = (await api.get<DomainPage>('/domains/page', {
+        params: { ...JSON.parse(filterParams), all: true },
+      })).data.items
+    } catch (e) {
+      enqueueSnackbar(apiErrorMessage(e), { variant: 'error' })
+      return
+    }
     // DB'deki tüm domain kolonları + türetilen alanlar — eksiksiz dışa aktarım
     exportSheet('domainler.xlsx',
       ['domain', 'external_address', 'sy', 'ug', 'cert_owner', 'external_company',
@@ -178,214 +198,214 @@ export default function Domains() {
                            d.live_check_status, d.live_check_at]))
   }
 
-  const counts = useMemo(() => {
-    const all = domains ?? []
-    return {
-      total: all.length,
-      expired: all.filter((d) => domainStatus(d) === 'expired').length,
-      expiring: all.filter((d) => domainStatus(d) === 'expiring').length,
-      valid: all.filter((d) => domainStatus(d) === 'valid').length,
-    }
-  }, [domains])
+  // Üst kartlar: aramayla eşleşen tüm domainler üzerinden (sunucu sayar)
+  const counts = {
+    total: data?.counts.total ?? 0,
+    expired: data?.counts.expired ?? 0,
+    expiring: data?.counts.expiring ?? 0,
+    valid: data?.counts.valid ?? 0,
+    nocert: data?.counts.nocert ?? 0,
+  }
 
-  const actions = (d: Domain) => (
-    <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25, whiteSpace: 'nowrap' }}>
-      <Tooltip title="Detay">
-        <IconButton size="small" color="info" onClick={() => setDetailId(d.id)}>
-          <VisibilityIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      {canEdit && (
-        <>
-          <Tooltip title="Düzenle">
-            <IconButton size="small" color="primary" onClick={() => { setEditTarget(d); setFormOpen(true) }}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Sil">
-            <IconButton size="small" color="error" onClick={() => setDeleteTarget(d)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </>
-      )}
-    </Box>
+  // Etkin filtrelerin çipleri — her biri tek tıkla kaldırılır
+  const colChips = cf.defs.filter((c) => cf.active(c.key)).map((c) => {
+    const v = cf.values[c.key]
+    const shown = c.kind === 'status' ? (c.options?.find((o) => o.value === v)?.label ?? v) : `"${v}"`
+    return { key: `f_${c.key}`, label: `${c.label}: ${shown}`, onDelete: () => cf.set(c.key, c.kind === 'status' ? 'all' : '') }
+  })
+  const chips = [
+    ...(syFilter ? [{ key: 'sy', label: `SY Takımı: ${syFilter}`, onDelete: () => patchUrl({ sy: null }) }] : []),
+    ...colChips,
+  ]
+  const filtered = !!search.trim() || status !== 'all' || chips.length > 0
+
+  const serverCertOf = (d: Domain) =>
+    d.certificates.find((c) => c.mapping_type === 'server' && c.days_left === d.server_days_left)
+  const clientCertOf = (d: Domain) =>
+    d.certificates.find((c) => c.mapping_type === 'client' && c.days_left === d.client_days_left)
+
+  const rowMenu = (d: Domain) => (
+    <RowMenu items={[
+      { label: 'Detayı aç', icon: <VisibilityIcon fontSize="small" />, onClick: () => setDetailId(d.id) },
+      { label: 'Düzenle', icon: <EditIcon fontSize="small" />, onClick: () => { setEditTarget(d); setFormOpen(true) }, hidden: !canEdit },
+      { label: 'Sil', icon: <DeleteIcon fontSize="small" />, onClick: () => setDeleteTarget(d), danger: true, hidden: !canEdit },
+    ]} />
   )
 
   return (
     <Box>
-      <PageHeader title="Domainler" subtitle="Domain envanteri, sertifika bağlantıları ve canlı doğrulama" />
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {[
-          { label: 'Toplam Domain', value: counts.total, color: '#42a5f5', icon: <BusinessIcon fontSize="large" /> },
-          { label: 'Süresi Dolmuş', value: counts.expired, color: '#ef5350', icon: <ErrorOutlineIcon fontSize="large" /> },
-          { label: 'Yaklaşan (≤30g)', value: counts.expiring, color: '#ffa726', icon: <WarningAmberIcon fontSize="large" /> },
-          { label: 'Geçerli', value: counts.valid, color: '#66bb6a', icon: <VerifiedIcon fontSize="large" /> },
-        ].map((s) => (
-          <Grid key={s.label} size={{ xs: 6, md: 3 }}>
-            <StatCard icon={s.icon} label={s.label} value={s.value} color={s.color} />
-          </Grid>
-        ))}
-      </Grid>
-
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-        {canEdit && (
-          <Button variant="contained" startIcon={<AddIcon />}
-                  onClick={() => { setEditTarget(null); setFormOpen(true) }}>
-            Yeni Ekle
-          </Button>
-        )}
-        <TextField
-          size="small" placeholder="Ara…" value={search} onChange={(e) => setSearch(e.target.value)}
-          sx={{ width: 260 }}
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> } }}
-        />
-        <TextField select size="small" label="Durum" value={status} sx={{ width: 170 }}
-                   onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-          <MenuItem value="all">Tümü</MenuItem>
-          <MenuItem value="valid">Geçerli</MenuItem>
-          <MenuItem value="expiring">Yaklaşan (≤30g)</MenuItem>
-          <MenuItem value="expired">Süresi Dolmuş</MenuItem>
-          <MenuItem value="nocert">Sertifikasız</MenuItem>
-        </TextField>
-        {syFilter && (
-          <Chip label={`SY: ${syFilter}`} color="success" onDelete={() => patchUrl({ sy: null })} />
-        )}
-        {cf.anyActive && (
-          <Chip label="Kolon filtreleri" color="primary" variant="outlined" onDelete={cf.clearAll} />
-        )}
-        <Box sx={{ flexGrow: 1 }} />
-        <Typography variant="body2" color="text.secondary">
-          {visibleRows.length} / {counts.total} domain
-        </Typography>
-        <Tooltip title="Görünen listeyi Excel (.xlsx) olarak indirir">
-          <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon />}
-                  onClick={handleExport}>Excel İndir</Button>
-        </Tooltip>
-        {canEdit && (
+      <PageHeader
+        title="Domainler"
+        subtitle="Domain envanteri, sertifika bağlantıları ve canlı doğrulama"
+        actions={
           <>
-            <Tooltip title="Boş şablonu (başlıklar + örnek satır) indirir">
-              <Button size="small" variant="outlined" color="inherit" startIcon={<DescriptionOutlinedIcon />}
-                      onClick={handleTemplateDownload}>
-                Şablon İndir
-              </Button>
-            </Tooltip>
-            <Tooltip title="Excel'den toplu domain ekler (1. satır başlık; şablonu doldurup yükleyin)">
-              <Button size="small" variant="outlined" color="inherit" startIcon={<FileUploadIcon />}
-                      onClick={() => excelInput.current?.click()} disabled={excelImport.isPending}>
-                Excel Yükle
-              </Button>
-            </Tooltip>
-          </>
-        )}
-        <input ref={excelInput} type="file" hidden
-               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-               onChange={(e) => {
-                 const f = e.target.files?.[0]
-                 if (f) excelImport.mutate(f)
-                 e.target.value = ''
-               }} />
-        <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
-          <ToggleButton value="cards"><Tooltip title="Kart görünümü"><GridViewIcon fontSize="small" /></Tooltip></ToggleButton>
-          <ToggleButton value="table"><Tooltip title="Tablo görünümü"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
-
-      {isError ? (
-        <QueryError error={error} onRetry={() => refetch()} />
-      ) : isLoading ? (
-        <Skeleton variant="rounded" height={400} />
-      ) : view === 'cards' ? (
-        <Grid container spacing={2}>
-          {filtered.map((d) => {
-            const st = domainStatus(d)
-            return (
-              <Grid key={d.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-                <Card variant="outlined"
-                      sx={{ height: '100%', display: 'flex', flexDirection: 'column',
-                            borderColor: st === 'expired' ? 'error.main' : st === 'expiring' ? 'warning.main' : 'divider' }}>
-                  <CardContent sx={{ pb: 1, flexGrow: 1 }}>
-                    <Link component="button" underline="hover" color="inherit" noWrap title={d.domain}
-                          onClick={() => setDetailId(d.id)}
-                          sx={{ display: 'block', maxWidth: '100%', textAlign: 'left', fontWeight: 700, fontSize: 16 }}>
-                      {d.domain}
-                    </Link>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                      <Chip size="small" color={daysLeftColor(d.server_days_left)}
-                            label={`Server: ${d.server_days_left != null ? daysLeftLabel(d.server_days_left) : '—'}`} />
-                      <Chip size="small" variant="outlined" color={daysLeftColor(d.client_days_left)}
-                            label={`Trusted: ${d.client_days_left != null ? daysLeftLabel(d.client_days_left) : '—'}`} />
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                      {d.sy_team?.email && (
-                        <Chip size="small" variant="outlined" label={d.sy_team.email.split(',')[0]} />
-                      )}
-                      {d.sy_team && <Chip size="small" variant="outlined" label={`SY: ${d.sy_team.name}`} color="success" />}
-                      {(d.ug_team_name ?? d.ug_team?.name) && <Chip size="small" variant="outlined" label={`UG: ${d.ug_team_name ?? d.ug_team?.name}`} color="secondary" />}
-                    </Box>
-                  </CardContent>
-                  <CardActions>{actions(d)}</CardActions>
-                </Card>
-              </Grid>
-            )
-          })}
-          {filtered.length === 0 && (
-            <Grid size={{ xs: 12 }}>
-              <Paper sx={{ p: 6, textAlign: 'center' }}>
-                <Typography color="text.secondary">Filtreyle eşleşen domain yok</Typography>
-              </Paper>
-            </Grid>
-          )}
-        </Grid>
-      ) : (
-        <Paper>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                {COLS.map((c) => <ColHeaderCell key={c.key} def={c} cf={cf} />)}
-                <TableCell align="right">İşlemler</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {tableRows.map((d) => (
-                <TableRow key={d.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>
-                    <Link component="button" underline="hover" color="inherit" onClick={() => setDetailId(d.id)}
-                          sx={{ fontWeight: 600, textAlign: 'left' }}>
-                      {d.domain}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{d.sy_team?.name ?? '—'}</TableCell>
-                  <TableCell>{d.ug_team_name ?? d.ug_team?.name ?? '—'}</TableCell>
-                  <TableCell>
-                    <Chip size="small" color={daysLeftColor(d.server_days_left)}
-                          label={d.server_days_left != null ? daysLeftLabel(d.server_days_left) : '—'} />
-                  </TableCell>
-                  <TableCell>
-                    <Chip size="small" variant="outlined" color={daysLeftColor(d.client_days_left)}
-                          label={d.client_days_left != null ? daysLeftLabel(d.client_days_left) : '—'} />
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {d.sy_team?.email ?? '—'}
-                  </TableCell>
-                  <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: '1%' }}>{actions(d)}</TableCell>
-                </TableRow>
-              ))}
-              {tableRows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
-                      Filtreyle eşleşen domain yok
-                    </Typography>
-                  </TableCell>
-                </TableRow>
+            <Button variant="outlined" color="inherit" startIcon={<FileDownloadIcon />}
+                    endIcon={<KeyboardArrowDownIcon />} onClick={(e) => setExcelMenu(e.currentTarget)}
+                    disabled={excelImport.isPending} sx={{ borderColor: 'divider' }}>
+              Excel
+            </Button>
+            <Menu anchorEl={excelMenu} open={!!excelMenu} onClose={() => setExcelMenu(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  slotProps={{ paper: { sx: { minWidth: 260, borderRadius: 2, border: 1, borderColor: 'divider' } } }}>
+              <MenuItem onClick={() => { setExcelMenu(null); void handleExport() }}>
+                <ListItemIcon><FileDownloadIcon fontSize="small" /></ListItemIcon>
+                <ListItemText primary="Listeyi indir" secondary="Filtrelenen tüm domainler (.xlsx)" />
+              </MenuItem>
+              {canEdit && (
+                <MenuItem onClick={() => { setExcelMenu(null); handleTemplateDownload() }}>
+                  <ListItemIcon><DescriptionOutlinedIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText primary="Boş şablon indir" secondary="Başlıklar ve örnek satır" />
+                </MenuItem>
               )}
-            </TableBody>
-          </Table>
-        </Paper>
-      )}
+              {canEdit && (
+                <MenuItem onClick={() => { setExcelMenu(null); excelInput.current?.click() }}>
+                  <ListItemIcon><FileUploadIcon fontSize="small" /></ListItemIcon>
+                  <ListItemText primary="Excel'den yükle" secondary="Doldurulmuş şablonla toplu ekle" />
+                </MenuItem>
+              )}
+            </Menu>
+            {canEdit && (
+              <Button variant="contained" startIcon={<AddIcon />} disableElevation
+                      onClick={() => { setEditTarget(null); setFormOpen(true) }}>
+                Yeni Domain
+              </Button>
+            )}
+          </>
+        }
+      />
+      <input ref={excelInput} type="file" hidden
+             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             onChange={(e) => {
+               const f = e.target.files?.[0]
+               if (f) excelImport.mutate(f)
+               e.target.value = ''
+             }} />
 
-      <ColumnFilterMenu cf={cf} facetRows={filtered} />
+      <ListCard
+        busy={isFetching && !isLoading}
+        tabs={
+          <StatusTabs value={status} onChange={(v) => setStatus(v as StatusFilter)} items={[
+            { value: 'all', label: 'Tümü', count: counts.total },
+            { value: 'valid', label: 'Geçerli', count: counts.valid, tone: 'success' },
+            { value: 'expiring', label: 'Yaklaşan (≤30g)', count: counts.expiring, tone: 'warning' },
+            { value: 'expired', label: 'Süresi dolmuş', count: counts.expired, tone: 'error' },
+            { value: 'nocert', label: 'Sertifikasız', count: counts.nocert },
+          ]} />
+        }
+        toolbar={
+          <>
+            <SearchBox value={search} onChange={setSearch} placeholder="Domain, dış adres veya sertifika sahibi ara" width={380} />
+            <Box sx={{ flexGrow: 1 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {(data?.total ?? 0).toLocaleString('tr-TR')} domain
+            </Typography>
+            <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
+              <ToggleButton value="table" aria-label="Tablo görünümü"><Tooltip title="Tablo görünümü"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
+              <ToggleButton value="cards" aria-label="Kart görünümü"><Tooltip title="Kart görünümü"><GridViewIcon fontSize="small" /></Tooltip></ToggleButton>
+            </ToggleButtonGroup>
+          </>
+        }
+        chips={chips.length ? <ActiveFilters chips={chips} onClearAll={() => { patchUrl({ sy: null }); cf.clearAll() }} /> : undefined}
+        footer={!isError && !isLoading && (data?.total ?? 0) > 0 && (
+          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                          onPage={paging.setPage} onSize={paging.setSize} unit="domain" />
+        )}
+      >
+        {isError ? (
+          <Box sx={{ p: 2 }}><QueryError error={error} onRetry={() => refetch()} /></Box>
+        ) : isLoading ? (
+          <Box sx={{ p: 2 }}>{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} height={44} />)}</Box>
+        ) : items.length === 0 ? (
+          <EmptyState
+            title={filtered ? 'Bu filtrelerle eşleşen domain yok' : 'Henüz domain eklenmemiş'}
+            hint={filtered ? 'Aramayı veya filtreleri değiştirmeyi deneyin.' : 'Yeni Domain ile ekleyin ya da Excel şablonuyla toplu yükleyin.'}
+            action={filtered ? <Button size="small" onClick={() => { setSearch(''); setStatus('all'); patchUrl({ sy: null }); cf.clearAll() }}>Filtreleri temizle</Button> : undefined} />
+        ) : view === 'cards' ? (
+          <Box sx={{ p: 1.5, display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)', xl: 'repeat(4, 1fr)' } }}>
+            {items.map((d) => {
+              const st = domainStatus(d)
+              const tone = st === 'expired' ? 'error.main' : st === 'expiring' ? 'warning.main' : st === 'valid' ? 'success.main' : 'divider'
+              return (
+                <Box key={d.id} onClick={() => setDetailId(d.id)}
+                     sx={{ ...CARD_SX, p: 1.75, cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                           display: 'flex', flexDirection: 'column', gap: 1.25,
+                           transition: 'border-color .15s, box-shadow .15s',
+                           '&::before': { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, bgcolor: tone },
+                           '&:hover': { borderColor: 'text.disabled', boxShadow: 2 } }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                      <Typography noWrap title={d.domain} sx={{ fontWeight: 650 }}>{d.domain}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap component="div">
+                        {d.sy_team?.name ?? 'SY atanmamış'}{(d.ug_team_name ?? d.ug_team?.name) ? ` · ${d.ug_team_name ?? d.ug_team?.name}` : ''}
+                      </Typography>
+                    </Box>
+                    <Box onClick={(e) => e.stopPropagation()}>{rowMenu(d)}</Box>
+                  </Box>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 1.5, rowGap: 0.75, alignItems: 'center' }}>
+                    <Typography variant="caption" color="text.secondary">Server</Typography>
+                    <Box><DaysLeftPill days={d.server_days_left} /></Box>
+                    <Typography variant="caption" color="text.secondary">Trusted</Typography>
+                    <Box><DaysLeftPill days={d.client_days_left} /></Box>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
+        ) : (
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 1000, tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '24%' }} />
+                <col style={{ width: '15%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '23%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: 52 }} />
+              </colgroup>
+              <TableHead>
+                <TableRow>
+                  {COLS.map((c) => (
+                    <ColHeaderCell key={c.key} def={c} cf={cf}
+                                   sort={{ active: sort === c.key, direction: dir,
+                                           onClick: () => toggleSort(c.key as SortKey) }} />
+                  ))}
+                  <TableCell aria-label="İşlemler" />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {items.map((d) => {
+                  const sc = serverCertOf(d)
+                  const cc = clientCertOf(d)
+                  return (
+                    <TableRow key={d.id} hover onClick={() => setDetailId(d.id)} sx={{ cursor: 'pointer' }}>
+                      <TableCell>
+                        <Typography variant="body2" noWrap title={d.domain} sx={{ fontWeight: 600 }}>{d.domain}</Typography>
+                        {d.external_address && (
+                          <Typography variant="caption" color="text.secondary" noWrap component="div" title={d.external_address}>
+                            {d.external_address}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell><Ellipsis>{d.sy_team?.name ?? '—'}</Ellipsis></TableCell>
+                      <TableCell><Ellipsis secondary>{d.ug_team_name ?? d.ug_team?.name ?? '—'}</Ellipsis></TableCell>
+                      <TableCell><DaysLeftPill days={d.server_days_left} date={sc?.valid_to} /></TableCell>
+                      <TableCell><Tooltip title={cc ? `${cc.name} · ${cc.valid_to ? new Date(cc.valid_to).toLocaleDateString('tr-TR') : ''}` : ''}>
+                        <span><DaysLeftPill days={d.client_days_left} /></span>
+                      </Tooltip></TableCell>
+                      <TableCell><Ellipsis secondary>{d.sy_team?.email ?? '—'}</Ellipsis></TableCell>
+                      <TableCell align="right" sx={{ px: 0.5 }} onClick={(e) => e.stopPropagation()}>{rowMenu(d)}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </ListCard>
+
+      <ColumnFilterMenu cf={cf} facetCounts={data?.facets} />
 
       <DomainFormDialog open={formOpen} onClose={() => setFormOpen(false)} domain={editTarget} />
       <DomainDetailDrawer domainId={detailId} onClose={() => setDetailId(null)} />

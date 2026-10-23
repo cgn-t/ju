@@ -25,6 +25,8 @@ import SyncOutlinedIcon from '@mui/icons-material/SyncOutlined'
 import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined'
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined'
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload'
+import EditIcon from '@mui/icons-material/Edit'
+import EventOutlinedIcon from '@mui/icons-material/EventOutlined'
 import LanguageIcon from '@mui/icons-material/Language'
 import LinkOffIcon from '@mui/icons-material/LinkOff'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
@@ -39,14 +41,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Application, Certificate, ChainImportResult, Domain, MappedCert } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, sourceLabel, TRANSFER_TOAST_MS } from '../theme'
 import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummary } from '../utils/chainImport'
 import CertificateDetailDrawer from './CertificateDetailDrawer'
-import CertificatePicker from './CertificatePicker'
+import CertificatePicker, { type PickerCert } from './CertificatePicker'
+import DomainEditPanel from './DomainEditPanel'
 import {
   CARD_SX, CERT_TYPE_FULL, ChainArrow, ChainCertCard, DetailHeader, DetailTabs, DIALOG_BODY_SX, DIALOG_PAPER_SX, dnPart,
   envLabel, fmtDate, GRID3, GRID4, hostMatches, IconBadge, InfoCard, keyText, MetaItem, PropList, REVOCATION, Section,
@@ -81,9 +84,10 @@ function liveStatus(d: Pick<Domain, 'live_check_status' | 'live_check_detail'>) 
 
 export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const { canEdit } = useAuth()
+  const navigate = useNavigate()
   const { enqueueSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  const [selectedCert, setSelectedCert] = useState<Certificate | null>(null)
+  const [selectedCert, setSelectedCert] = useState<PickerCert | null>(null)
   const [mappingType, setMappingType] = useState<'server' | 'client'>('server')
   const [replaceOld, setReplaceOld] = useState(true)
   const [nameMismatch, setNameMismatch] = useState<string | null>(null)
@@ -91,7 +95,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const [importEnvironment, setImportEnvironment] = useState('')
   const [openCertId, setOpenCertId] = useState<number | null>(null)
   const [tab, setTab] = useState<'summary' | 'certs' | 'internal' | 'live'>('summary')
-  useEffect(() => { setTab('summary'); setOpenCertId(null) }, [domainId])
+  const [editing, setEditing] = useState(false)
+  useEffect(() => { setTab('summary'); setOpenCertId(null); setEditing(false) }, [domainId])
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
 
@@ -107,17 +112,14 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
     queryFn: async () => (await api.get(`/certificates/${serverLeafId}`)).data,
     enabled: domainId !== null && serverLeafId !== undefined,
   })
-  const { data: allApps } = useQuery<Application[]>({
-    queryKey: ['applications', ''],
-    queryFn: async () => (await api.get('/applications')).data,
+  // Yalnız bu domaine bağlı uygulamalar (tüm uygulama listesi indirilmez)
+  const { data: apps } = useQuery<Application[]>({
+    queryKey: ['applications', 'domain', domainId],
+    queryFn: async () => (await api.get('/applications', { params: { domain_id: domainId } })).data,
     enabled: domainId !== null,
   })
-
-  const { data: certs } = useQuery<Certificate[]>({
-    queryKey: ['certificates', ''],
-    queryFn: async () => (await api.get('/certificates')).data,
-    enabled: domainId !== null && canEdit,
-  })
+  // Düzenleme yetkisi: rol + kapsam (sunucunun PUT kuralıyla aynı; can_edit tekil GET'ten gelir)
+  const editable = canEdit && domain?.can_edit !== false
 
   // Seçilen eşleme türüyle zaten bağlı sertifikalar — tekrar bağlanamaz (409 önlenir)
   const alreadyMapped = useMemo(
@@ -203,7 +205,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const live = domain ? liveStatus(domain) : undefined
   const certActions = (c: MappedCert) => (
     <>
-      {canEdit && (
+      {editable && (
         <Tooltip title="Bağlantıyı kaldır">
           <IconButton size="small" color="error"
                       onClick={() => detach.mutate({ certId: c.certificate_id, type: c.mapping_type })}>
@@ -218,8 +220,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const host = (domain?.domain ?? '').replace(/^https?:\/\//, '').split('/')[0].replace(/:\d+$/, '').toLowerCase()
   const covers = sans.some((n) => hostMatches(host, n))
   const serverChain = (domain?.certificates ?? []).filter((c) => c.mapping_type === 'server')
-  const apps = (allApps ?? []).filter((a) => a.domain_id === domainId
-    || (a.dependencies ?? []).some((d) => d.target_domain_id === domainId))
+  const linkedApps = apps ?? []
 
   return (
     <Dialog open={domainId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
@@ -237,11 +238,21 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               {domain.sy_team?.name && <MetaItem label="SY" value={domain.sy_team.name} />}
               {envLabel(leaf?.environment) && <MetaItem value={envLabel(leaf?.environment)} />}
             </>}
-            actions={tab !== 'live' &&
-              <Button variant="outlined" size="small" startIcon={<WifiTetheringIcon />} disabled={liveCheck.isPending}
-                      onClick={() => { setTab('live'); liveCheck.mutate() }} sx={{ bgcolor: 'background.paper' }}>
-                {liveCheck.isPending ? 'Kontrol ediliyor…' : 'Şimdi Doğrula'}
-              </Button>
+            actions={
+              <Stack direction="row" spacing={1}>
+                {editable && !editing && (
+                  <Button variant="outlined" size="small" startIcon={<EditIcon />}
+                          onClick={() => { setTab('internal'); setEditing(true) }} sx={{ bgcolor: 'background.paper' }}>
+                    Düzenle
+                  </Button>
+                )}
+                {tab !== 'live' && (
+                  <Button variant="outlined" size="small" startIcon={<WifiTetheringIcon />} disabled={liveCheck.isPending}
+                          onClick={() => { setTab('live'); liveCheck.mutate() }} sx={{ bgcolor: 'background.paper' }}>
+                    {liveCheck.isPending ? 'Kontrol ediliyor…' : 'Şimdi Doğrula'}
+                  </Button>
+                )}
+              </Stack>
             }
             tabs={
               <DetailTabs value={tab} onChange={setTab} scrollable={fullScreen} items={[
@@ -254,7 +265,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
           <DialogContent sx={DIALOG_BODY_SX}>
             {(domain.pending_proposals ?? 0) > 0 && (
               <Alert severity="warning" icon={<SwapHorizIcon />} sx={{ mb: 2 }}
-                     action={<Button color="inherit" size="small" component={RouterLink} to="/proposals">
+                     action={<Button color="inherit" size="small" component={RouterLink}
+                                     to={`/proposals?domain=${domain.id}`}>
                                Onaya git</Button>}>
                 Bu domain için <b>{domain.pending_proposals}</b> değişiklik talebi SY onayı bekliyor.
               </Alert>
@@ -279,6 +291,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                               color={live?.color ?? 'default'}
                               sub={domain.live_check_at ? `Son kontrol: ${fmtDate(domain.live_check_at)}` : undefined} />
                     <InfoCard title="Değişiklik Talepleri" icon={<SwapHorizIcon />} value={`${domain.pending_proposals ?? 0} bekleyen`}
+                              onClick={() => navigate(`/proposals?domain=${domain.id}${(domain.pending_proposals ?? 0) > 0 ? '' : '&status=all'}`)}
                               color={(domain.pending_proposals ?? 0) > 0 ? 'warning' : 'default'}
                               sub={(domain.pending_proposals ?? 0) > 0 ? 'SY onayı bekliyor' : 'Onay bekleyen yok'} />
                   </Box>
@@ -302,8 +315,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                               value={domain.sy_team?.name ?? '—'} sub={domain.sy_team?.email ?? undefined} />
                     <InfoCard title="UG Takımı" icon={<GroupsOutlinedIcon />} onClick={() => setTab('internal')}
                               value={domain.ug_team_name ?? domain.ug_team?.name ?? '—'} />
-                    <InfoCard title="Bağlı Uygulamalar" icon={<AppsOutlinedIcon />} value={apps.length ? `${apps.length} uygulama` : 'Yok'}
-                              sub={apps.length ? apps.slice(0, 3).map((a) => a.app_name).join(', ') + (apps.length > 3 ? '…' : '') : undefined} />
+                    <InfoCard title="Bağlı Uygulamalar" icon={<AppsOutlinedIcon />} value={linkedApps.length ? `${linkedApps.length} uygulama` : 'Yok'}
+                              sub={linkedApps.length ? linkedApps.slice(0, 3).map((a) => a.app_name).join(', ') + (linkedApps.length > 3 ? '…' : '') : undefined} />
                     <InfoCard title="Trusted Sertifikalar" icon={<HandshakeOutlinedIcon />} onClick={() => setTab('certs')}
                               value={trusted.length ? `${trusted.length} sertifika` : 'Yok'}
                               sub={trusted.length ? `En yakın bitiş: ${daysLeftLabel(domain.client_days_left)}` : undefined} />
@@ -364,14 +377,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                     </Stack>
                   )}
                 </SectionBox>
-            {canEdit && (
+            {editable && (
               <SectionBox title="Sertifika Bağla">
                 {/* Dar drawer'da tek satır sıkışıyordu (tip seçici 'S…' diye kırpılıyordu):
                     seçici kendi satırında TAM genişlik, tip + buton ikinci satırda. */}
                 <Stack spacing={1.5}>
                   <CertificatePicker
-                    options={(certs ?? []).filter((c) => c.is_active
-                      && (mappingType !== 'server' || c.cert_type === 'leaf'))}
+                    remote={{ is_active: true, cert_type: mappingType === 'server' ? 'leaf' : undefined }}
                     label="Sertifika seç (ad, SKI, Serial Number ile ara)"
                     value={selectedCert} onChange={setSelectedCert}
                     disabledIds={alreadyMapped} disabledLabel="zaten bağlı"
@@ -401,7 +413,11 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
               </Stack>
             )}
 
-            {tab === 'internal' && (
+            {tab === 'internal' && editing && (
+              <DomainEditPanel domain={domain} onDone={() => setEditing(false)} />
+            )}
+            {tab === 'internal' && !editing && (
+              <Stack spacing={2}>
               <Box sx={GRID3}>
                 <InfoCard title="SY Takımı" icon={<GroupsOutlinedIcon />} value={domain.sy_team?.name ?? '—'} />
                 <InfoCard title="E-Mail (SY takımı)" icon={<AlternateEmailOutlinedIcon />} value={domain.sy_team?.email ?? '—'} />
@@ -420,10 +436,17 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                           sub={domain.notify_days ? 'Bitişten önce uyarı' : 'Varsayılan'} />
                 <InfoCard title="Güncellenecek Sunucular" icon={<DnsOutlinedIcon />} value={domain.servers_to_update || '—'} />
                 <InfoCard title="Keystore" icon={<KeyOutlinedIcon />} value={domain.keystore || '—'} />
+                <InfoCard title="Manuel Bitiş Tarihi" icon={<EventOutlinedIcon />}
+                          value={domain.expire_date ? fmtDate(domain.expire_date) : '—'}
+                          sub={domain.expire_date ? undefined : 'Bağlı sertifikadan'} />
                 <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
                   <InfoCard title="Detay" icon={<NotesOutlinedIcon />} value={domain.info || '—'} />
                 </Box>
               </Box>
+              {editable && (
+                <Box><Button startIcon={<EditIcon fontSize="small" />} variant="outlined" onClick={() => setEditing(true)}>Düzenle</Button></Box>
+              )}
+              </Stack>
             )}
 
             {tab === 'live' && (
@@ -460,7 +483,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 return rows.length ? <PropList title="Son kontrolün ayrıntısı" rows={rows.map((r) => ({ ...r, mono: false }))} /> : null
               } catch { return null }
             })()}
-            {canEdit && ((domain.live_check_status === 'mismatch' && liveStatus(domain) !== EXPIRED_SERVED)
+            {editable && ((domain.live_check_status === 'mismatch' && liveStatus(domain) !== EXPIRED_SERVED)
                          || domain.live_check_status === 'no_mapping') && (
               <Box sx={{ ...CARD_SX, borderColor: 'warning.main', p: 2 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>

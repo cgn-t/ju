@@ -11,19 +11,21 @@ import {
   Alert, Box, Button, Chip, Grid, IconButton, Paper, Skeleton, Stack, Table, TableBody, TableCell,
   TableHead, TableRow, Tooltip, Typography,
 } from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { DiscoveredCertificate, DiscoveryStatus, ScanRun } from '../api/types'
+import type { DiscoveryPage, DiscoveryStatus, ScanRun } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import DiscoveredCertificateDetailDrawer from '../components/DiscoveredCertificateDetailDrawer'
+import ListPagination from '../components/ListPagination'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import StatCard from '../components/StatCard'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
+import { usePaging } from '../hooks/usePaging'
 import { useUrlId, useUrlState } from '../hooks/useUrlState'
 
 const STATUS_META: Record<DiscoveryStatus, { label: string; color: 'warning' | 'success' | 'info' | 'default' }> = {
@@ -60,21 +62,25 @@ export default function Discovery() {
   })
   const scanning = runs?.[0]?.status === 'running'
 
-  const { data: findings, isLoading, isError, error, refetch } = useQuery<DiscoveredCertificate[]>({
-    queryKey: ['discovery', 'findings'],
-    queryFn: async () => (await api.get('/discovery/findings')).data,
+  // Bulgular sunucuda süzülür ve sayfalanır; kartlardaki sayaçlar tüm bulgular üzerinden gelir
+  const filterKey = JSON.stringify({ status: filter ?? undefined, origin: originFilter ?? undefined })
+  const paging = usePaging(filterKey)
+  const { data, isLoading, isError, error, refetch } = useQuery<DiscoveryPage>({
+    queryKey: ['discovery', 'findings', 'page', filterKey, paging.page, paging.size],
+    queryFn: async () => (await api.get('/discovery/findings/page', {
+      params: { ...JSON.parse(filterKey), page: paging.page, size: paging.size },
+    })).data,
     refetchInterval: scanning ? 5000 : false,
+    placeholderData: keepPreviousData,
   })
 
-  const counts = useMemo(() => {
-    const c = { total: 0, new: 0, in_inventory: 0, adopted: 0, ignored: 0 }
-    for (const f of findings ?? []) { c.total++; c[f.status]++ }
-    return c
-  }, [findings])
-
-  const rows = (findings ?? []).filter((f) => (filter ? f.status === filter : true))
-                               .filter((f) => (originFilter ? f.origin === originFilter : true))
-  const hasCt = (findings ?? []).some((f) => f.origin === 'ct')
+  const counts = {
+    total: data?.counts.total ?? 0, new: data?.counts.new ?? 0,
+    in_inventory: data?.counts.in_inventory ?? 0, adopted: data?.counts.adopted ?? 0,
+    ignored: data?.counts.ignored ?? 0,
+  }
+  const rows = data?.items ?? []
+  const hasCt = !!data?.has_ct
 
   // Tarama TAMAMLANINCA sonucu bildir (arka planda çalışır). Açılışta mevcut son çalıştırmayı
   // "duyurulmuş" sayarak eski taramayı her sayfa açılışında bildirmekten kaçınırız.
@@ -287,6 +293,10 @@ export default function Discovery() {
             ))}
           </TableBody>
         </Table>
+        {!isError && !isLoading && (
+          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                          onPage={paging.setPage} onSize={paging.setSize} unit="bulgu" />
+        )}
       </Paper>
 
       <DiscoveredCertificateDetailDrawer findingId={detailId} onClose={() => setDetailId(null)} />
@@ -311,11 +321,11 @@ function IconAction({ color, onClick, disabled, children }: {
 // Nav rozeti: envanterde olmayan (shadow) bulgu sayısı — yalnız Keşif'i görebilenler sorgular
 export function useDiscoveredCount() {
   const { discovery: canSee } = usePageAccess()
-  const { data } = useQuery<DiscoveredCertificate[]>({
-    queryKey: ['discovery', 'findings'],
-    queryFn: async () => (await api.get('/discovery/findings')).data,
+  const { data } = useQuery<{ new: number }>({
+    queryKey: ['discovery', 'findings', 'counts'],
+    queryFn: async () => (await api.get('/discovery/findings/counts')).data,
     enabled: canSee,
     refetchInterval: 60_000,
   })
-  return (data ?? []).filter((f) => f.status === 'new').length
+  return data?.new ?? 0
 }

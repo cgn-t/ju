@@ -1,33 +1,66 @@
 import { Autocomplete, Box, Chip, TextField, Typography, createFilterOptions } from '@mui/material'
-import type { Certificate } from '../api/types'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { api } from '../api/client'
+import type { Certificate, CertificateOption } from '../api/types'
+import { useDebounced } from '../hooks/usePaging'
 import { daysLeftColor, daysLeftLabel, MONO_FONT, nodeColors } from '../theme'
 
-interface Props {
-  options: Certificate[]
-  value: Certificate | null
-  onChange: (cert: Certificate | null) => void
+/** Seçicinin ihtiyaç duyduğu alanlar — tam Certificate da, hafif CertificateOption da uyar. */
+export type PickerCert = Pick<Certificate, 'id' | 'name' | 'cert_type'> & Partial<Pick<CertificateOption,
+  'days_left' | 'subject_key_identifier' | 'serial_number' | 'san' | 'is_active'>>
+
+interface Props<T extends PickerCert> {
+  /** Yerel liste. Verilmezse `remote` ile sunucuda aranır (tüm envanter indirilmez). */
+  options?: T[]
+  /** Sunucu araması: /certificates/options (yazdıkça en fazla 50 sonuç). */
+  remote?: { cert_type?: string; is_active?: boolean; exclude?: (c: CertificateOption) => boolean }
+  value: T | null
+  onChange: (cert: T | null) => void
   label: string
   disabledIds?: Set<number>
   disabledLabel?: string // pasif seçeneklerin yanında görünen rozet (ör. "zaten bağlı")
   sx?: object
+  disabled?: boolean
 }
 
 // SKI sertifikanın kimliğidir — ad, SKI, seri no ve SAN üzerinden arama yapılabilir
-const filter = createFilterOptions<Certificate>({
+const localFilter = createFilterOptions<PickerCert>({
   stringify: (c) =>
     `${c.name} ${c.subject_key_identifier ?? ''} ${c.serial_number ?? ''} ${c.san ?? ''}`,
 })
 
 /** Sertifika bağlama noktalarında kullanılan ortak seçici: her seçenekte tür, kalan gün
  *  ve SubjectKeyIdentifier görünür; yanlış sertifikaya bağlanma riskini azaltır. */
-export default function CertificatePicker({
-  options, value, onChange, label, disabledIds, disabledLabel = 'zaten bağlı', sx,
-}: Props) {
+export default function CertificatePicker<T extends PickerCert>({
+  options, remote, value, onChange, label, disabledIds, disabledLabel = 'zaten bağlı', sx, disabled,
+}: Props<T>) {
+  const [input, setInput] = useState(value?.name ?? '')
+  const [open, setOpen] = useState(false)
+  // Kutuda seçili kaydın adı duruyorsa arama boş yapılır (açınca tüm ilk sonuçlar gelsin)
+  const q = useDebounced(input === value?.name ? '' : input, 250)
+  const { data: found, isFetching } = useQuery<CertificateOption[]>({
+    queryKey: ['certificate-options', remote?.cert_type, remote?.is_active, q],
+    queryFn: async () => (await api.get('/certificates/options', {
+      params: { q: q || undefined, cert_type: remote?.cert_type, is_active: remote?.is_active, limit: 50 },
+    })).data,
+    enabled: !!remote && open,
+    placeholderData: keepPreviousData,
+  })
+  const remoteOptions = (found ?? []).filter((c) => !remote?.exclude?.(c)) as unknown as T[]
+  const list = remote ? remoteOptions : (options ?? [])
+
   return (
     <Autocomplete
-      size="small" sx={sx} options={options} value={value}
+      size="small" sx={sx} options={list} value={value} disabled={disabled}
+      open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)}
       onChange={(_, v) => onChange(v)}
-      filterOptions={filter}
+      inputValue={remote ? input : undefined}
+      onInputChange={remote ? (_, v) => setInput(v) : undefined}
+      filterOptions={remote ? (x) => x : (o, st) => localFilter(o, st as never) as T[]}
+      loading={!!remote && isFetching}
+      loadingText="Aranıyor…"
+      noOptionsText={remote ? (input ? 'Eşleşen sertifika yok' : 'Aramak için ad, SKI veya Serial Number yazın') : 'Seçenek yok'}
       getOptionLabel={(c) => c.name}
       isOptionEqualToValue={(a, b) => a.id === b.id}
       getOptionDisabled={(c) => disabledIds?.has(c.id) ?? false}

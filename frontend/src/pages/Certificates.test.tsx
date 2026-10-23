@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import type { Certificate } from '../api/types'
 import { renderPage } from '../test/render'
+import { buildTree } from '../utils/certTree'
 import Certificates from './Certificates'
 
 vi.mock('../api/client', async (importOriginal) => ({
@@ -31,9 +32,27 @@ const CERTS: Certificate[] = [
   cert({ id: 4, name: 'api.jumbo.local', cert_type: 'leaf', days_left: -5, environment: 'prod' }),
 ]
 
+// Sunucu /certificates/page yanıtının taklidi: zincir ağacı sırası + derinlik + kök özeti
 function mockCertificates(certs: Certificate[]) {
   apiGet.mockImplementation(async (url: string) => {
-    if (url === '/certificates') return { data: certs }
+    if (url === '/certificates/page') {
+      const tree = buildTree(certs)
+      const rootOf = new Map<number, Certificate>()
+      let root: Certificate | null = null
+      for (const r of tree) { if (r.depth === 0) root = r.cert; rootOf.set(r.cert.id, root!) }
+      const groups: Record<string, { members: number; domain_links: number; worst_days: number | null }> = {}
+      for (const r of tree) {
+        const g = (groups[rootOf.get(r.cert.id)!.id] ??= { members: 0, domain_links: 0, worst_days: null })
+        g.members++
+        if (r.cert.days_left != null) g.worst_days = g.worst_days == null ? r.cert.days_left : Math.min(g.worst_days, r.cert.days_left)
+      }
+      return { data: {
+        items: tree.map((r) => ({ cert: r.cert, depth: r.depth, root_id: rootOf.get(r.cert.id)!.id,
+                                  root_name: rootOf.get(r.cert.id)!.name,
+                                  has_children: certs.some((c) => c.parent_id === r.cert.id) })),
+        total: tree.length, page: 0, size: 50, counts: { total: certs.length }, facets: {}, groups,
+      } }
+    }
     throw new Error(`beklenmeyen istek: ${url}`)
   })
 }
@@ -57,7 +76,7 @@ describe('Sertifikalar sayfası', () => {
     ])
     expect(screen.getByText('20g kaldı')).toBeInTheDocument()
     expect(screen.getByText('Süresi Doldu (5g)')).toBeInTheDocument()
-    expect(apiGet).toHaveBeenCalledWith('/certificates', { params: { search: undefined, is_active: true } })
+    expect(apiGet).toHaveBeenCalledWith('/certificates/page', { params: { is_active: true, page: 0, size: 50 } })
   })
 
   it('kart görünümünde zincirleri gruplar', async () => {

@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, load_only
 
+from app.api.paging import MAX_PAGE_SIZE, any_contains, contains, count_by, fold_search, page_slice
 from app.core.textmatch import ci_like
 from app.api.schemas import (
-    AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationUpdate,
+    AppDependencyCreate, AppDependencyOut, ApplicationCreate, ApplicationOut, ApplicationPage,
+    ApplicationUpdate,
     AppTrustedCertCreate, AppTrustedCertOut,
 )
 from app.core.security import (
@@ -49,6 +51,7 @@ def _sync_app_tags(db: Session, app_id: int, tag_ids: list[int]) -> None:
 @router.get("", response_model=list[ApplicationOut])
 def list_applications(search: str | None = None,
                       tag_ids: list[int] | None = Query(None),
+                      domain_id: int | None = None,
                       limit: int | None = Query(None, ge=1, le=5000), offset: int = Query(0, ge=0),
                       db: Session = Depends(get_db), user: User = Depends(require_role("viewer"))):
     # RBAC: liste kullanıcının ÜYELİĞİNE göre kapsamlı — SY editör/viewer yalnız KENDİ ekiplerinin
@@ -68,10 +71,59 @@ def list_applications(search: str | None = None,
         for tid in tag_ids:
             q = q.filter(Application.id.in_(
                 db.query(ApplicationTag.application_id).filter(ApplicationTag.tag_id == tid)))
+    if domain_id is not None:
+        # Domain penceresi: bu domaine bağlı ya da ona Trusted bağımlılığı olan uygulamalar
+        q = q.filter((Application.domain_id == domain_id) | Application.id.in_(
+            db.query(AppDependency.app_id).filter(AppDependency.target_domain_id == domain_id)))
     scope = domain_scope_team_ids(db, user)
     if scope is not None:
         q = q.filter(Application.sy_team_id.in_(scope or {-1}))
     return q.order_by(Application.app_name).offset(offset).limit(limit).all()
+
+
+@router.get("/page", response_model=ApplicationPage)
+def page_applications(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
+                      q: str | None = None,
+                      f_app: str | None = None, f_server: str | None = None, f_ip: str | None = None,
+                      f_dns: str | None = None, f_domain: str | None = None, f_sy: str | None = None,
+                      f_ug: str | None = None, f_tags: str | None = None, f_status: str | None = None,
+                      db: Session = Depends(get_db), user: User = Depends(require_role("viewer"))):
+    """Uygulama listesi — sunucu tarafında arama, kolon filtresi ve sayfalama. Arama list_applications
+    ile aynı alanlarda (uygulama adı, sunucu, DNS, etiket adı); kapsam (RBAC) aynı."""
+    base = db.query(Application).options(
+        load_only(Application.id, Application.app_name, Application.server_name, Application.ip_address,
+                  Application.dns, Application.status, Application.sy_team_id, Application.ug_team_id,
+                  Application.domain_id),
+        joinedload(Application.sy_team), joinedload(Application.ug_team),
+        joinedload(Application.domain).load_only(Domain.id, Domain.domain),
+        joinedload(Application.tag_links).joinedload(ApplicationTag.tag))
+    scope = domain_scope_team_ids(db, user)
+    if scope is not None:
+        base = base.filter(Application.sy_team_id.in_(scope or {-1}))
+    rows = []
+    for a in base.all():
+        tags = " ".join(l.tag.name for l in a.tag_links if l.tag)
+        rows.append({"id": a.id, "app": a.app_name, "server": a.server_name, "ip": a.ip_address,
+                     "dns": a.dns, "domain": a.domain.domain if a.domain else None,
+                     "sy": a.sy_team.name if a.sy_team else None,
+                     "ug": a.ug_team.name if a.ug_team else None, "tags": tags,
+                     "status": "active" if a.status else "inactive"})
+    if q:
+        rows = [r for r in rows if any_contains((r["app"], r["server"], r["dns"], r["tags"]), q)]
+    facets = {"status": count_by(rows, lambda r: r["status"], ("active", "inactive"))}
+    for key, needle in (("app", f_app), ("server", f_server), ("ip", f_ip), ("dns", f_dns),
+                        ("domain", f_domain), ("sy", f_sy), ("ug", f_ug), ("tags", f_tags)):
+        if needle:
+            rows = [r for r in rows if contains(r[key], needle)]
+    if f_status in ("active", "inactive"):
+        rows = [r for r in rows if r["status"] == f_status]
+    rows.sort(key=lambda r: fold_search(r["app"]))
+    total = len(rows)
+    chosen, page = page_slice(rows, page, size)
+    ids = [r["id"] for r in chosen]
+    full = {a.id: a for a in _query(db).filter(Application.id.in_(ids or [-1])).all()} if ids else {}
+    return ApplicationPage(items=[full[i] for i in ids if i in full], total=total, page=page,
+                           size=size, facets=facets, counts={"total": len(rows)})
 
 
 @router.get("/{app_id}", response_model=ApplicationOut)

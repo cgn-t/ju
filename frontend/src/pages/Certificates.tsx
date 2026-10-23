@@ -1,7 +1,7 @@
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AddIcon from '@mui/icons-material/Add'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
-import DeleteIcon from '@mui/icons-material/Delete'
+import DeleteIcon from '@mui/icons-material/DeleteOutlined'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import GridViewIcon from '@mui/icons-material/GridView'
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'
@@ -9,33 +9,39 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
 import LanguageIcon from '@mui/icons-material/Language'
 import PauseCircleOutlineIcon from '@mui/icons-material/PauseCircleOutlined'
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutlined'
-import SearchIcon from '@mui/icons-material/Search'
 import TableRowsIcon from '@mui/icons-material/TableRows'
-import VisibilityIcon from '@mui/icons-material/Visibility'
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
+import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
 import {
-  Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider,
-  FormControlLabel, IconButton, InputAdornment, Paper, Skeleton, Switch, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup,
+  Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
+  IconButton, Paper, Skeleton, Table, TableBody,
+  TableCell, TableContainer, TableHead, TableRow, ToggleButton, ToggleButtonGroup,
   Tooltip, Typography, useMediaQuery,
 } from '@mui/material'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
 import { useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate } from '../api/types'
+import type { Certificate, CertificatePage, CertificateTreeRow } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificateDetailDrawer from '../components/CertificateDetailDrawer'
 import CertificateImportDialog from '../components/CertificateImportDialog'
 import ChainCheckDialog from '../components/ChainCheckDialog'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
+import { StatusPill, type Tone } from '../components/DetailCards'
+import ListPagination from '../components/ListPagination'
+import { ActiveFilters, DaysLeftPill, EmptyState, ListCard, RowMenu, SearchBox, ToggleChip } from '../components/ListKit'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
 import SkiText from '../components/SkiText'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { daysLeftColor, daysLeftLabel, environmentColor, environmentLabel, nodeColors, sourceLabel } from '../theme'
-import { buildTree, type TreeRow } from '../utils/certTree'
 import { exportSheet } from '../utils/exportSheet'
+import { useDebounced, usePaging } from '../hooks/usePaging'
 import { useUrlId, useUrlState } from '../hooks/useUrlState'
+
+const toneOf = (d: number | null | undefined): Tone => { const c = daysLeftColor(d); return c === 'default' ? 'default' : c }
 
 const TYPE_LABEL: Record<string, string> = { root: 'R', intermediate: 'I', leaf: 'L' }
 const TYPE_FULL: Record<string, string> = {
@@ -88,10 +94,10 @@ const CERT_COLS: ColDef<Certificate>[] = [
 // ortadaki ikincil kolonlar (SKI/SAN/Kaynak/Ortam, zaten detay çekmecesinde de var) kayar.
 // İki kolon birbirine bitişik sabitlendiği için Geçerlilik, İşlemler'in ALTINDA kalmaz.
 // İşlemler'in genişliği buton sayısına göre değişir (admin: göz+duraklat+sil, diğer: yalnız göz).
-const ACTIONS_COL_WIDTH = { admin: 128, other: 56 }
-const stickyCellSx = (right: number) => ({
+const ACTIONS_COL_WIDTH = { admin: 96, other: 60 }
+const stickyCellSx = (right: number, head = false) => ({
   position: 'sticky' as const, right,
-  bgcolor: 'background.paper',
+  ...(head ? {} : { bgcolor: 'background.paper' }),
   boxShadow: right === 0 ? '-6px 0 6px -6px rgba(0,0,0,0.35)' : undefined,
   '.MuiTableRow-hover:hover &': { bgcolor: 'action.hover' },
 })
@@ -111,22 +117,37 @@ export default function Certificates() {
   const [detailId, setDetailId] = useUrlId('cert')
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
   const [deactivateTarget, setDeactivateTarget] = useState<Certificate | null>(null)
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
+  // Tablo ağacında kapalı düğümler sunucuya gider (altları sayfalamadan önce çıkarılır).
+  // all=true: "Tümünü Kapat" — ids o durumda AÇIK bırakılanlardır.
+  const [collapsed, setCollapsed] = useState<{ all: boolean; ids: Set<number> }>({ all: false, ids: new Set() })
   const [collapsedGroups, setCollapsedGroups] = useState<Set<number>>(new Set())
   const [inactiveParam, setInactiveParam] = useUrlState<string>('inactive', '')
   const showInactive = inactiveParam === '1'
   const setShowInactive = (on: boolean) => setInactiveParam(on ? '1' : '')
-  const twoCols = useMediaQuery('(min-width:1200px)')
+  // Kart görünümünde iki kolon ancak çok geniş ekranda: dar panelde ad sütunu ezilmesin
+  const twoCols = useMediaQuery('(min-width:1800px)')
 
-  const { data: certs, isLoading, isError, error, refetch } = useQuery<Certificate[]>({
-    queryKey: ['certificates', search, showInactive],
-    queryFn: async () => (await api.get('/certificates', {
-      params: { search: search || undefined, is_active: showInactive ? undefined : true },
+  const cf = useColumnFilters(CERT_COLS, { urlPrefix: 'f_' })  // kolon-başı (huni) filtreleri
+  // Arama + kolon filtreleri → sunucu sorgusu (gecikmeli). Sayfa yalnız görünen satırları çeker.
+  const filterParams = useDebounced(JSON.stringify({
+    q: search.trim() || undefined, is_active: showInactive ? undefined : true, ...cf.params,
+  }))
+  const paging = usePaging(filterParams)
+  const treeParams = view === 'table' && !cf.anyActive
+    ? (collapsed.all
+        ? { collapse_all: true, expanded: [...collapsed.ids].join(',') || undefined }
+        : { collapsed: [...collapsed.ids].join(',') || undefined })
+    : {}
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery<CertificatePage>({
+    queryKey: ['certificates', 'page', filterParams, treeParams, paging.page, paging.size],
+    queryFn: async () => (await api.get('/certificates/page', {
+      params: { ...JSON.parse(filterParams), ...treeParams, page: paging.page, size: paging.size },
     })).data,
     // Filtre/arama değişince listeyi koruyup skeleton'a düşme → "Pasifleri göster" tıklamasında
     // tablo çökmez, sayfa yukarı kaymaz.
     placeholderData: keepPreviousData,
   })
+  const pageRows = data?.items ?? []
 
   const toggleActive = useMutation({
     // Pasife alma bilgilendirme tetikler (bağlı domain SY ekiplerine); aktifleştirme sade PUT.
@@ -176,78 +197,62 @@ export default function Certificates() {
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
 
-  // Yenileme zinciri: halef adı yüklü listeden çözülür (filtre dışındaysa #id)
-  const certNames = useMemo(() => new Map((certs ?? []).map((c) => [c.id, c.name])), [certs])
+  // Yenileme zinciri: halef adı sunucudan gelir (superseded_by_name)
+  const successorName = (c: Certificate) => c.superseded_by_name ?? `#${c.superseded_by_id}`
 
-  const handleExport = () =>
+  const handleExport = async () => {
+    // Filtrelenen TÜM sertifikalar (yalnız görünen sayfa değil)
+    let certs: Certificate[]
+    try {
+      certs = (await api.get<CertificatePage>('/certificates/page', {
+        params: { ...JSON.parse(filterParams), all: true },
+      })).data.items.map((r) => r.cert)
+    } catch (e) {
+      enqueueSnackbar(apiErrorMessage(e), { variant: 'error' })
+      return
+    }
     // DB'deki tüm sertifika kolonları (PEM gövdesi hariç) — eksiksiz dışa aktarım
     exportSheet('sertifikalar.xlsx',
       ['name', 'cert_type', 'serial_number', 'subject_key_identifier', 'authority_key_identifier',
        'fingerprint_sha256', 'subject', 'issuer', 'san', 'extended_key_usage',
        'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'yeni_sertifika', 'internal', 'ortam', 'kaynak', 'vault_path',
        'auto_renew', 'satin_alan', 'olusturan', 'notlar', 'olusturulma', 'domainler'],
-      (certs ?? []).map((c) => [c.name, c.cert_type, c.serial_number, c.subject_key_identifier,
+      certs.map((c) => [c.name, c.cert_type, c.serial_number, c.subject_key_identifier,
                                 c.authority_key_identifier, c.fingerprint_sha256, c.subject,
                                 c.issuer, c.san, c.extended_key_usage, c.valid_from, c.valid_to,
                                 c.days_left, c.is_active ? 'evet' : 'hayir',
                                 // yenileme zinciri: yerine geçen kaydın adı (varsa)
-                                c.superseded_by_id
-                                  ? (certNames.get(c.superseded_by_id) ?? `#${c.superseded_by_id}`) : '',
+                                c.superseded_by_id ? successorName(c) : '',
                                 c.is_internal ? 'evet' : 'hayir', environmentLabel(c.environment),
                                 c.source, c.vault_path,
                                 c.auto_renew ? 'evet' : 'hayir', c.purchased_by, c.creator,
                                 c.notes, c.created_at,
                                 c.domains.map((d) => `${d.domain}(${d.mapping_type})`).join(' ')]))
+  }
 
-  const rows = useMemo(() => {
-    if (!certs) return []
-    const tree = buildTree(certs)
-    const hidden = new Set<number>()
-    const result: TreeRow[] = []
-    for (const row of tree) {
-      if (row.cert.parent_id && hidden.has(row.cert.parent_id)) {
-        hidden.add(row.cert.id)
-        continue
-      }
-      if (collapsed.has(row.cert.id)) hidden.add(row.cert.id)
-      result.push(row)
-    }
-    return result
-  }, [certs, collapsed])
-
-  const cf = useColumnFilters(CERT_COLS, { urlPrefix: 'f_' })  // kolon-başı (huni) filtreleri
-  // Kolon filtresi AKTİFSE ağaç yerine DÜZ eşleşen liste (hiyerarşi filtrede korunamaz); yoksa ağaç.
-  const displayRows = useMemo(() =>
-    cf.anyActive
-      ? (certs ?? []).filter(cf.matches).map((cert) => ({ cert, depth: 0 }))
-      : rows,
-    [cf.values, certs, rows])
+  // Tablo satırları sunucudan ağaç sırasında + derinlikle gelir (kolon filtresi varsa düz liste)
+  const displayRows = pageRows
 
   const toggle = (id: number) =>
     setCollapsed((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
+      const ids = new Set(prev.ids)
+      if (ids.has(id)) ids.delete(id)
+      else ids.add(id)
+      return { all: prev.all, ids }
     })
+  const isCollapsed = (id: number) => (collapsed.all ? !collapsed.ids.has(id) : collapsed.ids.has(id))
 
-  const hasChildren = (id: number) => certs?.some((c) => c.parent_id === id) ?? false
-
-  // Kart görünümü için zincir gruplaması (her kök → altındaki tüm sertifikalar)
+  // Kart görünümü: sayfadaki satırlar kök zincirine göre gruplanır. Grup sayfanın ortasında
+  // başlıyorsa başlık yine kökün adını ve tüm zincirin özetini (sunucudan) gösterir.
   const chainGroups = useMemo(() => {
-    const tree = buildTree(certs ?? [])
-    const groups: { root: TreeRow; members: TreeRow[] }[] = []
-    let current: { root: TreeRow; members: TreeRow[] } | null = null
-    for (const row of tree) {
-      if (row.depth === 0) {
-        current = { root: row, members: [row] }
-        groups.push(current)
-      } else if (current) {
-        current.members.push(row)
-      }
+    const groups: { rootId: number; rootName: string; continued: boolean; members: CertificateTreeRow[] }[] = []
+    for (const row of pageRows) {
+      const last = groups[groups.length - 1]
+      if (last && last.rootId === row.root_id) last.members.push(row)
+      else groups.push({ rootId: row.root_id, rootName: row.root_name, continued: row.cert.id !== row.root_id, members: [row] })
     }
     return groups
-  }, [certs])
+  }, [pageRows])
 
   const toggleGroup = (id: number) =>
     setCollapsedGroups((prev) => {
@@ -263,7 +268,7 @@ export default function Certificates() {
     const cols: (typeof chainGroups)[] = twoCols ? [[], []] : [[]]
     const heights = cols.map(() => 0)
     for (const g of chainGroups) {
-      const open = !collapsedGroups.has(g.root.cert.id)
+      const open = !collapsedGroups.has(g.rootId)
       const h = g.members.length === 1 ? 58 : 58 + (open ? g.members.length * 40 + 12 : 0)
       const idx = heights.indexOf(Math.min(...heights))
       cols[idx].push(g)
@@ -275,7 +280,7 @@ export default function Certificates() {
   // Aktif + superseded_by = temkinli devir sürüyor; pasif + superseded_by = devir tamam
   const renewalChip = (cert: Certificate, compact = false, sx: object = {}) => {
     if (!cert.superseded_by_id) return null
-    const successor = certNames.get(cert.superseded_by_id) ?? `#${cert.superseded_by_id}`
+    const successor = successorName(cert)
     const state = cert.is_active ? 'Yenisi onay bekliyor' : 'Yenilendi'
     return (
       <Tooltip title={cert.is_active
@@ -291,27 +296,21 @@ export default function Certificates() {
   }
 
   const rowActions = (cert: Certificate) => (
-    <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25, whiteSpace: 'nowrap' }}>
+    <Box sx={{ display: 'inline-flex', flexWrap: 'nowrap', gap: 0.25, whiteSpace: 'nowrap' }}
+         onClick={(e) => e.stopPropagation()}>
       <Tooltip title="Detay & Zincir">
-        <IconButton size="small" color="info" onClick={() => setDetailId(cert.id)}>
+        <IconButton size="small" aria-label="Detay & Zincir" onClick={() => setDetailId(cert.id)} sx={{ color: 'text.secondary' }}>
           <VisibilityIcon fontSize="small" />
         </IconButton>
       </Tooltip>
-      {/* Aktif/pasif durumu YALNIZ admin değiştirir — SY editörleri sertifikayı pasife alamaz/aktifleştiremez */}
+      {/* Aktif/pasif durumu ve silme YALNIZ admin — SY editörleri sertifikayı pasife alamaz/silemez */}
       {isAdmin && (
-        <Tooltip title={cert.is_active ? 'Pasife Al' : 'Aktifleştir'}>
-          <IconButton size="small" color={cert.is_active ? 'warning' : 'success'}
-                      onClick={() => cert.is_active ? setDeactivateTarget(cert) : toggleActive.mutate(cert)}>
-            {cert.is_active ? <PauseCircleOutlineIcon fontSize="small" /> : <PlayCircleOutlineIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-      )}
-      {isAdmin && (
-        <Tooltip title="Sil (kalıcı)">
-          <IconButton size="small" color="error" onClick={() => setDeleteTarget(cert)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+        <RowMenu items={[
+          cert.is_active
+            ? { label: 'Pasife Al', icon: <PauseCircleOutlineIcon fontSize="small" />, onClick: () => setDeactivateTarget(cert) }
+            : { label: 'Aktifleştir', icon: <PlayCircleOutlineIcon fontSize="small" />, onClick: () => toggleActive.mutate(cert) },
+          { label: 'Sil (kalıcı)', icon: <DeleteIcon fontSize="small" />, onClick: () => setDeleteTarget(cert), danger: true },
+        ]} />
       )}
     </Box>
   )
@@ -330,8 +329,8 @@ export default function Certificates() {
     <Box key={cert.id}
          sx={{ position: 'relative', display: 'grid', alignItems: 'center', columnGap: 1,
                gridTemplateColumns: {
-                 xs: 'minmax(0,1fr) 92px auto',
-                 md: 'minmax(0,1fr) minmax(60px,116px) 72px 52px 92px auto',
+                 xs: 'minmax(0,1fr) 116px auto',
+                 md: 'minmax(0,1fr) minmax(60px,116px) 72px 72px 116px auto',
                },
                height: 40, px: 0.5, borderRadius: 1, opacity: cert.is_active ? 1 : 0.55,
                '& .row-actions': { opacity: { xs: 1, md: 0 }, transition: 'opacity .15s' },
@@ -376,37 +375,36 @@ export default function Certificates() {
       </Typography>
       <Box sx={{ display: { xs: 'none', md: 'flex' }, justifyContent: 'center' }}>
         {cert.domains.length > 0 && (
-          <Tooltip title={cert.domains.map((d) => `${d.domain} (${d.mapping_type})`).join(', ')}>
+          <Tooltip title={cert.domains.map((d) => `${d.domain} (${d.mapping_type})`).join(', ')
+                          + ((cert.domain_count ?? 0) > cert.domains.length ? ` … ve ${(cert.domain_count ?? 0) - cert.domains.length} domain daha` : '')}>
             <Chip size="small" variant="outlined" icon={<LanguageIcon sx={{ fontSize: 13 }} />}
-                  label={cert.domains.length}
+                  label={cert.domain_count ?? cert.domains.length}
                   sx={{ '& .MuiChip-label': { px: 0.75 } }} />
           </Tooltip>
         )}
       </Box>
-      <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)}
-            sx={{ width: '100%' }} />
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><DaysLeftPill days={cert.days_left} /></Box>
       <Box className="row-actions" sx={{ display: 'flex', justifyContent: 'flex-end' }}>
         {rowActions(cert)}
       </Box>
     </Box>
   )
 
-  const groupPanel = (group: { root: TreeRow; members: TreeRow[] }) => {
-    const rootId = group.root.cert.id
+  const groupPanel = (group: (typeof chainGroups)[number]) => {
+    const rootId = group.rootId
+    const stat = data?.groups?.[String(rootId)]
     // Tek sertifikalı grup: başlık + satır tekrarı yerine tek kompakt satır
-    if (group.members.length === 1) {
+    if (group.members.length === 1 && !group.continued && (stat?.members ?? 1) === 1) {
       return (
         <Paper key={rootId} variant="outlined" sx={{ px: 1, py: 0.75 }}>
-          {chainRow(group.root.cert, 0, 1)}
+          {chainRow(group.members[0].cert, 0, 1)}
         </Paper>
       )
     }
     const open = !collapsedGroups.has(rootId)
-    const domainCount = group.members.reduce((n, m) => n + m.cert.domains.length, 0)
-    const days = group.members.map((m) => m.cert.days_left).filter((d): d is number => d != null)
-    const worst = days.length ? Math.min(...days) : null
+    const worst = stat?.worst_days ?? null
     return (
-      <Paper key={rootId} variant="outlined" sx={{ overflow: 'hidden' }}>
+      <Paper key={`${rootId}-${group.members[0].cert.id}`} variant="outlined" sx={{ overflow: 'hidden' }}>
         <Box onClick={() => toggleGroup(rootId)}
              sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.75,
                    cursor: 'pointer', userSelect: 'none', bgcolor: 'action.hover',
@@ -415,16 +413,20 @@ export default function Certificates() {
             {open ? <KeyboardArrowDownIcon fontSize="small" /> : <KeyboardArrowRightIcon fontSize="small" />}
           </IconButton>
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-            <Typography variant="subtitle2" noWrap title={group.root.cert.name}>
-              {group.root.cert.name}
+            <Typography variant="subtitle2" noWrap title={group.rootName}>
+              {group.rootName}
+              {group.continued && (
+                <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                  (önceki sayfadan devam)
+                </Typography>
+              )}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {group.members.length} sertifika · {domainCount} domain bağlantısı
+              {stat?.members ?? group.members.length} sertifika · {stat?.domain_links ?? 0} domain bağlantısı
             </Typography>
           </Box>
           <Tooltip title="Zincirdeki en yakın bitiş">
-            <Chip size="small" variant="outlined" color={daysLeftColor(worst)}
-                  label={`en kritik: ${daysLeftLabel(worst)}`} />
+            <span><StatusPill size="small" tone={toneOf(worst)} label={`en kritik: ${daysLeftLabel(worst)}`} /></span>
           </Tooltip>
         </Box>
         <Collapse in={open} timeout="auto">
@@ -442,6 +444,12 @@ export default function Certificates() {
     )
   }
 
+  const colChips = cf.defs.filter((c) => cf.active(c.key)).map((c) => {
+    const v = cf.values[c.key]
+    const shown = c.kind === 'status' ? (c.options?.find((o) => o.value === v)?.label ?? v) : `"${v}"`
+    return { key: c.key, label: `${c.label}: ${shown}`, onDelete: () => cf.set(c.key, c.kind === 'status' ? 'all' : '') }
+  })
+
   return (
     <Box>
       <PageHeader
@@ -450,92 +458,95 @@ export default function Certificates() {
         actions={
           <>
             {canEdit && (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setImportOpen(true)}>
+              <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => setImportOpen(true)}>
                 Yeni Ekle
               </Button>
             )}
             {canEdit && (
-              <Button variant="outlined" startIcon={<CloudSyncIcon />}
+              <Button variant="outlined" color="inherit" sx={{ borderColor: 'divider' }} startIcon={<CloudSyncIcon />}
                       onClick={() => vaultSync.mutate()} disabled={vaultSync.isPending}>
                 Vault'tan Senkronize Et
               </Button>
             )}
             {isAdmin && (
-              <Button variant="outlined" startIcon={<AccountTreeIcon />} onClick={() => setChainCheckOpen(true)}>
+              <Button variant="outlined" color="inherit" sx={{ borderColor: 'divider' }} startIcon={<AccountTreeIcon />} onClick={() => setChainCheckOpen(true)}>
                 Zincir Kontrolü
               </Button>
             )}
-            <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
-              <ToggleButton value="table"><Tooltip title="Tablo görünümü"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
-              <ToggleButton value="cards"><Tooltip title="Kart görünümü"><GridViewIcon fontSize="small" /></Tooltip></ToggleButton>
-            </ToggleButtonGroup>
           </>
         }
       />
 
-      <Paper variant="outlined" sx={{ p: 1, mb: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-        <TextField
-          size="small" placeholder="Ara… (ad, SKI, seri no, issuer)" value={search}
-          onChange={(e) => setSearch(e.target.value)} sx={{ width: { xs: '100%', sm: 340 } }}
-          slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> } }}
-        />
-        {cf.anyActive && (
-          <Chip size="small" color="primary" variant="outlined"
-                label={`Kolon filtreleri (${displayRows.length})`} onDelete={cf.clearAll} />
+      <ListCard
+        busy={isFetching && !isLoading}
+        toolbar={
+          <>
+            <SearchBox value={search} onChange={setSearch} placeholder="Ad, SKI, Serial Number veya Issuer ara" width={360} />
+            <ToggleChip label="Pasifleri göster" selected={showInactive} onChange={setShowInactive} />
+            <Box sx={{ flexGrow: 1 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              {(data?.total ?? 0).toLocaleString('tr-TR')} sertifika
+            </Typography>
+            <Button size="small" color="inherit" sx={{ color: 'text.secondary' }} startIcon={<UnfoldLessIcon fontSize="small" />}
+                    onClick={() => view === 'table'
+                      ? setCollapsed({ all: true, ids: new Set() })
+                      : setCollapsedGroups(new Set(chainGroups.filter((g) => g.members.length > 1)
+                          .map((g) => g.rootId)))}>
+              Tümünü Kapat
+            </Button>
+            <Button size="small" color="inherit" sx={{ color: 'text.secondary' }} startIcon={<UnfoldMoreIcon fontSize="small" />}
+                    onClick={() => view === 'table' ? setCollapsed({ all: false, ids: new Set() }) : setCollapsedGroups(new Set())}>
+              Tümünü Aç
+            </Button>
+            <Tooltip title="Filtrelenen listeyi Excel (.xlsx) olarak indirir">
+              <Button size="small" variant="outlined" color="inherit" sx={{ borderColor: 'divider' }}
+                      startIcon={<FileDownloadIcon fontSize="small" />} onClick={handleExport}>Excel İndir</Button>
+            </Tooltip>
+            <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && setView(v)}>
+              <ToggleButton value="table" aria-label="Tablo görünümü"><Tooltip title="Tablo görünümü"><TableRowsIcon fontSize="small" /></Tooltip></ToggleButton>
+              <ToggleButton value="cards" aria-label="Kart görünümü"><Tooltip title="Kart görünümü"><GridViewIcon fontSize="small" /></Tooltip></ToggleButton>
+            </ToggleButtonGroup>
+          </>
+        }
+        chips={cf.anyActive ? <ActiveFilters chips={colChips} onClearAll={cf.clearAll} /> : undefined}
+        footer={!isError && !isLoading && (data?.total ?? 0) > 0 && (
+          <ListPagination total={data?.total ?? 0} page={paging.page} size={paging.size}
+                          onPage={paging.setPage} onSize={paging.setSize} unit="sertifika" />
         )}
-        <Box sx={{ flexGrow: 1 }} />
-        <Button size="small" sx={{ color: 'text.secondary' }}
-                onClick={() => view === 'table'
-                  ? setCollapsed(new Set(certs?.filter((c) => c.cert_type !== 'leaf').map((c) => c.id)))
-                  : setCollapsedGroups(new Set(chainGroups.filter((g) => g.members.length > 1)
-                      .map((g) => g.root.cert.id)))}>
-          Tümünü Kapat
-        </Button>
-        <Button size="small" sx={{ color: 'text.secondary' }}
-                onClick={() => view === 'table' ? setCollapsed(new Set()) : setCollapsedGroups(new Set())}>
-          Tümünü Aç
-        </Button>
-        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-        <FormControlLabel
-          control={<Switch size="small" checked={showInactive}
-                           onChange={(e) => setShowInactive(e.target.checked)} />}
-          label={<Typography variant="body2">Pasifleri göster</Typography>} sx={{ mr: 0.5 }} />
-        <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
-        <Tooltip title="Görünen listeyi Excel (.xlsx) olarak indirir">
-          <Button size="small" variant="outlined" color="inherit" startIcon={<FileDownloadIcon fontSize="small" />}
-                  onClick={handleExport}>Excel İndir</Button>
-        </Tooltip>
-      </Paper>
-
+      >
       {isError ? (
-        <QueryError error={error} onRetry={() => refetch()} />
+        <Box sx={{ p: 2 }}><QueryError error={error} onRetry={() => refetch()} /></Box>
       ) : isLoading ? (
-        <Skeleton variant="rounded" height={400} />
+        <Box sx={{ p: 2 }}>{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} height={44} />)}</Box>
       ) : view === 'table' ? (
-        <Paper>
+        <>
           <TableContainer sx={{ overflowX: 'auto' }}>
           <Table size="small" sx={{ minWidth: 760 }}>
             <TableHead>
               <TableRow>
                 {CERT_COLS.map((c) => (
                   <ColHeaderCell key={c.key} def={c} cf={cf}
-                                 sx={c.key === 'valid' ? stickyCellSx(actionsColWidth) : undefined} />
+                                 sx={c.key === 'valid' ? stickyCellSx(actionsColWidth, true) : undefined} />
                 ))}
-                <TableCell align="right" sx={stickyCellSx(0)}>İşlemler</TableCell>
+                <TableCell align="right" sx={{ ...stickyCellSx(0, true), px: 1, '&:last-of-type': { pr: 1 } }} aria-label="İşlemler">
+                  <Box sx={{ width: actionsColWidth - 16 }} />
+                </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {displayRows.map(({ cert, depth }) => (
-                <TableRow key={cert.id} hover>
+              {displayRows.map(({ cert, depth, has_children }) => (
+                <TableRow key={cert.id} hover onClick={() => setDetailId(cert.id)}
+                          sx={{ cursor: 'pointer', opacity: cert.is_active ? 1 : 0.6 }}>
                   <TableCell>
                     {/* Sabit hizalama: girinti + kontrol yuvası + tip çipi ASLA küçülmez (flexShrink:0);
                         böylece uzun ad/ek çipler olsa da her derinlikte L/I/R aynı hizada başlar. */}
                     <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
                       {depth > 0 && <Box sx={{ width: depth * 24, flexShrink: 0 }} />}
                       <Box sx={{ width: 34, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-                        {!cf.anyActive && hasChildren(cert.id) && (
-                          <IconButton size="small" onClick={() => toggle(cert.id)}>
-                            {collapsed.has(cert.id) ? <KeyboardArrowRightIcon /> : <KeyboardArrowDownIcon />}
+                        {!cf.anyActive && has_children && (
+                          <IconButton size="small" aria-label={isCollapsed(cert.id) ? 'Alt sertifikaları göster' : 'Alt sertifikaları gizle'}
+                                      onClick={(e) => { e.stopPropagation(); toggle(cert.id) }}>
+                            {isCollapsed(cert.id) ? <KeyboardArrowRightIcon /> : <KeyboardArrowDownIcon />}
                           </IconButton>
                         )}
                       </Box>
@@ -555,31 +566,29 @@ export default function Certificates() {
                       {renewalChip(cert, false, { ml: 1 })}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 170 }}>
+                  <TableCell sx={{ maxWidth: 130 }}>
                     <SkiText value={cert.subject_key_identifier} />
                   </TableCell>
-                  <TableCell sx={{ maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  <TableCell sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                              title={cert.san || cert.issuer || undefined}>
                     {cert.san || cert.issuer}
                   </TableCell>
                   <TableCell>
-                    <Chip size="small" variant="outlined"
-                          label={sourceLabel(cert.source)} />
+                    <Typography variant="body2" color="text.secondary" noWrap>{sourceLabel(cert.source)}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Chip size="small" color={environmentColor(cert.environment)}
-                          variant="outlined" label={environmentLabel(cert.environment)} />
+                    <Typography variant="body2"
+                                sx={{ whiteSpace: 'nowrap', fontWeight: cert.environment === 'prod' ? 600 : 400,
+                                      color: cert.environment === 'prod' ? 'error.main' : cert.environment ? 'text.primary' : 'text.disabled' }}>
+                      {cert.environment ? environmentLabel(cert.environment) : '—'}
+                    </Typography>
                   </TableCell>
                   <TableCell sx={{ ...stickyCellSx(actionsColWidth), width: '1%', whiteSpace: 'nowrap' }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" component="span" sx={{ color: 'text.secondary' }}>
-                        {cert.valid_to ? new Date(cert.valid_to).toLocaleDateString('tr-TR') : '—'}
-                      </Typography>
-                      <Chip size="small" color={daysLeftColor(cert.days_left)} label={daysLeftLabel(cert.days_left)} />
-                    </Box>
+                    <DaysLeftPill days={cert.days_left} date={cert.valid_to} />
                   </TableCell>
-                  <TableCell align="right" sx={{ ...stickyCellSx(0), whiteSpace: 'nowrap', width: '1%' }}>
-                    {rowActions(cert)}
+                  <TableCell align="right" sx={{ ...stickyCellSx(0), whiteSpace: 'nowrap', px: 1, '&:last-of-type': { pr: 1 } }}>
+                    {/* sabit genişlik: Geçerlilik'in sticky ofseti (actionsColWidth) ile birebir aynı olmalı */}
+                    <Box sx={{ width: actionsColWidth - 16, display: 'flex', justifyContent: 'flex-end' }}>{rowActions(cert)}</Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -595,16 +604,12 @@ export default function Certificates() {
             </TableBody>
           </Table>
           </TableContainer>
-        </Paper>
+        </>
       ) : chainGroups.length === 0 ? (
-        <Paper sx={{ p: 6, textAlign: 'center' }}>
-          <Typography color="text.secondary">
-            {search ? 'Aramayla eşleşen sertifika yok' : 'Henüz sertifika eklenmemiş — "Yeni Ekle" ile başlayın'}
-          </Typography>
-        </Paper>
+        <EmptyState title={search || cf.anyActive ? 'Filtreyle eşleşen sertifika yok' : 'Henüz sertifika eklenmemiş — "Yeni Ekle" ile başlayın'} />
       ) : (
         // Kart görünümü — paneller yüksekliğe göre dengeli kolonlara dağıtılır (ölü boşluk yok)
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', p: 1.5, bgcolor: 'background.default' }}>
           {panelColumns.map((col, ci) => (
             <Box key={ci} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {col.map(groupPanel)}
@@ -612,8 +617,9 @@ export default function Certificates() {
           ))}
         </Box>
       )}
+      </ListCard>
 
-      <ColumnFilterMenu cf={cf} facetRows={certs ?? []} />
+      <ColumnFilterMenu cf={cf} facetCounts={data?.facets} />
 
       <CertificateImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <ChainCheckDialog open={chainCheckOpen} onClose={() => setChainCheckOpen(false)} />
@@ -627,7 +633,7 @@ export default function Certificates() {
             <b>{deleteTarget?.name}</b> kalıcı olarak silinecek. Alt sertifikalar silinmez,
             hiyerarşiden ayrılır.
             {deleteTarget && deleteTarget.domains.length > 0 && (
-              <> Bu sertifika <b>{deleteTarget.domains.length}</b> domaine bağlı; bu bağlantılar da silinir.</>
+              <> Bu sertifika <b>{deleteTarget.domain_count ?? deleteTarget.domains.length}</b> domaine bağlı; bu bağlantılar da silinir.</>
             )}
             <br /><br />İz kaybını önlemek için silmek yerine <b>Pasife Al</b>mayı düşünün.
           </Typography>
@@ -647,7 +653,7 @@ export default function Certificates() {
             <b>{deactivateTarget?.name}</b> pasife alınacak. Domain/uygulama bağlantıları KALIR,
             ama sertifika artık aktif sayılmaz.
             {deactivateTarget && deactivateTarget.domains.length > 0 && (
-              <> Bu sertifika <b>{deactivateTarget.domains.length}</b> domaine bağlı;
+              <> Bu sertifika <b>{deactivateTarget.domain_count ?? deactivateTarget.domains.length}</b> domaine bağlı;
               canlıda hâlâ sunuluyorsa bu durumu gözden kaçırmayın.</>
             )}
           </Typography>

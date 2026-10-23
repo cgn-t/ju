@@ -1,4 +1,5 @@
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined'
 import CategoryOutlinedIcon from '@mui/icons-material/CategoryOutlined'
@@ -32,8 +33,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
 import {
-  Box, Button, Chip, Dialog, DialogContent, IconButton, MenuItem, Skeleton, Stack,
-  TextField, Tooltip, Typography, useMediaQuery, useTheme,
+  Box, Button, Chip, Dialog, DialogContent, FormControlLabel, IconButton, MenuItem, Skeleton, Stack,
+  Switch, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -43,8 +44,9 @@ import { useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import CertificatePicker from './CertificatePicker'
+import CertificatePicker, { type PickerCert } from './CertificatePicker'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
+import { EditFooter, FormSection } from './FormKit'
 import {
   basicConstraintsText, CARD_SX, CERT_TYPE_FULL, ChainArrow, ChainCertCard, DetailHeader, DetailTabs, DIALOG_BODY_SX,
   DIALOG_PAPER_SX, dnPart, fmtDate, GRID3, GRID4, IconBadge, InfoCard, keyText, MetaItem, PropList, REVOCATION,
@@ -61,20 +63,26 @@ interface Props {
   onSelectCert?: (id: number) => void // zincirde başka sertifikaya geçiş
 }
 
-interface EditForm { name: string; purchased_by: string; creator: string; environment: string; notes: string }
+const SHRINK = { inputLabel: { shrink: true } }
+const ADMIN_ONLY = 'Sertifikadan okunur; yalnız admin değiştirebilir'
+
+interface EditForm {
+  name: string; purchased_by: string; creator: string; environment: string; notes: string
+  is_internal: boolean; cert_type: 'root' | 'intermediate' | 'leaf'; parent: PickerCert | null
+}
 
 export default function CertificateDetailDrawer({ certId, onClose, onSelectCert }: Props) {
   const { enqueueSnackbar } = useSnackbar()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { canEdit } = useAuth()
+  const { canEdit, isAdmin } = useAuth()
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate'>('summary')
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
   const [form, setForm] = useState<EditForm>(
-    { name: '', purchased_by: '', creator: '', environment: '', notes: '' })
+    { name: '', purchased_by: '', creator: '', environment: '', notes: '', is_internal: false, cert_type: 'leaf', parent: null })
 
   const { data: cert, isLoading } = useQuery<Certificate>({
     queryKey: ['certificate', certId],
@@ -95,19 +103,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const syTeams = (teams ?? []).filter((t) => t.type === 'SY')
 
   // Manuel devir: halef sertifika seçimi için aktif sertifika listesi
-  const [successor, setSuccessor] = useState<Certificate | null>(null)
+  const [successor, setSuccessor] = useState<PickerCert | null>(null)
 
   // Sertifika değişince / panel kapanınca düzenleme modundan çık, halef seçimini sıfırla
   useEffect(() => { setEditing(false); setSuccessor(null); setTab('summary') }, [certId])
-  const { data: allCerts } = useQuery<Certificate[]>({
-    queryKey: ['certificates', 'picker'],
-    queryFn: async () => (await api.get('/certificates')).data,
-    enabled: certId !== null && canEdit,
-  })
-  // Halef adayları: aktif + kendisi değil + AYNI TÜR (leaf'in halefi leaf'tir — CA/intermediate
-  // bir sunucu sertifikasının yerine geçmez; yanlış seçim listede hiç görünmesin)
-  const successorOptions = (allCerts ?? []).filter(
-    (c) => c.is_active && c.id !== certId && c.cert_type === cert?.cert_type)
+  // Düzenleme yetkisi: rol + sertifikanın sahibi ekip (sunucunun PUT kuralıyla aynı)
+  const editable = canEdit && cert?.can_edit !== false
+  const parentNow = chain?.ancestors.length ? chain.ancestors[chain.ancestors.length - 1] : null
 
   const supersede = useMutation({
     mutationFn: async () =>
@@ -123,13 +125,21 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   })
 
   const save = useMutation({
-    mutationFn: async (payload: Partial<EditForm>) =>
-      // environment Literal["prod","test"]|None kabul eder, boş string DEĞİL — dönüştür
-      api.put(`/certificates/${certId}`, { ...payload, environment: payload.environment || null }),
+    mutationFn: async (f: EditForm) => {
+      const { parent, ...rest } = f
+      // environment Literal["prod","test"]|None kabul eder, boş string DEĞİL — dönüştür.
+      // Üst sertifika yalnız değiştiyse gönderilir (zincir kuralı sunucuda denetlenir).
+      const body: Record<string, unknown> = { ...rest, environment: rest.environment || null }
+      if ((parent?.id ?? null) !== (cert?.parent_id ?? null)) body.parent_id = parent?.id ?? null
+      if (rest.cert_type === cert?.cert_type) delete body.cert_type
+      return api.put(`/certificates/${certId}`, body)
+    },
     onSuccess: () => {
       enqueueSnackbar('Sertifika güncellendi', { variant: 'success' })
       queryClient.invalidateQueries({ queryKey: ['certificate', certId] })
+      queryClient.invalidateQueries({ queryKey: ['certificate-chain', certId] })
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
+      queryClient.invalidateQueries({ queryKey: ['cert-map'] })
       setEditing(false)
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
@@ -155,6 +165,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
     setForm({
       name: cert.name ?? '', purchased_by: cert.purchased_by ?? '',
       creator: cert.creator ?? '', environment: cert.environment ?? '', notes: cert.notes ?? '',
+      is_internal: !!cert.is_internal, cert_type: cert.cert_type,
+      parent: parentNow ? { id: parentNow.id, name: parentNow.name, cert_type: parentNow.cert_type,
+                            days_left: parentNow.days_left, subject_key_identifier: parentNow.subject_key_identifier } : null,
     })
     setEditing(true)
   }
@@ -190,13 +203,10 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
         <>
           <DetailHeader
             icon={<VerifiedUserOutlinedIcon />} iconColor={nodeColors[cert.cert_type]} tone={daysTone(cert.days_left)} onClose={onClose}
-            title={editing ? (
-              <TextField size="small" label="Sertifika Adı" value={form.name} sx={{ minWidth: { xs: 200, md: 420 } }}
-                         onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            ) : <span title={cert.name}>{cert.name}</span>}
+            title={<span title={cert.name}>{cert.name}</span>}
             titleExtra={!editing && (
               <>
-                {canEdit && (
+                {editable && (
                   <Tooltip title="Düzenle">
                     <IconButton size="small" onClick={() => { setTab('corporate'); startEdit() }}><EditIcon fontSize="small" /></IconButton>
                   </Tooltip>
@@ -341,7 +351,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     </Box>
                   )}
                 </SectionBox>
-                {!editing && canEdit && cert.is_active && (
+                {!editing && editable && cert.is_active && (
                   <SectionBox title="Değişiklik Talebi Oluştur">
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                   Bu sertifikanın yerine geçecek yeni sertifikayı seçin. Bağlı her domain ve uygulama
@@ -349,7 +359,9 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   ekibinin onayını bekler — onaysız hiçbir bağlantı taşınmaz.
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-                  <CertificatePicker options={successorOptions} value={successor}
+                  {/* Halef adayları: aktif + kendisi değil + AYNI TÜR (leaf'in halefi leaf'tir) */}
+                  <CertificatePicker remote={{ is_active: true, cert_type: cert.cert_type, exclude: (c) => c.id === cert.id }}
+                                     value={successor}
                                      onChange={setSuccessor} label="Yeni sertifika"
                                      sx={{ flexGrow: 1 }} />
                   <Button variant="outlined" onClick={() => supersede.mutate()}
@@ -469,36 +481,71 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
             {tab === 'corporate' && (
               editing ? (
-              <Stack spacing={2}>
-                <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by}
-                           onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
-                <TextField select size="small" fullWidth label="Oluşturan Ekip" value={form.creator}
-                           onChange={(e) => setForm({ ...form, creator: e.target.value })}
-                           helperText={syTeams.length ? 'Sertifikayı oluşturan SY ekibini seçin' : 'Tanımlı SY ekibi yok'}>
-                  <MenuItem value=""><em>— seçilmedi —</em></MenuItem>
-                  {form.creator && !syTeams.some((t) => t.name === form.creator) && (
-                    <MenuItem value={form.creator}>{form.creator} (mevcut)</MenuItem>
-                  )}
-                  {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
-                </TextField>
-                <TextField select required size="small" fullWidth label="Ortam" value={form.environment}
-                           onChange={(e) => setForm({ ...form, environment: e.target.value })}
-                           error={!form.environment}
-                           helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
-                  <MenuItem value="prod">Prod</MenuItem>
-                  <MenuItem value="test">Test</MenuItem>
-                </TextField>
-                <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes}
-                           placeholder="Bu sertifikayla ilgili notlar…"
-                           onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                  <Button onClick={() => setEditing(false)} disabled={save.isPending}>Vazgeç</Button>
-                  {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
-                  <Button variant="contained" onClick={() => setConfirmOpen(true)}
-                          disabled={save.isPending || !form.environment}>
-                    Kaydet
-                  </Button>
-                </Box>
+              <Box>
+                <Stack spacing={2}>
+                  <FormSection icon={<BadgeOutlinedIcon />} title="Kimlik" hint="Ad, tür ve ortam">
+                    <TextField size="small" fullWidth label="Sertifika Adı" value={form.name} required disabled={!isAdmin}
+                               error={!form.name.trim()}
+                               helperText={!form.name.trim() ? 'Zorunlu alan' : !isAdmin ? ADMIN_ONLY : undefined}
+                               slotProps={SHRINK} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    <TextField select size="small" fullWidth label="Type" value={form.cert_type} slotProps={SHRINK}
+                               disabled={!isAdmin}
+                               onChange={(e) => setForm({ ...form, cert_type: e.target.value as EditForm['cert_type'] })}
+                               helperText={!isAdmin ? ADMIN_ONLY : form.cert_type !== cert.cert_type
+                                 ? 'Tür normalde sertifikadan okunur; yalnız yanlış algılandıysa değiştirin.'
+                                 : 'Leaf / Intermediate / Root'}>
+                      <MenuItem value="leaf">Leaf</MenuItem>
+                      <MenuItem value="intermediate">Intermediate</MenuItem>
+                      <MenuItem value="root">Root</MenuItem>
+                    </TextField>
+                    <TextField select required size="small" fullWidth label="Ortam" value={form.environment} slotProps={SHRINK}
+                               onChange={(e) => setForm({ ...form, environment: e.target.value })}
+                               error={!form.environment}
+                               helperText={!form.environment ? 'Zorunlu — Prod veya Test seçin' : undefined}>
+                      <MenuItem value="prod">Prod</MenuItem>
+                      <MenuItem value="test">Test</MenuItem>
+                    </TextField>
+                  </FormSection>
+                  <FormSection icon={<AccountTreeIcon />} title="Zincir" columns={1}
+                               hint={isAdmin ? 'Bu sertifikayı imzalayan üst sertifika' : 'Zincir bilgisi sertifikadan okunur; yalnız admin düzeltebilir'}>
+                    <CertificatePicker disabled={!isAdmin}
+                      remote={{ exclude: (c) => c.id === cert.id || c.cert_type === 'leaf' }}
+                      value={form.parent} onChange={(v) => setForm({ ...form, parent: v })}
+                      label="Üst sertifika (Issuer) — boş bırakılırsa zincirin başı" />
+                    <FormControlLabel sx={{ ml: 0, gap: 1 }}
+                      disabled={!isAdmin}
+                      control={<Switch checked={form.is_internal} onChange={(e) => setForm({ ...form, is_internal: e.target.checked })} />}
+                      label={<Box>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>Internal</Typography>
+                        <Typography variant="caption" color="text.secondary">Kurum içi CA ile imzalı</Typography>
+                      </Box>} />
+                  </FormSection>
+                  <FormSection icon={<GroupsOutlinedIcon />} title="Kurumsal bilgiler" columns={2}>
+                    <TextField size="small" fullWidth label="Satın Alım Yapan" value={form.purchased_by} slotProps={SHRINK}
+                               placeholder="ör. Altyapı Satın Alma"
+                               onChange={(e) => setForm({ ...form, purchased_by: e.target.value })} />
+                    <TextField select size="small" fullWidth label="Oluşturan Ekip" value={form.creator}
+                               slotProps={{ ...SHRINK, select: { displayEmpty: true } }}
+                               onChange={(e) => setForm({ ...form, creator: e.target.value })}
+                               helperText={syTeams.length ? 'Sertifikayı oluşturan SY ekibi' : 'Tanımlı SY ekibi yok'}>
+                      <MenuItem value=""><Typography component="span" color="text.secondary">Seçilmedi</Typography></MenuItem>
+                      {form.creator && !syTeams.some((t) => t.name === form.creator) && (
+                        <MenuItem value={form.creator}>{form.creator} (mevcut)</MenuItem>
+                      )}
+                      {syTeams.map((t) => <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>)}
+                    </TextField>
+                  </FormSection>
+                  <FormSection icon={<NotesOutlinedIcon />} title="Notlar" columns={1}>
+                    <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes} slotProps={SHRINK}
+                               placeholder="Bu sertifikayla ilgili notlar…"
+                               onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                  </FormSection>
+                </Stack>
+                {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
+                <EditFooter status="Tarihler sertifikanın kendisinden okunur, burada değiştirilmez."
+                            onCancel={() => setEditing(false)} busy={save.isPending}
+                            saveDisabled={!form.environment || !form.name.trim()}
+                            onSave={() => setConfirmOpen(true)} />
                 <ConfirmSaveDialog
                   open={confirmOpen}
                   onClose={() => setConfirmOpen(false)}
@@ -509,7 +556,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     { label: 'ValidTo', highlight: true,
                       value: cert?.valid_to ? cert.valid_to.slice(0, 10) : '—' },
                   ]} />
-              </Stack>
+              </Box>
               ) : (
                 <Stack spacing={2}>
                   <Box sx={GRID3}>
@@ -519,12 +566,21 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     <InfoCard title="Kaynak" icon={<SourceOutlinedIcon />} value={sourceLabel(cert.source)} />
                     <InfoCard title="Vault Yolu" icon={<FolderOutlinedIcon />} value={cert.vault_path || '—'} />
                     <InfoCard title="Kayıt Tarihi" icon={<HistoryIcon />} value={fmtDate(cert.created_at)} sub={`Son güncelleme: ${fmtDate(cert.updated_at)}`} />
+                    <InfoCard title="Type" icon={<CategoryOutlinedIcon />} value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type} />
+                    <InfoCard title="Üst sertifika (Issuer)" icon={<AccountTreeIcon />} value={parentNow?.name ?? '—'}
+                              onClick={parentNow ? () => onSelectCert?.(parentNow.id) : undefined} />
+                    <InfoCard title="Internal" icon={<LockOutlinedIcon />} value={cert.is_internal ? 'Evet' : 'Hayır'} />
                     <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
                       <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={cert.notes || '—'} />
                     </Box>
                   </Box>
-                  {canEdit && (
+                  {editable && (
                     <Box><Button startIcon={<EditIcon fontSize="small" />} variant="outlined" onClick={startEdit}>Düzenle</Button></Box>
+                  )}
+                  {canEdit && !editable && (
+                    <Typography variant="caption" color="text.secondary">
+                      Bu sertifika başka bir ekibe ait; yalnız o ekibin editörü veya admin düzenleyebilir.
+                    </Typography>
                   )}
                 </Stack>
               )
