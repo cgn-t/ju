@@ -50,6 +50,7 @@ import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummar
 import CertificateDetailDrawer from './CertificateDetailDrawer'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
 import DomainEditPanel from './DomainEditPanel'
+import LiveExtraChecks from './LiveExtraChecks'
 import {
   CARD_SX, CERT_TYPE_FULL, ChainArrow, ChainCertCard, DetailHeader, DetailTabs, DIALOG_BODY_SX, DIALOG_PAPER_SX, dnPart,
   envLabel, fmtDate, GRID3, GRID4, hostMatches, IconBadge, InfoCard, keyText, MetaItem, PropList, REVOCATION, Section,
@@ -73,10 +74,15 @@ const LIVE_STATUS: Record<string, { label: string; color: 'success' | 'error' | 
 // Sunulan sertifika eşlenen kayıtla aynı ama süresi dolmuşsa "farklı" yerine bunu söyle.
 const EXPIRED_SERVED = { label: 'SÜRESİ DOLMUŞ — sunucu süresi dolmuş sertifikayı sunuyor', color: 'error' as const }
 
+// Ana adres doğru sertifikayı veriyor ama adın arkasındaki IP'lerden biri başka sertifika sunuyor.
+const STRAY_IP = { label: 'EŞLEŞMİYOR — IP\'lerden biri farklı sertifika sunuyor', color: 'error' as const }
+
 function liveStatus(d: Pick<Domain, 'live_check_status' | 'live_check_detail'>) {
   if (d.live_check_status === 'mismatch' && d.live_check_detail) {
     try {
-      if (JSON.parse(d.live_check_detail).expired_served) return EXPIRED_SERVED
+      const det = JSON.parse(d.live_check_detail)
+      if (det.expired_served) return EXPIRED_SERVED
+      if (det.multi_ip?.status === 'different' && !det.expected && !det.inactive_served && !det.name_warning) return STRAY_IP
     } catch { /* bozuk detay: genel etikete düş */ }
   }
   return LIVE_STATUS[d.live_check_status ?? '']
@@ -480,10 +486,15 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                   d.chain_warning && d.chain_warning !== d.reason && { label: 'Zincir uyarısı', value: d.chain_warning },
                   d.date_note && { label: 'Tarih farkı', value: d.date_note },
                 ].filter(Boolean) as { label: string; value: string }[]
-                return rows.length ? <PropList title="Son kontrolün ayrıntısı" rows={rows.map((r) => ({ ...r, mono: false }))} /> : null
+                return (
+                  <>
+                    {rows.length > 0 && <PropList title="Son kontrolün ayrıntısı" rows={rows.map((r) => ({ ...r, mono: false }))} />}
+                    <LiveExtraChecks detail={d} host={d.host} />
+                  </>
+                )
               } catch { return null }
             })()}
-            {editable && ((domain.live_check_status === 'mismatch' && liveStatus(domain) !== EXPIRED_SERVED)
+            {editable && ((domain.live_check_status === 'mismatch' && liveStatus(domain) !== EXPIRED_SERVED && liveStatus(domain) !== STRAY_IP)
                          || domain.live_check_status === 'no_mapping') && (
               <Box sx={{ ...CARD_SX, borderColor: 'warning.main', p: 2 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>

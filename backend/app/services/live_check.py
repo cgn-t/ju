@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate, Domain
+from app.services import endpoint_checks
 from app.services.audit import audited_job
 from app.services.cert_parser import find_ca_by_issuer, find_ca_by_ski, parse_x509
 
@@ -105,11 +106,14 @@ def _certs_from_handshake(messages: list[bytes]) -> list[x509.Certificate]:
     return []
 
 
-def _handshake(host: str, port: int, timeout: float) -> tuple[bytes | None, list | None]:
+def _handshake(host: str, port: int, timeout: float,
+               address: str | None = None) -> tuple[bytes | None, list | None]:
+    """`address`: verilirse bağlantı bu IP'ye açılır, sunucuya ad (SNI) yine `host` gider —
+    aynı adın arkasındaki her IP'yi ayrı ayrı yoklamak için."""
     captured: list[bytes] = []
     context = _probe_context(captured)
     try:
-        with socket.create_connection((host, port), timeout=timeout) as sock:
+        with socket.create_connection((address or host, port), timeout=timeout) as sock:
             with context.wrap_socket(sock, server_hostname=host) as tls:
                 leaf_der = tls.getpeercert(binary_form=True)
                 raw_chain = tls.get_unverified_chain() if hasattr(tls, "get_unverified_chain") else None
@@ -172,6 +176,19 @@ def fetch_served_chain(host: str, port: int, timeout: float = TIMEOUT_SECONDS) -
             raise ssl.SSLError("Sunucu sertifika göndermedi")
         certs = [x509.load_der_x509_certificate(leaf_der)]
     return certs
+
+
+def fetch_leaf_via(address: str, host: str, port: int,
+                   timeout: float = TIMEOUT_SECONDS) -> x509.Certificate:
+    """`address` IP'sine bağlanıp `host` adıyla (SNI) sunulan leaf sertifikayı döner."""
+    leaf_der, raw_chain = _handshake(host, port, timeout, address=address)
+    if raw_chain:
+        first = raw_chain[0]
+        der = first if isinstance(first, bytes) else first.public_bytes(ssl.ENCODING_DER)
+        return x509.load_der_x509_certificate(der)
+    if not leaf_der:
+        raise ssl.SSLError("Sunucu sertifika göndermedi")
+    return x509.load_der_x509_certificate(leaf_der)
 
 
 def _cert_names(cert: x509.Certificate) -> tuple[list[str], list[str]]:
@@ -281,9 +298,11 @@ def check_domain(db: Session, domain: Domain) -> Domain:
         served_raw = fetch_served_chain(host, port)
     except Exception as exc:
         domain.live_check_status = "unreachable"
-        domain.live_check_detail = json.dumps(
-            {"host": host, "port": port, "error": describe_connection_error(exc, host, port)},
-            ensure_ascii=False)
+        failed = {"host": host, "port": port, "error": describe_connection_error(exc, host, port)}
+        dns_info = endpoint_checks.dns_only(host)
+        if dns_info:
+            failed["dns"] = dns_info
+        domain.live_check_detail = json.dumps(failed, ensure_ascii=False)
         domain.live_check_at = checked_at
         return domain
     served_list = [parse_x509(c) for c in served_raw]
@@ -387,6 +406,18 @@ def check_domain(db: Session, domain: Domain) -> Domain:
         detail.pop("expected", None)
         detail["reason"] = ("Sunucu envanterdeki sertifikanın aynısını sunuyor ama süresi dolmuş: "
                             + ", ".join(expired) + " — yeni sertifika sunucuya kurulmalı")
+
+    # Ek kontroller: DNS kaydı, adın arkasındaki her IP'nin aynı sertifikayı sunması, CAA ve
+    # OCSP Stapling. Yalnız Çoklu IP durumu değiştirir: bir IP envanterde bu domaine bağlı
+    # olmayan farklı bir sertifika sunuyorsa (ör. yenileme bir sunucuya kurulmamış) kırmızı olur.
+    bound_fps = {fp for pool in bound_by_type.values() for fp in pool}
+    extra = endpoint_checks.run_all(host, port, served_raw, leaf_served, bound_fps)
+    if extra:
+        detail.update(extra)
+        stray = [r for r in (extra.get("multi_ip") or {}).get("ips", []) if r.get("result") == "different"]
+        if stray and domain.live_check_status in ("match", "chain_incomplete"):
+            domain.live_check_status = "mismatch"
+            detail["reason"] = extra["multi_ip"]["note"]
 
     # Devir kanıtı: sunulan HER sertifika kendi tipiyle bekleyen bir değişiklik talebinin
     # HALEFİ ise (eşli olsun olmasın) 'canlıda görüldü' işaretlenir — SY'ye güvenli onay

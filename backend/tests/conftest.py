@@ -13,6 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
+from app.services import endpoint_checks  # noqa: E402
+
+# Ek canlı kontroller (DNS/CAA/Çoklu IP/OCSP Stapling) testlerde gerçek ağa çıkmasın;
+# kendi testleri (test_endpoint_checks.py) bunu yerel sunucu ve sahte DNS ile açar.
+endpoint_checks.ENABLED = False
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
