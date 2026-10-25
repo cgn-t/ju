@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import Certificate
+from app.services import job_lock
 from app.services.audit import audited_job
 from app.services.cert_parser import find_ca_by_ski
 from app.services.settings_service import get_category
@@ -204,17 +205,42 @@ def notify_newly_revoked(db: Session, certs: list[Certificate]) -> dict | None:
         return None
 
 
+# Ortak DB kilidi adı (bkz. job_lock): gece işi, ekrandaki toplu denetim ve dış tetik aynı
+# anda iki yerde (iki pod / iki cluster) çalışmaz — iptal maili de iki kez gitmez.
+JOB_NAME = "revocation"
+
+
 @audited_job("İptal (OCSP/CRL) denetimi")
 def check_all_certificates() -> dict:
-    """Zamanlanmış gece işi. Yalnız revocation ETKİNSE çalışır. Aktif leaf'leri sıralı denetler
-    (check_certificate DB okur → thread havuzu yok; egress-gated + gecelik → sıralı yeterli)."""
+    """Zamanlanmış gece işi. Yalnız iptal denetimi ETKİN ve 'her gece otomatik' AÇIKSA çalışır
+    (auto_enabled kapalıyken yalnız ekrandan / dış tetikle). Başka pod yürütüyorsa atlanır."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        config = get_config(db)
+    finally:
+        db.close()
+    if not config.get("enabled"):
+        logger.info("Revocation kapalı — zamanlanmış denetim atlandı")
+        return {"status": "skipped"}
+    if not config.get("auto_enabled", True):
+        logger.info("İptal denetimi gece otomatik çalışması kapalı — atlandı (dış tetik bekleniyor)")
+        return {"status": "skipped"}
+    return job_lock.run_job(JOB_NAME, run_all_checks, min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
+
+
+def run_all_checks() -> dict:
+    """Toplu iptal denetiminin çekirdeği (gece işi + ekrandan/dış tetik). Aktif leaf'leri sıralı
+    denetler (check_certificate DB okur → thread havuzu yok; egress-gated → sıralı yeterli).
+    İptal denetimi Ayarlar'da kapalıysa hiçbir şey yapmaz (iptal maili yalnız açıkken gider)."""
     from app.db.session import SessionLocal
 
     db = SessionLocal()
     try:
         config = get_config(db)
         if not config.get("enabled"):
-            logger.info("Revocation kapalı — zamanlanmış denetim atlandı")
+            logger.info("Revocation kapalı — toplu denetim atlandı")
             return {"status": "skipped"}
         q = db.query(Certificate).filter(Certificate.cert_type == "leaf")
         if config.get("check_active_only", True):

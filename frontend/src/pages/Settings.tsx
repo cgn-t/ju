@@ -86,6 +86,19 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
+// Otomatik (zamanlanmış) çalışma kapalıyken gösterilir: çoklu pod/cluster kurulumunda işler
+// uygulamada kapatılıp dışarıdan tek noktadan tetiklenir; saat alanı o zaman kullanılmaz.
+function AutoOffNote({ show, trigger }: { show: boolean; trigger: string }) {
+  if (!show) return null
+  return (
+    <Alert severity="info" sx={{ my: 1 }}>
+      Otomatik çalışma <b>kapalı</b>: bu iş yalnız ekrandan elle ya da dışarıdan
+      (<code>{trigger}</code> + <code>X-API-Key</code>) tetiklenince çalışır. Saat ayarı kullanılmaz.
+      Aynı iş başka bir sunucuda çalışıyorsa ikinci kez başlamaz.
+    </Alert>
+  )
+}
+
 // ---------- LDAP ----------
 function LdapTab() {
   const { form, setForm, save } = useCategory('ldap')
@@ -236,9 +249,10 @@ function SmtpTab() {
                            onChange={(e) => setForm((f) => ({ ...f, auto_expiry_enabled: e.target.checked }))} />}
           label="Günlük Otomatik Tarama (her sabah 08:00)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-          Kapalıyken zamanlanmış tarama mail göndermez; <b>dış API tetiği</b> (X-API-Key / "Şimdi Gönder")
-          çağrıldığında yine gönderim yapılır.
+          Kapalıyken zamanlanmış tarama mail göndermez; <b>dış API tetiği</b> (X-API-Key) ya da "Şimdi Gönder"
+          ile yine gönderim yapılır.
         </Typography>
+        <AutoOffNote show={form.auto_expiry_enabled === false} trigger="POST /api/notifications/expiry-run" />
       </Box>
       <Box>
         <FormControlLabel
@@ -250,6 +264,7 @@ function SmtpTab() {
           ya da pasife alın" maili gider (süre uyarısıyla aynı alıcılar ve şablon; tekrar-önleme geçerli).
           Kapalıyken yalnız "Süresi Geçenleri Şimdi Gönder" / dış API ile gönderilir.
         </Typography>
+        <AutoOffNote show={form.auto_expired_enabled === false} trigger="POST /api/notifications/expired-run" />
       </Box>
       <Grid container spacing={2}>
         <Text form={form} setForm={setForm} field="host" label="SMTP Sunucusu" />
@@ -277,12 +292,13 @@ function SmtpTab() {
             label="Tekrar-Önleme Etkin (aynı sertifikaya kısa sürede tekrar mail atma)" />
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
             Kapatılırsa her tarama mail gönderir (günlük cron doğal olarak günde bir çalışır).
-            "Şimdi Gönder" / dış API bu frenden zaten etkilenmez.
+            "Şimdi Gönder" bu frenden etkilenmez; dış API tetiğinde fren geçerlidir (araç tekrar
+            denerse aynı kişiye ikinci mail gitmez).
           </Typography>
         </Grid>
         <Text form={form} setForm={setForm} field="resend_interval_hours" label="Tekrar Aralığı (saat)" type="number"
               disabled={form.resend_dedup_enabled === false}
-              helper="Pencereye giren sertifika için mailin kaç SAATTE bir tekrarlanacağı (varsayılan 3). Dış API 'Şimdi Gönder' bu freni atlar."
+              helper="Pencereye giren sertifika için mailin kaç SAATTE bir tekrarlanacağı (varsayılan 3). 'Şimdi Gönder' bu freni atlar."
               width={{ xs: 6, sm: 4 }} />
         <Text form={form} setForm={setForm} field="fallback_address" label="Yedek/Varsayılan Adres"
               helper="Birincil gönderim başarısızsa ikinci deneme bu adrese yapılır (virgülle çoklu)."
@@ -291,7 +307,7 @@ function SmtpTab() {
               helper="Maillerin en altına eklenir. Her satıra bir link/metin; http(s) linkleri tıklanabilir olur."
               width={{ xs: 12, sm: 12 }} />
         <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
-              helper='Dış araç: POST /api/notifications/expiry-run + "X-API-Key: <anahtar>" başlığı. Boşsa dış tetikleme kapalı.'
+              helper='Dış araç: POST /api/notifications/expiry-run (expired-run, proposal-run) + "X-API-Key: <anahtar>" başlığı. Tarama arka planda çalışır (202); durum: GET …/expiry-run/status. Boşsa dış tetikleme kapalı.'
               width={{ xs: 12, sm: 12 }} />
       </Grid>
 
@@ -321,9 +337,10 @@ function SmtpTab() {
                            onChange={(e) => setForm((f) => ({ ...f, auto_proposal_reminder_enabled: e.target.checked }))} />}
           label="Günlük Değişiklik Talebi Hatırlatması" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-          Kapalıyken zamanlanmış hatırlatma gönderilmez; <b>dış API tetiği</b> (X-API-Key / "Şimdi Hatırlat")
-          çağrıldığında yine gönderim yapılır.
+          Kapalıyken zamanlanmış hatırlatma gönderilmez; <b>dış API tetiği</b> (X-API-Key) ya da "Şimdi Hatırlat"
+          ile yine gönderim yapılır.
         </Typography>
+        <AutoOffNote show={form.auto_proposal_reminder_enabled !== true} trigger="POST /api/notifications/proposal-run" />
       </Box>
       <Grid container spacing={2}>
         <Text form={form} setForm={setForm} field="proposal_reminder_hour" label="Hatırlatma Saati (0-23)" type="number"
@@ -922,8 +939,9 @@ function DiscoveryTab() {
           label="Gece taraması etkin (her gün)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
           Açıkken tüm etkin hedefler her gece aşağıdaki saatte otomatik taranır. Kapalıyken tarama yalnız
-          Keşif sayfasındaki “Taramayı Başlat” ile elle çalışır.
+          Keşif sayfasındaki “Taramayı Başlat” ile elle ya da dış API ile çalışır.
         </Typography>
+        <AutoOffNote show={!form.enabled} trigger="POST /api/discovery/scan" />
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Text form={form} setForm={setForm} field="default_ports" label="Varsayılan Portlar"
                 helper="Hedefte port yazılmazsa bu portlara TLS bağlantısı denenir (virgülle ayırın)" />
@@ -935,6 +953,8 @@ function DiscoveryTab() {
                 width={{ xs: 6, sm: 3 }} helper="Bir host bu süre içinde yanıt vermezse erişilemez sayılır" />
           <Text form={form} setForm={setForm} field="max_hosts" label="Azami Hedef (host×port)" type="number"
                 width={{ xs: 6, sm: 3 }} helper="Tek taramada denenecek en fazla host×port — güvenlik freni; büyük CIDR'lerde bu sınırda kesilir" />
+          <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
+                helper='Dış araç: POST /api/discovery/scan + "X-API-Key: <anahtar>" başlığı; durum: GET /api/discovery/scan/status. Boşsa dış tetikleme kapalı (yalnız admin).' />
         </Grid>
         <Button variant="contained" sx={{ mt: 2 }} onClick={() => save.mutate()} disabled={save.isPending}>
           Kaydet
@@ -1024,8 +1044,9 @@ function CtTab() {
           label="Gece CT izleme etkin (her gün)" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
           Açıkken tüm envanter domainleri her gece crt.sh'ten sorgulanır. Kapalıyken sorgu yalnız Keşif
-          sayfasındaki “CT İzleme” düğmesiyle elle çalışır.
+          sayfasındaki “CT İzleme” düğmesiyle elle ya da dış API ile çalışır.
         </Typography>
+        <AutoOffNote show={!form.enabled} trigger="POST /api/discovery/ct-scan" />
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Text form={form} setForm={setForm} field="proxy_url" label="Forward Proxy (opsiyonel)"
                 helper="crt.sh'e ulaşmak için http://host:port — boşsa doğrudan bağlanır" />
@@ -1039,6 +1060,8 @@ function CtTab() {
                 width={{ xs: 6, sm: 3 }} helper="Bir domain için işlenecek en fazla CT kaydı" />
           <Text form={form} setForm={setForm} field="max_domains" label="Azami Domain (0 = hepsi)" type="number"
                 width={{ xs: 6, sm: 3 }} helper="Taranacak envanter domaini sayısı sınırı" />
+          <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
+                helper='Dış araç: POST /api/discovery/ct-scan + "X-API-Key: <anahtar>" başlığı; durum: GET /api/discovery/ct-scan/status. Boşsa dış tetikleme kapalı (yalnız admin).' />
         </Grid>
         <FormControlLabel sx={{ mt: 1 }}
           control={<Switch checked={!!form.match_wildcards}
@@ -1131,11 +1154,19 @@ function RevocationTab() {
         <FormControlLabel
           control={<Switch checked={!!form.enabled}
                            onChange={(e) => setForm((s) => ({ ...s, enabled: e.target.checked }))} />}
-          label="Gece iptal denetimi etkin (her gün)" />
+          label="İptal denetimi etkin" />
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-          Açıkken tüm aktif leaf sertifikalar her gece denetlenir. Kapalıyken denetim yalnız sertifika
-          detayındaki “Şimdi Kontrol Et” ile elle çalışır.
+          Kapalıyken toplu denetim ve iptal maili yoktur; denetim yalnız sertifika detayındaki
+          “Şimdi Kontrol Et” ile tek tek çalışır.
         </Typography>
+        <FormControlLabel sx={{ display: 'block' }}
+          control={<Switch checked={form.auto_enabled !== false} disabled={!form.enabled}
+                           onChange={(e) => setForm((s) => ({ ...s, auto_enabled: e.target.checked }))} />}
+          label="Her gece otomatik çalışsın" />
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+          Açıkken tüm aktif leaf sertifikalar her gece aşağıdaki saatte denetlenir.
+        </Typography>
+        <AutoOffNote show={!!form.enabled && form.auto_enabled === false} trigger="POST /api/certificates/revocation-run" />
         <FormControlLabel sx={{ display: 'block', mb: 1 }}
           control={<Switch checked={!!form.check_active_only}
                            onChange={(e) => setForm((s) => ({ ...s, check_active_only: e.target.checked }))} />}
@@ -1156,6 +1187,8 @@ function RevocationTab() {
                 width={{ xs: 6, sm: 6 }} helper="Gece denetiminin başlayacağı saat (sunucu saati)" />
           <Text form={form} setForm={setForm} field="timeout_seconds" label="Zaman Aşımı (sn)" type="number"
                 width={{ xs: 6, sm: 6 }} helper="Her OCSP/CRL isteği için azami bekleme" />
+          <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
+                helper='Dış araç: POST /api/certificates/revocation-run + "X-API-Key: <anahtar>" başlığı; durum: GET /api/certificates/revocation-run/status. Boşsa dış tetikleme kapalı (yalnız admin).' />
         </Grid>
         <Button variant="contained" sx={{ mt: 2 }} onClick={() => save.mutate()} disabled={save.isPending}>
           Kaydet
@@ -1168,6 +1201,8 @@ function RevocationTab() {
 // ---------- Canlı Doğrulama (TLS drift + zincir senkronizasyonu) ----------
 type LiveCheckRunStatus = {
   running: boolean
+  interrupted?: boolean
+  pod?: string | null
   triggered_by?: string
   started_at?: string
   finished_at?: string | null
@@ -1214,9 +1249,10 @@ function LiveCheckTab() {
           Açıkken tüm domainler her gece otomatik canlı doğrulanır. Kapalıyken yalnız elle (“Canlı Doğrula”,
           “Şimdi Çalıştır”) ya da dış API ile çalışır.
         </Typography>
+        <AutoOffNote show={!form.enabled} trigger="POST /api/domains/live-check-run" />
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Text form={form} setForm={setForm} field="schedule_hour" label="Gece Saati (0-23)" type="number"
-                width={{ xs: 6, sm: 3 }} helper="Sunucu saati — değişiklik uygulama yeniden başlayınca geçerli olur" />
+                width={{ xs: 6, sm: 3 }} helper="Sunucu saati — kaydedince tüm sunucularda en geç 1 dakikada geçerli olur" />
           <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
                 width={{ xs: 12, sm: 9 }}
                 helper='Dış araç: POST /api/domains/live-check-run + "X-API-Key: <anahtar>" başlığı. Boşsa dış tetikleme kapalı (yalnız admin).' />
@@ -1235,7 +1271,8 @@ function LiveCheckTab() {
             Son toplu çalıştırma: {formatAuditTime(run.started_at, true)} · tetikleyen{' '}
             {run.triggered_by === 'schedule' ? 'gece zamanlayıcısı'
               : run.triggered_by === 'external-api' ? 'dış API' : run.triggered_by}
-            {run.running ? ' · çalışıyor' : res
+            {run.pod ? ` · sunucu ${run.pod}` : ''}
+            {run.running ? ' · çalışıyor' : run.interrupted ? ' · yarıda kaldı (sunucu yeniden başladı)' : res
               ? ` · ${res.status === 'error' ? 'hata' : 'tamamlandı'}${res.total != null ? ` · ${res.total} domain` : ''}${
                   res.by_status ? ` (${Object.entries(res.by_status).map(([k, v]) => `${v} ${LIVE_STATUS_LABEL[k] ?? k}`).join(', ')})` : ''}`
               : ''}

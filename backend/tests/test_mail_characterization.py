@@ -136,12 +136,13 @@ def test_scheduler_job_inventory(client):
     lifespan'ını (main.py: start_scheduler) tetikliyor → notifier.scheduler GERÇEKTEN running
     ve job'lu. Bu test mevcut job envanterini kilitler — yeni bir job eklenir/silinirse bilinçli
     bir değişiklik olmalı. `expired-check` v3.7.0'da eklendi: süresi geçmiş ama aktif sertifikalar
-    için günlük hatırlatma (smtp.auto_expired_enabled kapalıysa iş çalışır ama mail göndermez)."""
+    için günlük hatırlatma (smtp.auto_expired_enabled kapalıysa iş çalışır ama mail göndermez).
+    `schedule-sync` v3.9.12'de eklendi: başka pod'da kaydedilen saat ayarını dakikada bir uygular."""
     assert notifier.scheduler.running
     job_ids = {j.id for j in notifier.scheduler.get_jobs()}
     expected = {"expiry-check", "proposal-reminder", "live-check",
                 "discovery-scan", "ct-scan", "revocation-check", "mail-queue-drain",
-                "deployment-poll", "expired-check"}
+                "deployment-poll", "expired-check", "schedule-sync"}
     assert job_ids == expected, f"job envanteri değişti: {job_ids}"
 
     expiry_job = next(j for j in notifier.scheduler.get_jobs() if j.id == "expiry-check")

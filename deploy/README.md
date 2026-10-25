@@ -96,6 +96,41 @@ oc set image deployment/jumbo jumbo=ghcr.io/cgn-t/jumbo:3.8.12
 OpenShift ghcr.io'ya doğrudan erişemiyorsa (kapalı ağ): imajı `skopeo copy` / `oc image mirror` ile
 şirket içi registry'ye aktarın.
 
+## Birden fazla pod / cluster (aktif-aktif, v3.9.12+)
+
+Uygulama aynı MSSQL'e bağlı birden fazla pod'da (farklı cluster'lar dahil) çalışabilir.
+
+- **JWT_SECRET ve FERNET_KEY her yerde birebir aynı olmalı.** Aksi halde kullanıcı başka pod'a
+  düşünce oturumdan atılır, LDAP/SMTP şifreleri okunamaz.
+- **Zamanlanmış işler** (08:00/08:05 mailleri, talep hatırlatması, canlı doğrulama, iptal
+  denetimi, keşif, CT, mail kuyruğu, Jenkins poll) her pod'da zamanlanır ama başlamadan önce
+  veritabanından işe ait kilidi alır (`sp_getapplock`, yeni tablo yok). Kilidi alamayan ya da
+  aynı işin son 30 dakikada başka pod'da başladığını gören pod atlar. Pod iş sırasında çökerse
+  bağlantısı kopar ve MSSQL kilidi kendisi bırakır.
+- **İşleri dışarıdan tetiklemek** isterseniz Ayarlar'da otomatik çalışmayı kapatın ve tek bir
+  dış araçtan (cron/Jenkins — yalnız BİR yerde kurun) çağırın. Hepsi `X-API-Key` ister;
+  anahtarlar Ayarlar'da ilgili sekmede:
+
+  | İş | Tetik | Durum | Anahtar |
+  |---|---|---|---|
+  | Süre uyarısı | `POST /api/notifications/expiry-run` | `GET …/expiry-run/status` | SMTP |
+  | Süresi geçmiş | `POST /api/notifications/expired-run` | `GET …/expired-run/status` | SMTP |
+  | Talep hatırlatması | `POST /api/notifications/proposal-run` | `GET …/proposal-run/status` | SMTP |
+  | Canlı doğrulama | `POST /api/domains/live-check-run` | `GET …/live-check-run/status` | Canlı Doğrulama |
+  | İptal denetimi | `POST /api/certificates/revocation-run` | `GET …/revocation-run/status` | İptal Durumu |
+  | Ağ keşfi | `POST /api/discovery/scan` | `GET /api/discovery/scan/status` | Ağ Keşfi |
+  | CT izleme | `POST /api/discovery/ct-scan` | `GET /api/discovery/ct-scan/status` | CT |
+
+  Dış tetik hemen döner, iş arka planda yürür. Mail tetiklerinde tekrar-önleme açıktır: araç
+  zaman aşımına düşüp tekrar denerse aynı kişiye ikinci mail gitmez. Aynı iş başka yerde
+  sürüyorsa `409`, 60 saniye içinde ikinci dış tetik `429` döner.
+- **Yeni sürüm** açılırken şema güncellemesini tek pod yapar, diğerleri bekler.
+- Ayarlar'da değiştirilen saatler tüm pod'larda en geç 1 dakikada geçerli olur.
+- Kilidi denemek için uygulamanın DB kullanıcısıyla:
+  `DECLARE @r int; BEGIN TRAN; EXEC @r = sp_getapplock @Resource='jumbo-test', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=0; SELECT @r; ROLLBACK;`
+  → `0` beklenir. Kilit kullanılamazsa uygulama durmaz, logda "Veritabanı iş kilidi
+  (sp_getapplock) kullanılamadı" yazar ve pod içi kilide düşer (pod'lar arası koruma olmaz).
+
 ## Şema (MSSQL)
 - **Taze DB**: uygulama açılışta `create_all` + `ensure_new_columns` + `ensure_indexes` ile şemayı KENDİ kurar.
   Elle kurmak istersen: `schema-mssql.sql` (repo kökü; models'ten üretilmiş tam DDL).

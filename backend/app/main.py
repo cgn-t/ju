@@ -33,6 +33,7 @@ from app.core.logging_config import setup_logging
 from app.core.security import hash_password
 from app.db import models  # noqa: F401 — model kayıtları için
 from app.db.session import Base, SessionLocal, engine
+from app.services import job_lock
 from app.services.notifier import start_scheduler
 
 setup_logging()  # tek biçimli log (bkz. core/logging_config) — basicConfig yerine
@@ -581,6 +582,21 @@ async def lifespan(app: FastAPI):
             "JWT_SECRET ayarlanmamış (veya varsayılan 'change-me-in-production') — prod başlatma "
             "engellendi. Güçlü rastgele bir anahtar verin: "
             "python -c \"import secrets;print(secrets.token_urlsafe(48))\"")
+    # Çoklu pod/cluster: yeni sürüm açılırken şema güncellemesini aynı anda TEK pod yapsın
+    # (ötekiler bekler, sonra yapılacak bir şey kalmadığını görüp geçer). Kilit alınamazsa
+    # (10 dk) yine de devam edilir — adımlar zaten "yoksa ekle" mantığında.
+    schema_lock = job_lock.JobLock("startup-schema")
+    if not schema_lock.acquire(wait_seconds=600):
+        logging.getLogger(__name__).warning("Şema kilidi 10 dakikada alınamadı — yine de devam ediliyor")
+    try:
+        _prepare_database()
+    finally:
+        schema_lock.release()
+    start_scheduler()
+    yield
+
+
+def _prepare_database() -> None:
     # Prod'da yeni tablolar create_all ile kurulur; mevcut prod tablolarına kolonlar
     # ensure_new_columns ile ADDITIVE eklenir; ardından mevcut veri backfill'lerle tamamlanır.
     Base.metadata.create_all(bind=engine)
@@ -596,8 +612,6 @@ async def lifespan(app: FastAPI):
     ensure_rbac_seed()              # RBAC: ADMIN/VIEWER singleton + break-glass + tek-seferlik göç
     ensure_service_user()           # otomasyon kullanıcısı (+ ADMIN takım üyeliği)
     ensure_tag_seed()               # etiket kataloğu: tek-seferlik örnek etiketler (Ortam/Kritiklik)
-    start_scheduler()
-    yield
 
 
 settings = get_settings()

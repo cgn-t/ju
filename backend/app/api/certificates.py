@@ -33,8 +33,9 @@ from app.db.models import (
     Team, TransferProposal, User,
 )
 from app.db.session import get_db
-from app.services import cert_parser, chain_repair, notifier, renewal, revocation
-from app.services.audit import diff_fields, label_ids, log_action, snapshot
+from app.api.trigger_auth import EXTERNAL_ACTOR, external_cooldown, trigger_actor
+from app.services import cert_parser, chain_repair, job_lock, notifier, renewal, revocation
+from app.services.audit import audited_job, diff_fields, label_ids, log_action, snapshot
 from app.services.cert_extras import pem_extras
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
@@ -263,6 +264,16 @@ def certificate_options(q: str | None = None, cert_type: str | None = None,
                                  subject_key_identifier=r[6], serial_number=r[7],
                                  san=(san[:300] + "…") if san and len(san) > 300 else san)
     return [opt(r) for r in rows]
+
+
+_revocation_trigger = trigger_actor("revocation", "iptal denetimi")
+
+
+@router.get("/revocation-run/status")
+def revocation_run_status(actor: str = Depends(_revocation_trigger)):
+    """Son toplu iptal denetiminin durumu (hangi sunucuda çalışırsa çalışsın aynı).
+    /{cert_id}'den ÖNCE tanımlı olmalı (aksi halde 'revocation-run' sertifika id'si sanılır)."""
+    return job_lock.job_status(revocation.JOB_NAME)
 
 
 @router.get("/chain-check", response_model=list[ChainCheckFinding])
@@ -907,21 +918,34 @@ def revocation_check(request: Request, cert_id: int, db: Session = Depends(get_d
             "revocation_detail": cert.revocation_detail}
 
 
+@audited_job("İptal (OCSP/CRL) denetimi (tetiklenen)")
+def _triggered_revocation_run() -> dict:
+    return revocation.run_all_checks()
+
+
 @router.post("/revocation-run")
 def revocation_run(request: Request, db: Session = Depends(get_db),
-                   user: User = Depends(require_role("admin"))):
+                   actor: str = Depends(_revocation_trigger)):
     """Tüm aktif leaf sertifikalar için iptal denetimini arka planda başlatır (gece işiyle aynı motor).
-    Dış erişim gerektirir; kapalı ağda çoğu sonuç kesin olmayan (unreachable/not_checkable) olur
-    (beklenen). Ayarlarda iptal denetimi KAPALIYSA gece işi hiçbir şey yapmadan döner; "başlatıldı" deyip boşa bekletmemek
-    için burada açıkça 409 verilir. (Tek sertifikalık /revocation-check bilerek ayardan bağımsız.)"""
+    Admin JWT VEYA dış araç (X-API-Key: revocation.trigger_api_key); 'gece otomatik' ayarından
+    bağımsız. Dış erişim gerektirir; kapalı ağda çoğu sonuç kesin olmayan (unreachable/not_checkable)
+    olur (beklenen). Ayarlarda iptal denetimi KAPALIYSA "başlatıldı" deyip boşa bekletmemek için
+    409 verilir (iptal maili yalnız açıkken gider). Aynı denetim başka yerde sürüyorsa da 409.
+    (Tek sertifikalık /revocation-check bilerek ayardan bağımsız.)"""
+    if actor == EXTERNAL_ACTOR:
+        external_cooldown("revocation-run")
     if not revocation.get_config(db).get("enabled"):
         raise HTTPException(status_code=409,
                             detail="İptal kontrolü Ayarlar'da kapalı; toplu denetim için önce açın")
-    import threading
-    threading.Thread(target=revocation.check_all_certificates, daemon=True).start()
-    log_action(db, user.username, "revocation_run", "certificates", None, {"trigger": "manual"}, request)
+    if not job_lock.start_in_background(revocation.JOB_NAME, _triggered_revocation_run,
+                                        triggered_by=actor, thread_name="revocation-bulk"):
+        raise HTTPException(status_code=409, detail="İptal denetimi şu anda çalışıyor (bu ya da "
+                                                    "başka bir sunucuda) — bitince tekrar deneyin")
+    log_action(db, actor, "revocation_run", "certificates", None,
+               {"trigger": "external" if actor == EXTERNAL_ACTOR else "manual"}, request)
     db.commit()
-    return {"message": "İptal denetimi başlatıldı — sonuçlar sertifikalara işlenecek"}
+    return {"message": "İptal denetimi başlatıldı — sonuçlar sertifikalara işlenecek",
+            "status_url": "/api/certificates/revocation-run/status"}
 
 
 @router.delete("/{cert_id}")

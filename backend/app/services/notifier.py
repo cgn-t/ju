@@ -17,7 +17,7 @@ from app.db.models import (AppDependency, Application, ApplicationTrustedCert, C
                             CertificateDomainMap, Domain, MailQueue, Notification, Team,
                             TransferProposal, User)
 from app.db.session import SessionLocal
-from app.services import cert_parser
+from app.services import cert_parser, job_lock
 from app.services.audit import audited_job
 from app.services.settings_service import get_category
 
@@ -1340,6 +1340,21 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             "message": f"{len(pending)} bekleyen talep; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
+# Ortak DB kilidi adları (bkz. job_lock): zamanlanmış iş, ekrandaki buton ve dış tetik AYNI
+# adı kullanır → aynı mail taraması aynı anda iki yerde (iki pod / iki cluster) çalışmaz.
+JOB_EXPIRY_MAIL = "expiry-mail"
+JOB_EXPIRED_MAIL = "expired-mail"
+JOB_PROPOSAL_MAIL = "proposal-mail"
+JOB_MAIL_QUEUE = "mail-queue"
+
+
+def _mail_job_summary(result: dict, label: str) -> dict:
+    if result.get("sent"):
+        logger.info("%s: %s", label, result.get("message"))
+    return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
+            "skipped": result.get("skipped")}
+
+
 @audited_job("Değişiklik talebi hatırlatması")
 def check_pending_proposals() -> dict:
     """Zamanlanmış değişiklik talebi hatırlatma job'ı. `smtp.auto_proposal_reminder_enabled` KAPALIYSA
@@ -1351,11 +1366,11 @@ def check_pending_proposals() -> dict:
         if not cfg.get("auto_proposal_reminder_enabled", False):
             logger.info("Değişiklik talebi hatırlatması: otomatik gönderim kapalı — atlandı")
             return {"status": "skipped"}
-        result = send_pending_proposal_notifications(db, force=False)
-        if result["sent"]:
-            logger.info("Değişiklik talebi hatırlatması: %s", result["message"])
-        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
-                "skipped": result.get("skipped")}
+        return job_lock.run_job(
+            JOB_PROPOSAL_MAIL,
+            lambda: _mail_job_summary(send_pending_proposal_notifications(db, force=False),
+                                      "Değişiklik talebi hatırlatması"),
+            min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
     except Exception as exc:
         # Öğe-bazlı hatalar send_pending_proposal_notifications içinde zaten yakalanıp
         # atlanıyor; bu yalnız döngüye girmeden ÖNCEKİ (ör. sorgu) beklenmeyen hatalar
@@ -1377,11 +1392,11 @@ def check_expired_certificates() -> dict:
         if not cfg.get("auto_expired_enabled", True):
             logger.info("Süresi geçmiş hatırlatması: otomatik gönderim kapalı — atlandı")
             return {"status": "skipped"}
-        result = send_expired_notifications(db, force=False)
-        if result["sent"]:
-            logger.info("Süresi geçmiş hatırlatması: %s", result["message"])
-        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
-                "skipped": result.get("skipped")}
+        return job_lock.run_job(
+            JOB_EXPIRED_MAIL,
+            lambda: _mail_job_summary(send_expired_notifications(db, force=False),
+                                      "Süresi geçmiş hatırlatması"),
+            min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
     except Exception as exc:
         logger.exception("Süresi geçmiş hatırlatması job'ı başarısız")
         return {"status": "error", "error": str(exc)[:300]}
@@ -1422,11 +1437,10 @@ def check_expiring_certificates() -> dict:
         if not cfg.get("auto_expiry_enabled", True):
             logger.info("Süre uyarısı: günlük otomatik tarama kapalı (auto_expiry_enabled=false) — atlandı")
             return {"status": "skipped"}
-        result = send_expiry_notifications(db, force=False)
-        if result["sent"]:
-            logger.info("Süre uyarısı: %s", result["message"])
-        return {"status": "ok", "checked": result.get("checked"), "sent": result.get("sent"),
-                "skipped": result.get("skipped")}
+        return job_lock.run_job(
+            JOB_EXPIRY_MAIL,
+            lambda: _mail_job_summary(send_expiry_notifications(db, force=False), "Süre uyarısı"),
+            min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
     except Exception as exc:
         # Bkz. check_pending_proposals'taki aynı gerekçe: öğe-bazlı hatalar zaten
         # _dispatch_cert_mails/_dispatch_domain_mails içinde yakalanıyor; bu yalnız
@@ -1504,7 +1518,11 @@ def run_mail_queue_drain() -> None:
     """Zamanlanmış kuyruk boşaltma job'ı (her queue_interval_minutes)."""
     db: Session = SessionLocal()
     try:
-        result = drain_mail_queue(db)
+        # Kuyruğu aynı anda tek pod boşaltır; aralık dolmadan başka pod tekrar boşaltmaz
+        # (aksi halde N pod × tur başına mail → sağlayıcı gönderim limiti aşılırdı).
+        gap = max(30, _queue_interval() * 60 - 30)
+        result = job_lock.run_job(JOB_MAIL_QUEUE, lambda: drain_mail_queue(db),
+                                  min_gap_seconds=gap, record=False)
         if result.get("sent"):
             logger.info("Mail kuyruğu: %s", result["message"])
     except Exception:
@@ -1548,6 +1566,11 @@ _CATEGORY_JOBS = {
 }
 
 
+# Bu pod'da en son uygulanan tetikleyiciler. Ayar başka bir pod'da kaydedilince bu pod'un
+# haberi olmaz; 'schedule-sync' işi dakikada bir ayarları okuyup farkı burada uygular.
+_applied_triggers: dict[str, dict] = {}
+
+
 def reschedule_from_settings(category: str) -> list[str]:
     """Ayar kaydedildikten sonra o kategorinin zamanlanmış işlerini yeni değerle yeniden planlar.
     Zamanlayıcı çalışmıyorsa (test, CLI) ya da iş yoksa sessizce atlar. Döner: güncellenen iş id'leri."""
@@ -1561,15 +1584,45 @@ def reschedule_from_settings(category: str) -> list[str]:
             continue
         spec = dict(triggers[job_id])
         scheduler.reschedule_job(job_id, **spec)
+        _applied_triggers[job_id] = dict(triggers[job_id])
         done.append(job_id)
     if done:
         logger.info("Zamanlama güncellendi (%s): %s", category, ", ".join(done))
     return done
 
 
+def sync_schedules_from_settings() -> list[str]:
+    """Çoklu pod: Ayarlar'da saat/aralık BAŞKA bir pod'da kaydedildiyse bu pod'un işlerini de
+    yeni değere taşır (dakikada bir). Değişmeyen işe dokunmaz. Döner: güncellenen iş id'leri."""
+    if not scheduler.running:
+        return []
+    done = []
+    for job_id, spec in _schedule_triggers().items():
+        if _applied_triggers.get(job_id) == spec or scheduler.get_job(job_id) is None:
+            continue
+        scheduler.reschedule_job(job_id, **dict(spec))
+        _applied_triggers[job_id] = dict(spec)
+        done.append(job_id)
+    if done:
+        logger.info("Zamanlama ayarlardan eşitlendi: %s", ", ".join(done))
+    return done
+
+
+def _run_schedule_sync() -> None:
+    try:
+        sync_schedules_from_settings()
+    except Exception:
+        logger.exception("Zamanlama eşitlenemedi")
+
+
+def _poll_deployments_locked() -> None:
+    """Jenkins dağıtım poll'u — aynı anda tek pod ilerletsin (aynı adım iki kez ilerlemesin)."""
+    from app.services.deployment_engine import poll_running_runs
+    job_lock.run_job("deployment-poll", poll_running_runs, record=False)
+
+
 def start_scheduler() -> None:
     from app.services.ct_monitor import run_ct_scan_job
-    from app.services.deployment_engine import poll_running_runs
     from app.services.discovery import run_scan_job
     from app.services.live_check import check_all_domains
     from app.services.revocation import check_all_certificates
@@ -1601,6 +1654,11 @@ def start_scheduler() -> None:
                           id="mail-queue-drain", replace_existing=True)
         # Dağıtım akışı (Jenkins DAG) orkestrasyonu — RUNNING run'ların adımlarını pollar,
         # bitenleri ilerletir. max_instances=1: bir poll uzun sürerse üst üste binmesin.
-        scheduler.add_job(poll_running_runs, "interval", seconds=12,
+        scheduler.add_job(_poll_deployments_locked, "interval", seconds=12,
                           id="deployment-poll", replace_existing=True, max_instances=1, coalesce=True)
+        # Çoklu pod: başka pod'da kaydedilen saat/aralık ayarlarını bu pod'a da uygula
+        scheduler.add_job(_run_schedule_sync, "interval", seconds=60,
+                          id="schedule-sync", replace_existing=True, max_instances=1, coalesce=True)
+        _applied_triggers.clear()
+        _applied_triggers.update({k: dict(v) for k, v in _schedule_triggers().items()})
         scheduler.start()

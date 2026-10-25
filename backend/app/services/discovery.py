@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import Certificate, DiscoveredCertificate, Domain, ScanRun, ScanTarget
+from app.services import job_lock
 from app.services.audit import audited_job, scan_run_summary
 from app.services.cert_parser import ParsedCertificate, find_existing, parse_x509
 from app.services.live_check import fetch_served_certificate, parse_target
@@ -234,6 +235,11 @@ def run_scan_by_id(run_id: int) -> None:
 
 
 
+# Ortak DB kilidi adı (bkz. job_lock): gece işi, ekrandaki "Tara" ve dış tetik aynı anda
+# iki yerde (iki pod / iki cluster) çalışmaz.
+JOB_NAME = "discovery"
+
+
 @audited_job("Ağ keşfi")
 def run_scan_job() -> dict:
     """Zamanlanmış gece işi (APScheduler). Yalnız keşif ETKİNSE çalışır."""
@@ -245,6 +251,16 @@ def run_scan_job() -> dict:
         if not config.get("enabled"):
             logger.info("Keşif kapalı — zamanlanmış tarama atlandı")
             return {"status": "skipped"}
+    finally:
+        db.close()
+    return job_lock.run_job(JOB_NAME, _scheduled_scan, min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
+
+
+def _scheduled_scan() -> dict:
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
         run = ScanRun(status="running", trigger="schedule")
         db.add(run)
         db.commit()
