@@ -6,6 +6,7 @@ Aktif tarama yalnız admin'in açık isteğiyle (POST /scan) veya gece cron'uyla
 sınırlarını (tanımlı portlar, max_hosts, eşzamanlılık) uygular (bkz. services/discovery.py).
 """
 
+import logging
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -35,7 +36,8 @@ from app.db.models import (
     User,
 )
 from app.db.session import get_db
-from app.services import ct_monitor, discovery
+from app.api.trigger_auth import EXTERNAL_ACTOR, external_cooldown, trigger_actor
+from app.services import ct_monitor, discovery, job_lock
 from app.services.audit import diff_fields, label_ids, log_action
 from app.services.cert_parser import (
     find_existing,
@@ -364,40 +366,96 @@ def _validate_target(kind: str, value: str | None, ports: str | None) -> None:
 
 
 # ---- Tarama çalıştırma ----
+# Admin JWT (ekrandaki "Tara") VEYA dış araç (X-API-Key: discovery/ct.trigger_api_key). Aynı
+# tarama başka yerde (bu ya da başka bir pod/cluster) sürüyorsa 409 — ortak DB kilidi (job_lock).
+_scan_trigger = trigger_actor("discovery", "ağ keşfi")
+_ct_trigger = trigger_actor("ct", "CT izleme")
+_SCAN_BUSY = "Tarama şu anda çalışıyor (bu ya da başka bir sunucuda) — bitince tekrar deneyin"
+
+
+def _start_run(db: Session, request: Request, actor: str, *, job: str, kind: str | None,
+               action: str, runner) -> int:
+    lock = job_lock.JobLock(job)
+    if not lock.acquire():
+        raise HTTPException(status_code=409, detail=_SCAN_BUSY)
+    try:
+        trigger = "external" if actor == EXTERNAL_ACTOR else "manual"
+        run = ScanRun(status="running", trigger=trigger, created_by=actor,
+                      **({"kind": kind} if kind else {}))
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+        log_action(db, actor, action, "scan_runs", run_id, {"trigger": trigger}, request)
+        db.commit()
+        job_lock.write_state(job, running=True, triggered_by=actor, started_at=job_lock._now_iso(),
+                             finished_at=None, result=None, pod=job_lock.POD)
+
+        def _target():
+            def body():
+                runner(run_id)
+                return _run_summary(run_id)
+            try:
+                job_lock.run_job(job, body, triggered_by=actor, lock=lock)
+            except Exception:
+                logging.getLogger(__name__).exception("Tarama arka plan işi hata verdi (#%s)", run_id)
+        threading.Thread(target=_target, daemon=True).start()
+    except Exception:
+        lock.release()
+        raise
+    return run_id
+
+
+def _run_summary(run_id: int) -> dict:
+    from app.db.session import SessionLocal
+    from app.services.audit import scan_run_summary
+
+    db = SessionLocal()
+    try:
+        run = db.get(ScanRun, run_id)
+        return scan_run_summary(run) if run is not None else {"status": "error"}
+    finally:
+        db.close()
+
+
 @router.post("/scan")
 def trigger_scan(request: Request, db: Session = Depends(get_db),
-                 user: User = Depends(require_role("admin"))):
-    """Taramayı arka planda başlatır (admin'in açık isteği; global 'enabled' bayrağından bağımsız).
-    ScanRun kaydı hemen oluşturulur; motor ayrı bir thread'de kendi session'ında yürür."""
+                 actor: str = Depends(_scan_trigger)):
+    """Taramayı arka planda başlatır (admin'in açık isteği ya da dış tetik; global 'enabled'
+    bayrağından bağımsız). ScanRun kaydı hemen oluşturulur; motor ayrı bir thread'de yürür."""
+    if actor == EXTERNAL_ACTOR:
+        external_cooldown("discovery-scan")
     if not db.query(ScanTarget).filter(ScanTarget.enabled == True).first():  # noqa: E712
         raise HTTPException(status_code=400, detail="Etkin tarama hedefi yok — önce hedef ekleyin")
-    run = ScanRun(status="running", trigger="manual", created_by=user.username)
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    run_id = run.id
-    log_action(db, user.username, "scan", "scan_runs", run_id, {"trigger": "manual"}, request)
-    db.commit()
-    threading.Thread(target=discovery.run_scan_by_id, args=(run_id,), daemon=True).start()
+    run_id = _start_run(db, request, actor, job=discovery.JOB_NAME, kind=None, action="scan",
+                        runner=discovery.run_scan_by_id)
     return {"run_id": run_id, "message": "Ağ taraması başlatıldı — sonuçlar bittikçe bulgulara yansır"}
+
+
+@router.get("/scan/status")
+def scan_status(actor: str = Depends(_scan_trigger)):
+    """Son ağ keşfi taramasının durumu (hangi sunucuda çalışırsa çalışsın aynı)."""
+    return job_lock.job_status(discovery.JOB_NAME)
+
+
+@router.get("/ct-scan/status")
+def ct_scan_status(actor: str = Depends(_ct_trigger)):
+    """Son CT taramasının durumu."""
+    return job_lock.job_status(ct_monitor.JOB_NAME)
 
 
 @router.post("/ct-scan")
 def trigger_ct_scan(request: Request, db: Session = Depends(get_db),
-                    user: User = Depends(require_role("admin"))):
-    """CT (crt.sh) taramasını arka planda başlatır (admin'in açık isteği; global 'ct.enabled'dan bağımsız).
-    Envanter domainleri crt.sh'ten sorgulanır; DIŞ İNTERNET/proxy erişimi yoksa ScanRun'a hata yazılır
-    (bulgu üretilmeden) — bu bilinçli: kapalı ağda özellik sessizce başarısız olur, çökmez."""
+                    actor: str = Depends(_ct_trigger)):
+    """CT (crt.sh) taramasını arka planda başlatır (admin'in açık isteği ya da dış tetik; global
+    'ct.enabled'dan bağımsız). Envanter domainleri crt.sh'ten sorgulanır; DIŞ İNTERNET/proxy erişimi
+    yoksa ScanRun'a hata yazılır (bulgu üretilmeden) — bu bilinçli: kapalı ağda sessizce başarısız olur."""
+    if actor == EXTERNAL_ACTOR:
+        external_cooldown("ct-scan")
     if not db.query(Domain).first():
         raise HTTPException(status_code=400, detail="Envanterde domain yok — CT için önce domain ekleyin")
-    run = ScanRun(status="running", trigger="manual", kind="ct", created_by=user.username)
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    run_id = run.id
-    log_action(db, user.username, "ct-scan", "scan_runs", run_id, {"trigger": "manual"}, request)
-    db.commit()
-    threading.Thread(target=ct_monitor.run_ct_scan_by_id, args=(run_id,), daemon=True).start()
+    run_id = _start_run(db, request, actor, job=ct_monitor.JOB_NAME, kind="ct", action="ct-scan",
+                        runner=ct_monitor.run_ct_scan_by_id)
     return {"run_id": run_id, "message": "CT izleme başlatıldı — sonuçlar bittikçe bulgulara yansır"}
 
 

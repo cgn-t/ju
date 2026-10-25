@@ -11,7 +11,7 @@ import time
 import pytest
 
 from app.api import trigger_auth
-from app.services import live_check
+from app.services import job_lock, live_check
 
 URL = "/api/domains/live-check-run"
 
@@ -100,12 +100,13 @@ def test_admin_jwt_allowed_editor_forbidden(client, auth_headers):
 
 def test_concurrent_run_is_rejected_and_nightly_skips(client, auth_headers):
     _settings(client, auth_headers)
-    assert live_check._bulk_lock.acquire(blocking=False)
+    other_pod = job_lock.JobLock(live_check.JOB_NAME)
+    assert other_pod.acquire()
     try:
         assert client.post(URL, headers=auth_headers).status_code == 409
-        assert live_check.check_all_domains() == {"status": "skipped"}, "gece işi çakışmada atlamalı"
+        assert live_check.check_all_domains()["status"] == "skipped", "gece işi çakışmada atlamalı"
     finally:
-        live_check._bulk_lock.release()
+        other_pod.release()
 
 
 def test_external_cooldown(client, auth_headers):

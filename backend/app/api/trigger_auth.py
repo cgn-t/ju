@@ -1,7 +1,9 @@
 """Dış tetikleme yetkisi — X-API-Key (dış otomasyon) VEYA admin JWT (UI).
 
-Bildirim uçları (`/api/notifications/*-run`, anahtar: smtp.trigger_api_key) ve toplu canlı
-doğrulama (`/api/domains/live-check-run`, anahtar: live_check.trigger_api_key) aynı korumayı
+Bildirim uçları (`/api/notifications/*-run`, anahtar: smtp.trigger_api_key), toplu canlı
+doğrulama (`/api/domains/live-check-run`, live_check.trigger_api_key), toplu iptal denetimi
+(`/api/certificates/revocation-run`, revocation.trigger_api_key), ağ keşfi (`/api/discovery/scan`,
+discovery.trigger_api_key) ve CT (`/api/discovery/ct-scan`, ct.trigger_api_key) aynı korumayı
 kullanır. Her özelliğin AYRI anahtarı vardır (en az yetki): mail anahtarı taramayı açamaz.
 Anahtar BOŞSA o özellik için dış tetikleme kapalıdır (yalnız admin JWT çalışır).
 """

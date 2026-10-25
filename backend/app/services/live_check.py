@@ -12,8 +12,7 @@ import logging
 import re
 import socket
 import ssl
-import threading
-from datetime import datetime, timezone
+from datetime import datetime
 from app.core.timeutil import utcnow
 
 from cryptography import x509
@@ -22,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.certtype import normalize_cert_type
 from app.db.models import Certificate, Domain
-from app.services import endpoint_checks
+from app.services import endpoint_checks, job_lock
 from app.services.audit import audited_job
 from app.services.cert_parser import find_ca_by_issuer, find_ca_by_ski, parse_x509
 
@@ -514,15 +513,10 @@ def _record_live_evidence(db: Session, domain: Domain, served_list: list) -> lis
     return seen
 
 
-# Toplu tarama TEK seferde bir kez çalışır (gece cron + dış tetik çakışmasın). Son çalıştırmanın
-# durumu süreç belleğinde tutulur (dış otomasyon /live-check-run/status ile izler).
-_bulk_lock = threading.Lock()
-_bulk_state: dict = {"running": False}
-
-
-def _now_iso() -> str:
-    """UTC, saat dilimi işaretli ISO — tarayıcı yerel saat sanıp 3 saat kaydırmasın."""
-    return utcnow().replace(tzinfo=timezone.utc).isoformat()
+# Toplu tarama TEK seferde bir kez çalışır (gece cron + dış tetik + diğer pod'lar çakışmasın).
+# Kilit ve son çalıştırmanın durumu ortak veritabanındadır (bkz. job_lock) — hangi pod'a
+# bağlanılırsa bağlanılsın /live-check-run/status aynı durumu gösterir.
+JOB_NAME = "live-check"
 
 
 def _scan_all_domains() -> dict:
@@ -552,27 +546,16 @@ def _scan_all_domains() -> dict:
         db.close()
 
 
-def _run_holding_lock(triggered_by: str) -> dict:
-    """Kilit ÇAĞIRANDA alınmış olmalı; tarama bitince (hata olsa da) bırakılır."""
-    _bulk_state.update(running=True, triggered_by=triggered_by, started_at=_now_iso(),
-                       finished_at=None, result=None)
-    result = None
-    try:
-        result = {**_scan_all_domains(), "triggered_by": triggered_by}
-        return result
-    except Exception as exc:
-        result = {"status": "error", "error": str(exc)[:300], "triggered_by": triggered_by}
-        raise
-    finally:
-        _bulk_state.update(running=False, finished_at=_now_iso(), result=result)
-        _bulk_lock.release()
+def _run(triggered_by: str) -> dict:
+    return {**_scan_all_domains(), "triggered_by": triggered_by}
 
 
 @audited_job("Canlı doğrulama")
 def check_all_domains() -> dict:
     """Zamanlanmış günlük tarama: tüm domainleri canlı kontrol eder. 'live_check.enabled'
     kapalıysa atlanır (Keşif/CT/İptal ile aynı patern) — manuel tetik (/domains/{id}/live-check)
-    ve dış tetik (/domains/live-check-run) bundan bağımsız her zaman çalışır."""
+    ve dış tetik (/domains/live-check-run) bundan bağımsız her zaman çalışır. Başka bir pod
+    taramayı yürütüyorsa ya da az önce yürüttüyse atlanır."""
     from app.db.session import SessionLocal
     from app.services.settings_service import get_category
 
@@ -584,33 +567,22 @@ def check_all_domains() -> dict:
     if not enabled:
         logger.info("Canlı doğrulama kapalı — zamanlanmış tarama atlandı")
         return {"status": "skipped"}
-    if not _bulk_lock.acquire(blocking=False):
-        logger.info("Toplu canlı doğrulama zaten çalışıyor — zamanlanmış tarama atlandı")
-        return {"status": "skipped"}
-    return _run_holding_lock("schedule")
+    return job_lock.run_job(JOB_NAME, lambda: _run("schedule"), triggered_by="schedule",
+                            min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
 
 
 @audited_job("Canlı doğrulama (tetiklenen)")
 def _triggered_run(triggered_by: str) -> dict:
-    return _run_holding_lock(triggered_by)
+    return _run(triggered_by)
 
 
 def start_bulk_run(triggered_by: str) -> bool:
     """Toplu taramayı ARKA PLANDA başlatır (HTTP isteği beklemez — çok domainde ön kapı
     zaman aşımına düşmesin). Kilit burada alınır, iş parçacığı bitince bırakır; zaten
-    çalışıyorsa False döner (eşzamanlı iki istek ikinci bir tarama başlatamaz)."""
-    if not _bulk_lock.acquire(blocking=False):
-        return False
-    _bulk_state.update(running=True, triggered_by=triggered_by, started_at=_now_iso(),
-                       finished_at=None, result=None)
-    try:
-        threading.Thread(target=_triggered_run, args=(triggered_by,), daemon=True,
-                         name="live-check-bulk").start()
-    except Exception:
-        _bulk_lock.release()
-        raise
-    return True
+    çalışıyorsa (bu ya da başka bir pod'da) False döner."""
+    return job_lock.start_in_background(JOB_NAME, lambda: _triggered_run(triggered_by),
+                                        triggered_by=triggered_by, thread_name="live-check-bulk")
 
 
 def bulk_run_status() -> dict:
-    return dict(_bulk_state)
+    return job_lock.job_status(JOB_NAME)

@@ -134,6 +134,9 @@ DEFAULTS: dict[str, dict] = {
         "timeout_seconds": 6,         # her endpoint için bağlantı zaman aşımı
         "max_hosts": 4096,            # bir taramada üretilecek azami (host×port) hedef sayısı
         "schedule_hour": 3,           # gece cron saati (0-23)
+        # Taramayı dışarıdan tetikleme anahtarı (POST /api/discovery/scan + X-API-Key).
+        # BOŞ = dış tetik kapalı (yalnız admin).
+        "trigger_api_key": "",
     },
     "ct": {
         # Certificate Transparency (crt.sh) izleme. DIŞ İNTERNET erişimi gerekir → varsayılan KAPALI;
@@ -146,6 +149,9 @@ DEFAULTS: dict[str, dict] = {
         "max_domains": 0,             # taranacak azami envanter domaini (0 = hepsi)
         "max_entries_per_domain": 100,  # domain başına işlenecek azami CT girişi
         "match_wildcards": True,      # '*.x.com' envanter domaini için 'x.com' tabanını sorgula
+        # Taramayı dışarıdan tetikleme anahtarı (POST /api/discovery/ct-scan + X-API-Key).
+        # BOŞ = dış tetik kapalı (yalnız admin).
+        "trigger_api_key": "",
     },
     "policy": {
         # Sertifika uyum politikası. TAMAMEN YEREL (dış erişim yok) → varsayılan AÇIK; ihlaller
@@ -174,7 +180,12 @@ DEFAULTS: dict[str, dict] = {
     "revocation": {
         # İptal (OCSP/CRL) denetimi. DIŞ ERİŞİM gerekir → varsayılan KAPALI; iç/özel CA'lar çoğu
         # zaman public OCSP sunmaz → çok sayıda kesin olmayan sonuç normaldir. Sertifikayı asla pasife almaz.
-        "enabled": False,             # gece cron iptal denetimini aç/kapa (varsayılan KAPALI)
+        "enabled": False,             # iptal denetimini aç/kapa (varsayılan KAPALI; iptal maili de buna bağlı)
+        # Açıkken gece cron'u çalışır. Çoklu pod/cluster'da kapatılıp toplu denetim dışarıdan
+        # (POST /api/certificates/revocation-run + X-API-Key) tetiklenebilir.
+        "auto_enabled": True,
+        # Toplu denetimi dışarıdan tetikleme anahtarı (X-API-Key). BOŞ = dış tetik kapalı (yalnız admin).
+        "trigger_api_key": "",
         "proxy_url": "",              # OCSP/CRL uçlarına ulaşmak için opsiyonel forward proxy
         "timeout_seconds": 10,        # OCSP/CRL isteği zaman aşımı (sn)
         "method": "ocsp_then_crl",    # ocsp | crl | ocsp_then_crl

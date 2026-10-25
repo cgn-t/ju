@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.timeutil import utcnow
 from app.db.models import DiscoveredCertificate, Domain, ScanRun
+from app.services import job_lock
 from app.services.audit import audited_job, scan_run_summary
 from app.services.cert_parser import ParsedCertificate, find_existing, parse_x509
 from app.services.settings_service import get_category
@@ -245,6 +246,11 @@ def run_ct_scan_by_id(run_id: int) -> None:
         db.close()
 
 
+# Ortak DB kilidi adı (bkz. job_lock): gece işi, ekrandaki buton ve dış tetik aynı anda
+# iki yerde (iki pod / iki cluster) çalışmaz.
+JOB_NAME = "ct"
+
+
 @audited_job("CT log izleme")
 def run_ct_scan_job() -> dict:
     """Zamanlanmış gece işi (APScheduler). Yalnız CT izleme ETKİNSE çalışır."""
@@ -256,6 +262,16 @@ def run_ct_scan_job() -> dict:
         if not config.get("enabled"):
             logger.info("CT izleme kapalı — zamanlanmış tarama atlandı")
             return {"status": "skipped"}
+    finally:
+        db.close()
+    return job_lock.run_job(JOB_NAME, _scheduled_ct_scan, min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
+
+
+def _scheduled_ct_scan() -> dict:
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
         run = ScanRun(status="running", trigger="schedule", kind="ct")
         db.add(run)
         db.commit()

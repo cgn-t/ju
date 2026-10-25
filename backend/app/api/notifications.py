@@ -6,7 +6,8 @@ Günlük 08:00 cron'una ek olarak tarama iki yoldan ANINDA tetiklenebilir:
     `trigger_api_key` değerini `X-API-Key` başlığında göndererek — login gerekmez:
         curl -X POST https://<host>/api/notifications/expiry-run \
              -H "X-API-Key: <anahtar>"
-    Anahtar BOŞSA dış tetikleme kapalıdır (yalnız admin JWT çalışır).
+    Anahtar BOŞSA dış tetikleme kapalıdır (yalnız admin JWT çalışır). Dış tetikte tarama arka
+    planda yürür (202) ve tekrar-önleme geçerlidir; durum: GET .../expiry-run/status.
 
 Tetiklenince: bitişine `expiry_warning_days`'ten az gün kalan her sertifika için
 paydaşlara AYRI AYRI mail gönderilir — sahibi (oluşturan kullanıcı), bağlı domainlerin
@@ -17,6 +18,7 @@ import logging
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.schemas import MailHistoryDetailOut, MailHistoryListOut, MailHistoryOut
@@ -25,7 +27,7 @@ from app.core.security import require_role
 from app.db.models import Certificate, Domain, MailQueue, Notification, User
 from app.db.session import get_db
 from app.core.timeutil import time_window
-from app.services import mail_history, notifier
+from app.services import job_lock, mail_history, notifier
 from app.services.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -34,25 +36,73 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 _trigger_actor = trigger_actor("smtp", "bildirim")
 
 
-def _run_scan(scan_fn, endpoint: str, request: Request, actor: str, db: Session) -> dict:
-    """Ortak tetikleme akışı: dış aktörde uç-bazlı cooldown → tarama (force=True: 7 günlük
-    tekrar-önleme atlanır, manuel/dış tetikleme her zaman gönderir) → audit → yanıt.
-    Dış anahtar düşük yetkilidir: sertifika adları / alıcı e-postaları gibi envanter
-    detayı AYIKLANIR — yalnız sayısal özet döner (admin JWT tam detay alır)."""
+# Uç → ortak DB kilidi adı (bkz. job_lock). Zamanlanmış iş, ekrandaki buton ve dış tetik aynı
+# adı kullanır: aynı tarama aynı anda iki yerde (iki pod / iki cluster) çalışmaz.
+_JOBS = {
+    "expiry-run": (notifier.JOB_EXPIRY_MAIL, notifier.send_expiry_notifications),
+    "expired-run": (notifier.JOB_EXPIRED_MAIL, notifier.send_expired_notifications),
+    "proposal-run": (notifier.JOB_PROPOSAL_MAIL, notifier.send_pending_proposal_notifications),
+}
+_BUSY = "Bu mail taraması şu anda çalışıyor (bu ya da başka bir sunucuda) — bitince tekrar deneyin"
+
+
+def _external_scan(scan_fn, endpoint: str, request_meta: dict) -> dict:
+    """Dış tetik gövdesi (arka plan thread'i, kendi session'ı). Tekrar-önleme AÇIK (force=False):
+    araç zaman aşımına düşüp tekrar denerse aynı kişilere ikinci mail gitmez."""
+    from app.db.session import SessionLocal
+    from app.services.audit import log_standalone
+
+    db = SessionLocal()
+    try:
+        result = scan_fn(db, force=False)
+    finally:
+        db.close()
+    summary = {"checked": result["checked"], "sent": result["sent"], "skipped": result["skipped"]}
+    log_standalone(EXTERNAL_ACTOR, "notify", "notifications", None,
+                   {"endpoint": endpoint, **summary, **request_meta})
+    return {"status": "ok", "enabled": result["enabled"], **summary, "message": result["message"]}
+
+
+def _run_scan(endpoint: str, request: Request, actor: str, db: Session):
+    """Ortak tetikleme akışı.
+      • Ekrandaki buton (admin JWT): tarama hemen çalışır, sonuç döner (force=True: "Şimdi
+        Gönder" tekrar-önlemeyi atlar, her zaman gönderir).
+      • Dış araç (X-API-Key): uç-bazlı cooldown → tarama ARKA PLANDA başlar, 202 hemen döner
+        (çok mailde ön kapı zaman aşımı olmasın); tekrar-önleme geçerlidir. Durum:
+        GET /api/notifications/<uç>/status. Dış anahtar düşük yetkilidir: yalnız sayısal özet.
+    Aynı tarama başka yerde sürüyorsa 409."""
+    job_name, scan_fn = _JOBS[endpoint]
     if actor == EXTERNAL_ACTOR:
         external_cooldown(endpoint)  # mail-spam freni
+        meta = {"ip": request.client.host if request.client else None}
+        started = job_lock.start_in_background(
+            job_name, lambda: _external_scan(scan_fn, endpoint, meta), triggered_by=actor)
+        if not started:
+            raise HTTPException(status_code=409, detail=_BUSY)
+        return JSONResponse(status_code=202, content={
+            "status": "started", "triggered_by": actor,
+            "status_url": f"/api/notifications/{endpoint}/status"})
 
-    result = scan_fn(db, force=True)
+    lock = job_lock.JobLock(job_name)
+    if not lock.acquire():
+        raise HTTPException(status_code=409, detail=_BUSY)
+    holder: dict = {}
+
+    def body() -> dict:
+        holder["result"] = scan_fn(db, force=True)
+        r = holder["result"]
+        return {"status": "ok", "checked": r["checked"], "sent": r["sent"], "skipped": r["skipped"]}
+    job_lock.run_job(job_name, body, triggered_by=actor, lock=lock)
+    result = holder["result"]
     log_action(db, actor, "notify", "notifications", None,
                {"endpoint": endpoint, "checked": result["checked"],
                 "sent": result["sent"], "skipped": result["skipped"]}, request)
     db.commit()
-
-    if actor == EXTERNAL_ACTOR:
-        return {"enabled": result["enabled"], "checked": result["checked"],
-                "sent": result["sent"], "skipped": result["skipped"],
-                "message": result["message"]}
     return result
+
+
+def _status(endpoint: str, actor: str) -> dict:
+    return job_lock.job_status(_JOBS[endpoint][0])
 
 
 @router.post("/expiry-run")
@@ -60,7 +110,7 @@ def run_expiry_notifications(request: Request, actor: str = Depends(_trigger_act
                              db: Session = Depends(get_db)):
     """SÜRESİ YAKLAŞAN sertifikalar (bitişe expiry_warning_days'ten az kalan) için
     paydaşlara ayrı ayrı bilgilendirme maili gönderir."""
-    return _run_scan(notifier.send_expiry_notifications, "expiry-run", request, actor, db)
+    return _run_scan("expiry-run", request, actor, db)
 
 
 @router.post("/expired-run")
@@ -68,7 +118,7 @@ def run_expired_notifications(request: Request, actor: str = Depends(_trigger_ac
                               db: Session = Depends(get_db)):
     """SÜRESİ GEÇMİŞ ama JUMBO'da hâlâ AKTİF (güncellenmemiş) sertifikalar için
     paydaşlara 'JUMBO'da güncelleyin' hatırlatması gönderir."""
-    return _run_scan(notifier.send_expired_notifications, "expired-run", request, actor, db)
+    return _run_scan("expired-run", request, actor, db)
 
 
 @router.post("/proposal-run")
@@ -76,8 +126,26 @@ def run_proposal_notifications(request: Request, actor: str = Depends(_trigger_a
                                db: Session = Depends(get_db)):
     """Onay kuyruğunda BEKLEYEN değişiklik talepleri için ilgili SY ekiplerine (ekip başına tek mail)
     hatırlatma gönderir. Dış otomasyon (X-API-Key) veya admin JWT tetikler; ayarlardaki
-    auto_proposal_reminder_enabled bayrağından ETKİLENMEZ — çağrıldığında her zaman gönderir."""
-    return _run_scan(notifier.send_pending_proposal_notifications, "proposal-run", request, actor, db)
+    auto_proposal_reminder_enabled bayrağından ETKİLENMEZ — çağrıldığında her zaman çalışır."""
+    return _run_scan("proposal-run", request, actor, db)
+
+
+@router.get("/expiry-run/status")
+def expiry_run_status(actor: str = Depends(_trigger_actor)):
+    """Son süre uyarısı taramasının durumu (hangi sunucuda çalışırsa çalışsın aynı)."""
+    return _status("expiry-run", actor)
+
+
+@router.get("/expired-run/status")
+def expired_run_status(actor: str = Depends(_trigger_actor)):
+    """Son süresi geçmiş hatırlatması taramasının durumu."""
+    return _status("expired-run", actor)
+
+
+@router.get("/proposal-run/status")
+def proposal_run_status(actor: str = Depends(_trigger_actor)):
+    """Son değişiklik talebi hatırlatmasının durumu."""
+    return _status("proposal-run", actor)
 
 
 MAIL_HISTORY_LIMIT = 1000
