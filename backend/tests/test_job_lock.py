@@ -123,6 +123,9 @@ class _FakeConn:
             raise code
         return _FakeResult(code)
 
+    def exec_driver_sql(self, sql):
+        self.log.append(("sql", sql))
+
     def commit(self):
         self.log.append(("commit", {}))
 
@@ -156,6 +159,8 @@ def test_mssql_lock_uses_sp_getapplock_and_releases(monkeypatch):
     a.release()
     assert ("release", {"res": "jumbo:live-check"}) in eng.log
     assert not job_lock._mssql_disabled
+    # NOCOUNT açık bağlantı havuza dönerse UPDATE'ler -1 satır der → girişte StaleDataError (UAT)
+    assert eng.log.count(("sql", "SET NOCOUNT OFF")) == 3, "her kilit/bırakma sonrası kapatılmalı"
 
 
 def test_mssql_wait_passes_timeout_in_ms(monkeypatch):
