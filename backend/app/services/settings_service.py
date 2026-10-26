@@ -26,6 +26,7 @@ SENSITIVE_KEYS = {
     "jabber.password",       # XMPP gönderen JID'inin şifresi
     "jira.api_token",        # Jira API token / PAT / şifre (Basic ya da Bearer)
     "jenkins.api_token",     # Jenkins API token ya da şifre (Basic auth)
+    "ai.api_key",            # Kurum içi AI servisinin API anahtarı
 }
 
 DEFAULTS: dict[str, dict] = {
@@ -268,6 +269,22 @@ DEFAULTS: dict[str, dict] = {
         "jobs_folder": "",
         "proxy_url": "",
         "timeout_seconds": 15,
+    },
+    "ai": {
+        # Kurum içi AI servisi (OpenAI uyumlu /chat/completions). Varsayılan KAPALI. Açıkken her
+        # sayfada AI simgesi görünür; AI Jumbo verisini yalnız soran kullanıcının yetkisiyle OKUR.
+        "enabled": False,
+        "assistant_name": "Jumbo AI",  # simgede ve sohbet başlığında görünen ad
+        "api_url": "",                # ör. https://ai.firma.local/v1 (ya da tam …/chat/completions)
+        "auth_mode": "bearer",        # bearer (Authorization: Bearer) | api-key (api-key başlığı)
+        "api_key": "",                # API anahtarı (gizli — Fernet ile şifrelenir)
+        "model": "",                  # servisteki model adı
+        "use_tools": True,            # AI Jumbo verisini okuyabilsin (servis tool calling desteklemeli)
+        "daily_limit": 100,           # kullanıcı başına günlük soru sınırı (0 = sınırsız)
+        "extra_instructions": "",     # AI'a her soruda verilecek ek talimat (banka kuralları vb.)
+        "proxy_url": "",
+        "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev)
+        "timeout_seconds": 60,
     },
 }
 

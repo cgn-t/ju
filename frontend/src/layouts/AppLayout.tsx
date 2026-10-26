@@ -30,6 +30,7 @@ import { api } from '../api/client'
 import type { DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
+import AiAssistant from '../components/AiAssistant'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
@@ -315,6 +316,7 @@ export default function AppLayout() {
         <Outlet />
       </Container>
       </Box>
+      <AiAssistant />
     </Box>
   )
 }

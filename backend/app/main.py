@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
 from app.api import (
+    ai,
     applications,
     auth,
     certificates,
@@ -671,6 +672,7 @@ app.include_router(policy.router)
 app.include_router(jenkins.router)
 app.include_router(deployments.router)
 app.include_router(summary.router)
+app.include_router(ai.router)
 
 
 @app.exception_handler(IntegrityError)
