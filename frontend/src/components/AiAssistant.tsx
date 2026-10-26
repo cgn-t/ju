@@ -1,13 +1,16 @@
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
-import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
+import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
-import OpenInFullIcon from '@mui/icons-material/OpenInFull'
+import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import {
-  Box, Chip, CircularProgress, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Paper, Stack,
-  TextField, ThemeProvider, Tooltip, Typography, createTheme, type Theme,
+  Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
+  TextField, ThemeProvider, Tooltip, Typography, createTheme, useMediaQuery, type Theme,
 } from '@mui/material'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -17,12 +20,31 @@ import { BRAND_DARK, BRAND_DARKER, BRAND_GRADIENT } from '../theme'
 
 // AI asistanı: Ayarlar > AI Asistanı açıkken her sayfanın sağ altında simge. Sohbet bu sekmede
 // (sessionStorage) tutulur; AI yalnız OKUR, kayıtları sunucu tarafında soranın yetkisiyle görür.
-type ChatMessage = { role: 'user' | 'assistant'; content: string; error?: boolean }
+type ChatMessage = { role: 'user' | 'assistant'; content: string; error?: boolean; sources?: string[] }
 type AiStatus = { enabled: boolean; name: string; suggestions?: string[] }
 type AiAnswer = { answer: string; tools_used: string[]; tool_mode: boolean }
 
 const STORE_KEY = 'jumbo.ai.chat'
 const BIG_KEY = 'jumbo.ai.big'
+const PANEL_W = 480          // normal genişlik
+const PANEL_W_WIDE = 760     // "Genişlet"
+const MIN_PAGE_W = 720       // sayfa bundan daralacaksa panel sayfayı itmez, üstüne açılır
+
+// Cevabın altında "Baktığı yerler": AI'ın kullandığı araç → ekran adı
+const SOURCE_LABELS: Record<string, string> = {
+  sertifika_ara: 'SSL Sertifikaları', sertifika_detay: 'SSL Sertifikaları',
+  domain_ara: 'Domainler', domain_detay: 'Domainler', degisiklik_talepleri: 'Değişiklik Talepleri',
+  genel_durum: 'Anasayfa', kayit_gecmisi: 'Audit Log',
+}
+// Panel başlığının altındaki "Bu sayfa" bilgisi (AI'a da gönderilir)
+const PAGE_LABELS: Record<string, string> = {
+  '/': 'Anasayfa', '/overview': 'Genel Durum', '/my-team': 'Ekibim', '/certificates': 'SSL Sertifikaları',
+  '/domains': 'Domainler', '/applications': 'Uygulamalar', '/cert-map': 'Sertifika Haritası',
+  '/policy': 'Uyum', '/discovery': 'Keşif', '/proposals': 'Değişiklik Talepleri', '/deployments': 'Dağıtım',
+  '/settings': 'Ayarlar', '/profile': 'Profilim', '/system-health': 'Sistem Sağlığı',
+}
+const pageLabel = (path: string) =>
+  PAGE_LABELS[path] ?? PAGE_LABELS['/' + (path.split('/')[1] ?? '')] ?? 'Jumbo'
 
 // Panel içi vurgu rengi sol menünün koyu kırmızısı (bağlantı, odak çizgisi, gönder düğmesi).
 // Koyu temada koyu kırmızı yazı okunmadığı için bağlantılar açık tonda kalır; simge/başlık/balon aynı.
@@ -94,7 +116,14 @@ export function AiText({ text }: { text: string }) {
   )
 }
 
-export default function AiAssistant() {
+type Props = {
+  /** Sol menünün o anki genişliği — panelin sayfayı itip itmeyeceği hesaplanır */
+  navWidth?: number
+  /** Panel sayfayı itiyorsa sağda boşaltılacak genişlik (px), itmiyorsa 0 */
+  onDock?: (px: number) => void
+}
+
+export default function AiAssistant({ navWidth = 0, onDock }: Props) {
   const location = useLocation()
   const { data: status } = useQuery<AiStatus>({
     queryKey: ['ai-status'],
@@ -102,11 +131,22 @@ export default function AiAssistant() {
     staleTime: 5 * 60_000,
   })
   const [open, setOpen] = useState(false)
-  const [big, setBig] = useState(readBig)
+  const [wide, setWide] = useState(readBig)
   const [messages, setMessages] = useState<ChatMessage[]>(readStored)
   const [input, setInput] = useState('')
   const [tipsAnchor, setTipsAnchor] = useState<HTMLElement | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const width = wide ? PANEL_W_WIDE : PANEL_W
+  // Ekran yetiyorsa panel sayfayı sola iter (yan yana çalışılır); yetmiyorsa sayfanın üstüne açılır.
+  const canDock = useMediaQuery(`(min-width:${navWidth + width + MIN_PAGE_W}px)`)
+  const enabled = !!status?.enabled
+  const docked = enabled && open && canDock
+
+  useEffect(() => {
+    onDock?.(docked ? width : 0)
+  }, [docked, width, onDock])
 
   useEffect(() => {
     try {
@@ -115,7 +155,11 @@ export default function AiAssistant() {
     endRef.current?.scrollIntoView?.({ block: 'end' })
   }, [messages, open])
 
-  const toggleBig = () => setBig((b) => {
+  useEffect(() => {
+    if (open) inputRef.current?.focus()
+  }, [open])
+
+  const toggleWide = () => setWide((b) => {
     try {
       localStorage.setItem(BIG_KEY, b ? '0' : '1')
     } catch { /* yalnız bu oturum için */ }
@@ -127,11 +171,14 @@ export default function AiAssistant() {
       messages: history.filter((m) => !m.error).map(({ role, content }) => ({ role, content })),
       page: location.pathname + location.search,
     })).data,
-    onSuccess: (d) => setMessages((ms) => [...ms, { role: 'assistant', content: d.answer }]),
+    onSuccess: (d) => setMessages((ms) => [...ms, {
+      role: 'assistant', content: d.answer,
+      sources: [...new Set((d.tools_used ?? []).map((t) => SOURCE_LABELS[t]).filter(Boolean))],
+    }]),
     onError: (e) => setMessages((ms) => [...ms, { role: 'assistant', content: apiErrorMessage(e), error: true }]),
   })
 
-  if (!status?.enabled) return null
+  if (!enabled) return null
   const name = status.name || 'Jumbo AI'
   const suggestions = status.suggestions ?? []
 
@@ -143,95 +190,154 @@ export default function AiAssistant() {
     setInput('')
     ask.mutate(next)
   }
-
-  // Normal: geniş pencere (560 × 760). Büyük: ekranın neredeyse tamamı (menü hariç değil, üstte durur).
-  const size = big
-    ? { width: { xs: 'calc(100vw - 16px)', sm: 'min(1100px, calc(100vw - 48px))' },
-        height: { xs: 'calc(100vh - 100px)', sm: 'calc(100vh - 120px)' } }
-    : { width: { xs: 'calc(100vw - 16px)', sm: 560 },
-        height: { xs: 'calc(100vh - 100px)', sm: 'min(760px, calc(100vh - 120px))' } }
-  const fontSize = big ? 15 : 14.5
+  const copy = (text: string) => {
+    try {
+      void navigator.clipboard?.writeText(text)
+    } catch { /* pano erişimi yoksa sessizce geç */ }
+  }
 
   return (
     <ThemeProvider theme={brandTheme}>
-      {open && (
-        <Paper elevation={8} role="dialog" aria-label={name} sx={{
-          position: 'fixed', zIndex: (t) => t.zIndex.drawer + 2, right: { xs: 8, sm: 24 }, bottom: { xs: 80, sm: 96 },
-          ...size, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 3,
-          transition: 'width 160ms ease, height 160ms ease',
-        }}>
-          <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', gap: 1,
-                     background: BRAND_GRADIENT, color: '#fff' }}>
-            <AutoAwesomeIcon fontSize="small" />
-            <Typography sx={{ fontWeight: 700, flexGrow: 1 }}>{name}</Typography>
-            <Tooltip title="Yeni sohbet">
-              <span>
-                <IconButton size="small" color="inherit" aria-label="Yeni sohbet"
-                            disabled={!messages.length || ask.isPending} onClick={() => setMessages([])}>
-                  <RestartAltIcon fontSize="small" />
+      {/* Değişiklik talebi penceresi gibi sağdan açılır; sayfayı karartmaz, sayfa kullanılabilir kalır */}
+      <Drawer anchor="right" variant="persistent" open={open}
+              slotProps={{ paper: { role: 'dialog', 'aria-label': name, sx: {
+                width: { xs: '100%', md: width }, maxWidth: '100%', borderLeft: 1, borderColor: 'divider',
+                boxShadow: docked ? 'none' : '-12px 0 32px rgba(0,0,0,0.18)',
+                transition: 'width 180ms ease',
+              } } }}
+              onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          {/* Başlık — diğer yan pencerelerle aynı düzen */}
+          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                         background: BRAND_GRADIENT, color: '#fff', flexShrink: 0 }}>
+                <AutoAwesomeIcon sx={{ fontSize: 19 }} />
+              </Box>
+              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>{name}</Typography>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                  Kurum içi AI · yalnız okur · sizin yetkinizle
+                </Typography>
+              </Box>
+              <Tooltip title="Yeni sohbet">
+                <span>
+                  <IconButton size="small" aria-label="Yeni sohbet" disabled={!messages.length || ask.isPending}
+                              onClick={() => setMessages([])}>
+                    <RestartAltIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title={wide ? 'Daralt' : 'Genişlet'}>
+                <IconButton size="small" aria-label={wide ? 'Daralt' : 'Genişlet'} onClick={toggleWide}
+                            sx={{ display: { xs: 'none', md: 'inline-flex' } }}>
+                  {wide ? <KeyboardDoubleArrowRightIcon fontSize="small" /> : <KeyboardDoubleArrowLeftIcon fontSize="small" />}
                 </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title={big ? 'Küçült' : 'Büyüt'}>
-              <IconButton size="small" color="inherit" aria-label={big ? 'Küçült' : 'Büyüt'} onClick={toggleBig}>
-                {big ? <CloseFullscreenIcon fontSize="small" /> : <OpenInFullIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-            <IconButton size="small" color="inherit" aria-label="Kapat" onClick={() => setOpen(false)}>
-              <CloseIcon fontSize="small" />
-            </IconButton>
+              </Tooltip>
+              <Tooltip title="Kapat (Esc)">
+                <IconButton size="small" aria-label="Kapat" onClick={() => setOpen(false)}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 1.25, px: 1, py: 0.25,
+                       borderRadius: 5, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>
+              <PlaceOutlinedIcon sx={{ fontSize: 14 }} />
+              Bu sayfa: <b>{pageLabel(location.pathname)}</b>
+            </Box>
           </Box>
 
-          <Box sx={{ flexGrow: 1, overflowY: 'auto', px: big ? 3 : 2, py: 2, bgcolor: 'background.default' }}>
+          {/* Konuşma */}
+          <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 2.5, py: 2, bgcolor: 'background.default' }}>
             {!messages.length && (
-              <Stack spacing={1.5} sx={{ mt: 1, maxWidth: 760, mx: 'auto' }}>
-                <Typography variant="body2" color="text.secondary">
-                  Merhaba! Sertifikalar, domainler ve değişiklik talepleri hakkında sorabilirsiniz.
-                  Yalnız görmeye yetkili olduğunuz kayıtlara bakarım, hiçbir şeyi değiştirmem.
+              <Box sx={{ maxWidth: 640, mx: 'auto', mt: 1 }}>
+                <Typography sx={{ fontWeight: 700, fontSize: 17 }}>Size nasıl yardımcı olabilirim?</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                  Sertifikalar, domainler ve değişiklik talepleri hakkında sorabilirsiniz. Yalnız görmeye
+                  yetkili olduğunuz kayıtlara bakarım, hiçbir şeyi değiştirmem.
                 </Typography>
-                {suggestions.map((s) => (
-                  <Chip key={s} label={s} variant="outlined" onClick={() => send(s)}
-                        sx={{ justifyContent: 'flex-start', height: 'auto', py: 0.75,
-                              '& .MuiChip-label': { whiteSpace: 'normal' } }} />
-                ))}
-              </Stack>
+                {suggestions.length > 0 && (
+                  <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>Hazır sorular</Typography>
+                )}
+                <Stack spacing={1}>
+                  {suggestions.map((s) => (
+                    <ButtonBase key={s} onClick={() => send(s)} sx={{
+                      justifyContent: 'flex-start', textAlign: 'left', gap: 1, px: 1.5, py: 1.1,
+                      borderRadius: 2, border: 1, borderColor: 'divider', bgcolor: 'background.paper',
+                      fontSize: 14, '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
+                    }}>
+                      <LightbulbOutlinedIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                      <Box sx={{ flexGrow: 1 }}>{s}</Box>
+                      <ChevronRightIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
+                    </ButtonBase>
+                  ))}
+                </Stack>
+              </Box>
             )}
-            <Stack spacing={1.5}>
-              {messages.map((m, i) => (
-                <Box key={i} sx={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <Box sx={{
-                    maxWidth: big ? '78%' : '88%', px: 1.75, py: 1.1, borderRadius: 2, fontSize, lineHeight: 1.55,
-                    wordBreak: 'break-word',
-                    ...(m.role === 'user'
-                      ? { bgcolor: BRAND_DARK, color: '#fff', whiteSpace: 'pre-wrap' }
-                      : m.error
-                        ? { bgcolor: 'error.light', color: 'error.contrastText' }
-                        : { bgcolor: 'background.paper', border: 1, borderColor: 'divider' }),
-                  }}>
-                    {m.role === 'user' ? m.content : <AiText text={m.content} />}
+            <Stack spacing={2}>
+              {messages.map((m, i) => m.role === 'user' ? (
+                <Box key={i} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Box sx={{ maxWidth: '85%', px: 1.75, py: 1, borderRadius: '14px 14px 4px 14px',
+                             bgcolor: BRAND_DARK, color: '#fff', fontSize: 14.5, lineHeight: 1.5,
+                             whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {m.content}
+                  </Box>
+                </Box>
+              ) : (
+                <Box key={i} sx={{ display: 'flex', gap: 1.25 }}>
+                  <Box sx={{ width: 26, height: 26, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                             background: BRAND_GRADIENT, color: '#fff', flexShrink: 0, mt: 0.25 }}>
+                    <AutoAwesomeIcon sx={{ fontSize: 14 }} />
+                  </Box>
+                  <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                    <Box sx={{
+                      px: 1.75, py: 1.25, borderRadius: '4px 14px 14px 14px', fontSize: 14.5, lineHeight: 1.55,
+                      wordBreak: 'break-word', border: 1,
+                      ...(m.error
+                        ? { bgcolor: 'error.main', color: '#fff', borderColor: 'error.main' }
+                        : { bgcolor: 'background.paper', borderColor: 'divider' }),
+                    }}>
+                      <AiText text={m.content} />
+                    </Box>
+                    {!m.error && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, color: 'text.secondary' }}>
+                        <Typography variant="caption" sx={{ flexGrow: 1 }}>
+                          {m.sources?.length ? `Baktığı yerler: ${m.sources.join(', ')}` : ''}
+                        </Typography>
+                        <Tooltip title="Kopyala">
+                          <IconButton size="small" aria-label="Cevabı kopyala" onClick={() => copy(m.content)}>
+                            <ContentCopyIcon sx={{ fontSize: 15 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    )}
                   </Box>
                 </Box>
               ))}
               {ask.isPending && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary', fontSize: 13 }}>
-                  <CircularProgress size={14} /> Düşünüyor…
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary', fontSize: 13, pl: 4.5 }}>
+                  <CircularProgress size={14} /> Kayıtlara bakıyor…
                 </Box>
               )}
               <div ref={endRef} />
             </Stack>
           </Box>
 
-          <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-end' }}>
+          {/* Yazma alanı */}
+          <Box sx={{ px: 2, pt: 1.5, pb: 1, borderTop: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 0.5, border: 1, borderColor: 'divider',
+                       borderRadius: 3, px: 1, py: 0.5, '&:focus-within': { borderColor: 'primary.main' } }}>
               {suggestions.length > 0 && messages.length > 0 && (
                 <Tooltip title="Hazır sorular">
-                  <IconButton aria-label="Hazır sorular" onClick={(e) => setTipsAnchor(e.currentTarget)}>
-                    <LightbulbOutlinedIcon />
+                  <IconButton size="small" aria-label="Hazır sorular" onClick={(e) => setTipsAnchor(e.currentTarget)}>
+                    <LightbulbOutlinedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               )}
-              <TextField fullWidth size="small" multiline minRows={big ? 2 : 1} maxRows={big ? 8 : 5}
-                         placeholder="Sorunuzu yazın…" value={input} onChange={(e) => setInput(e.target.value)}
+              <TextField fullWidth variant="standard" multiline minRows={1} maxRows={wide ? 10 : 6}
+                         placeholder="Sorunuzu yazın…" value={input} inputRef={inputRef}
+                         onChange={(e) => setInput(e.target.value)}
+                         slotProps={{ input: { disableUnderline: true, sx: { fontSize: 14.5, py: 0.75 } } }}
                          onKeyDown={(e) => {
                            if (e.key === 'Enter' && !e.shiftKey) {
                              e.preventDefault()
@@ -240,17 +346,17 @@ export default function AiAssistant() {
                          }} />
               <IconButton color="primary" aria-label="Gönder" disabled={!input.trim() || ask.isPending}
                           onClick={() => send(input)}>
-                <SendIcon />
+                <SendIcon fontSize="small" />
               </IconButton>
-            </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, px: 0.5 }}>
               AI yanılabilir; önemli kararlardan önce kaydı açıp kontrol edin. Shift+Enter yeni satır.
             </Typography>
           </Box>
           <Menu anchorEl={tipsAnchor} open={!!tipsAnchor} onClose={() => setTipsAnchor(null)}
                 anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
                 transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-                slotProps={{ paper: { sx: { maxWidth: 480 } } }}>
+                slotProps={{ paper: { sx: { maxWidth: 460 } } }}>
             {suggestions.map((s) => (
               <MenuItem key={s} sx={{ whiteSpace: 'normal', fontSize: 14 }}
                         onClick={() => { setTipsAnchor(null); send(s) }}>
@@ -258,17 +364,19 @@ export default function AiAssistant() {
               </MenuItem>
             ))}
           </Menu>
-        </Paper>
-      )}
+        </Box>
+      </Drawer>
 
-      <Tooltip title={open ? '' : `${name}'a sor`} placement="left">
-        <Fab aria-label={`${name}'a sor`} onClick={() => setOpen((o) => !o)}
-             sx={{ position: 'fixed', right: { xs: 16, sm: 24 }, bottom: { xs: 16, sm: 24 },
-                   zIndex: (t) => t.zIndex.drawer + 2, color: '#fff', background: BRAND_GRADIENT,
-                   '&:hover': { background: BRAND_DARKER } }}>
-          {open ? <CloseIcon /> : <AutoAwesomeIcon />}
-        </Fab>
-      </Tooltip>
+      {!open && (
+        <Tooltip title={`${name}'a sor`} placement="left">
+          <Fab aria-label={`${name}'a sor`} onClick={() => setOpen(true)}
+               sx={{ position: 'fixed', right: { xs: 16, sm: 24 }, bottom: { xs: 16, sm: 24 },
+                     zIndex: (t) => t.zIndex.drawer + 1, color: '#fff', background: BRAND_GRADIENT,
+                     '&:hover': { background: BRAND_DARKER } }}>
+            <AutoAwesomeIcon />
+          </Fab>
+        </Tooltip>
+      )}
     </ThemeProvider>
   )
 }

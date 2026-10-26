@@ -39,6 +39,8 @@ describe('AiAssistant', () => {
     const link = await screen.findByRole('link', { name: 'web.firma.local' })
     expect(link.getAttribute('href')).toBe('/certificates?cert=7')
     expect(screen.getByText('12 gün').tagName).toBe('B')
+    expect(screen.getByText('Baktığı yerler: SSL Sertifikaları')).toBeTruthy()
+    expect(screen.getByText('Domainler')).toBeTruthy()   // "Bu sayfa: Domainler"
     expect(apiPost).toHaveBeenCalledWith('/ai/chat', {
       messages: [{ role: 'user', content: 'Bitecekler?' }], page: '/domains' })
   })
@@ -52,7 +54,7 @@ describe('AiAssistant', () => {
     expect(await screen.findByText(/anahtarı kabul etmedi/)).toBeTruthy()
   })
 
-  it('hazır sorular Ayarlar\'dan gelir, sohbet sırasında menüden de sorulur; Büyüt pencereyi büyütür', async () => {
+  it('hazır sorular Ayarlar\'dan gelir, sohbet sırasında menüden de sorulur; Genişlet paneli genişletir', async () => {
     apiGet.mockResolvedValue({ data: ON })
     apiPost.mockResolvedValue({ data: { answer: 'tamam', tools_used: [], tool_mode: true } })
     renderPage(<AiAssistant />)
@@ -66,8 +68,8 @@ describe('AiAssistant', () => {
     expect(apiPost.mock.calls[1][1]).toMatchObject({ messages: [
       { role: 'user', content: 'Bitecekler?' }, { role: 'assistant', content: 'tamam' },
       { role: 'user', content: 'Onay bekleyen değişiklik talepleri neler?' }] })
-    await userEvent.click(screen.getByRole('button', { name: 'Büyüt' }))
-    expect(screen.getByRole('button', { name: 'Küçült' })).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Genişlet' }))
+    expect(screen.getByRole('button', { name: 'Daralt' })).toBeTruthy()
     expect(localStorage.getItem('jumbo.ai.big')).toBe('1')
   })
 

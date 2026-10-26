@@ -101,6 +101,7 @@ export default function AppLayout() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)   // mobil (xs) navigasyon çekmecesi
   const [collapsed, setCollapsed] = useState(readCollapsed)  // masaüstü sol menü daraltılmış mı (tarayıcıda hatırlanır)
+  const [aiDock, setAiDock] = useState(0)   // AI paneli açık ve sayfayı itiyorsa sağda bırakılan boşluk (px)
   const toggleCollapsed = () => setCollapsed((c) => {
     try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* gizli pencere: yalnız bu oturum */ }
     return !c
@@ -254,7 +255,7 @@ export default function AppLayout() {
         {navContent(collapsed)}
       </Box>
 
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0, mr: `${aiDock}px`, transition: 'margin-right 180ms ease' }}>
       {/* Üst çubuk yalnız mobilde (xs/sm): menü düğmesi + logo. Masaüstünde sol menü yeterli. */}
       <AppBar position="sticky" elevation={0} color="inherit"
               sx={{ display: { xs: 'block', md: 'none' }, bgcolor: 'background.paper', backgroundImage: 'none',
@@ -317,7 +318,7 @@ export default function AppLayout() {
         <Outlet />
       </Container>
       </Box>
-      <AiAssistant />
+      <AiAssistant navWidth={collapsed ? NAV_W_COMPACT : NAV_W} onDock={setAiDock} />
     </Box>
   )
 }
