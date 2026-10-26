@@ -1,4 +1,6 @@
 import AddIcon from '@mui/icons-material/Add'
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -1614,6 +1616,147 @@ function JenkinsTab() {
   )
 }
 
+// Sohbet panelindeki hazır sorular — ekle, düzelt, sırala, çıkar. Kaydet ile birlikte yazılır.
+function AiSuggestionsEditor({ value, onChange }: { value: string[]; onChange: (list: string[]) => void }) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const q = draft.trim()
+    if (!q || value.includes(q)) return
+    onChange([...value, q])
+    setDraft('')
+  }
+  const move = (i: number, d: -1 | 1) => {
+    const next = [...value]
+    ;[next[i], next[i + d]] = [next[i + d], next[i]]
+    onChange(next)
+  }
+  return (
+    <Box>
+      <SectionLabel>Hazır Sorular</SectionLabel>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+        Sohbet panelinde tek tıkla sorulabilen sorular. Sıra burada göründüğü gibidir (en fazla 20).
+      </Typography>
+      <Stack spacing={1}>
+        {value.map((q, i) => (
+          <Stack key={i} direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            <TextField fullWidth size="small" value={q} aria-label={`Hazır soru ${i + 1}`}
+                       onChange={(e) => onChange(value.map((x, j) => (j === i ? e.target.value : x)))} />
+            <Tooltip title="Yukarı taşı"><span>
+              <IconButton size="small" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Yukarı taşı">
+                <ArrowUpwardIcon fontSize="small" />
+              </IconButton>
+            </span></Tooltip>
+            <Tooltip title="Aşağı taşı"><span>
+              <IconButton size="small" disabled={i === value.length - 1} onClick={() => move(i, 1)} aria-label="Aşağı taşı">
+                <ArrowDownwardIcon fontSize="small" />
+              </IconButton>
+            </span></Tooltip>
+            <Tooltip title="Çıkar">
+              <IconButton size="small" color="error" onClick={() => onChange(value.filter((_, j) => j !== i))}
+                          aria-label={`Hazır soruyu çıkar: ${q}`}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        ))}
+        {!value.length && (
+          <Typography variant="body2" color="text.secondary">Hazır soru yok; panelde öneri gösterilmez.</Typography>
+        )}
+        <Stack direction="row" spacing={1}>
+          <TextField fullWidth size="small" label="Yeni hazır soru" value={draft}
+                     onChange={(e) => setDraft(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }} />
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={add}
+                  disabled={!draft.trim() || value.length >= 20}>
+            Ekle
+          </Button>
+        </Stack>
+      </Stack>
+    </Box>
+  )
+}
+
+// AI Asistanı: kurum içi AI servisine (OpenAI uyumlu) bağlantı. Açıkken her sayfada sağ altta AI
+// simgesi görünür. AI Jumbo verisini yalnız soran kullanıcının yetkisiyle OKUR, hiçbir şeyi değiştiremez.
+function AiTab() {
+  const { form, setForm, save } = useCategory('ai')
+  const { enqueueSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
+  const test = useMutation({
+    mutationFn: async () => (await api.post('/ai/test')).data,
+    onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.success ? 'success' : 'warning' }),
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+  const saveAndRefresh = () => save.mutate(undefined, {
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ai-status'] }),
+  })
+  const bool = (field: string, label: string) => (
+    <FormControlLabel
+      control={<Switch checked={!!form[field]}
+                       onChange={(e) => setForm((f) => ({ ...f, [field]: e.target.checked }))} />}
+      label={label} />
+  )
+
+  return (
+    <Stack spacing={2}>
+      <Alert severity="info">
+        Kurum içi AI servisine bağlanır. Açıkken <b>her sayfanın sağ altında</b> AI simgesi görünür;
+        kullanıcılar sertifika, domain ve değişiklik talepleri hakkında soru sorabilir. AI Jumbo verisini
+        <b> yalnız soran kişinin yetkisiyle okur</b>, hiçbir kaydı değiştiremez. Her soru Audit Log'a
+        “AI sorusu” olarak yazılır.
+      </Alert>
+      {bool('enabled', 'AI Asistanı Etkin')}
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="assistant_name" label="Asistanın Adı"
+              helper="Simgede ve sohbet başlığında görünür" />
+        <Text form={form} setForm={setForm} field="model" label="Model Adı"
+              helper="AI servisinde tanımlı model (ör. gpt-4o, llama-3.1-70b)" />
+        <Text form={form} setForm={setForm} field="api_url" label="API Adresi"
+              width={{ xs: 12, sm: 12 }}
+              helper="OpenAI uyumlu adres: https://ai.firma.local/v1 ya da tam …/chat/completions adresi" />
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <TextField select fullWidth size="small" label="Anahtar Gönderimi"
+                     value={String(form.auth_mode ?? 'bearer')}
+                     onChange={(e) => setForm((f) => ({ ...f, auth_mode: e.target.value }))}>
+            <MenuItem value="bearer">Authorization: Bearer</MenuItem>
+            <MenuItem value="api-key">api-key başlığı (Azure)</MenuItem>
+          </TextField>
+        </Grid>
+        <Text form={form} setForm={setForm} field="api_key" label="API Anahtarı" type="password"
+              width={{ xs: 12, sm: 8 }} helper="Şifreli saklanır" />
+      </Grid>
+      <Box>
+        {bool('use_tools', 'AI Jumbo verisini okuyabilsin')}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Servisin “tool calling” desteği gerekir. Desteklemiyorsa ya da kapalıysa AI yalnız genel sorulara
+          cevap verir (ör. “CSR nedir?”).
+        </Typography>
+      </Box>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="daily_limit" label="Kişi Başı Günlük Soru Sınırı"
+              type="number" width={{ xs: 6, sm: 4 }} helper="0 = sınırsız" />
+        <Text form={form} setForm={setForm} field="timeout_seconds" label="Zaman Aşımı (sn)"
+              type="number" width={{ xs: 6, sm: 4 }} />
+        <Text form={form} setForm={setForm} field="proxy_url" label="Proxy (opsiyonel)"
+              width={{ xs: 12, sm: 4 }} />
+        <Text form={form} setForm={setForm} field="extra_instructions" label="Ek Talimat (opsiyonel)"
+              multiline rows={3} width={{ xs: 12, sm: 12 }}
+              helper="AI'a her soruda verilir. Ör. bankanın sertifika yenileme prosedürü, iletişim adresleri." />
+      </Grid>
+      <AiSuggestionsEditor
+        value={Array.isArray(form.suggestions) ? (form.suggestions as string[]) : []}
+        onChange={(list) => setForm((f) => ({ ...f, suggestions: list }))} />
+      {bool('skip_cert_verify', 'TLS sertifikasını doğrulama (yalnız dev)')}
+      <Stack direction="row" spacing={2}>
+        <Button variant="contained" onClick={saveAndRefresh} disabled={save.isPending}>Kaydet</Button>
+        <Button variant="outlined" onClick={() => test.mutate()} disabled={test.isPending}>
+          Bağlantıyı Test Et
+        </Button>
+      </Stack>
+    </Stack>
+  )
+}
+
 // Ayarlar sol menüsü — ilişkili bölümler gruplanır. Bildirim kanalları (SMTP + Slack/Teams/Webhook,
 // ileride ServiceNow/Zoom/Jabber) tek "Bildirimler" başlığı altında toplanır.
 // wide=true → tablo ağırlıklı sekme (tam genişlik); aksi halde form okunur bir sütunda (~880px).
@@ -1651,6 +1794,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'tags', label: 'Etiketler', desc: 'Uygulama etiketi kataloğu', wide: true, el: <TagsTab /> },
     { key: 'vault', label: 'Vault (Hazırlık)', desc: 'Vault PKI entegrasyonu (yakında)', el: <VaultTab /> },
     { key: 'jenkins', label: 'Jenkins', desc: 'Jenkins bağlantı ayarları (tetikleme → Dağıtım sayfası)', el: <JenkinsTab /> },
+    { key: 'ai', label: 'AI Asistanı', desc: 'Kurum içi AI servisine bağlantı; her sayfada AI simgesi', el: <AiTab /> },
     { key: 'audit', label: 'Audit Log', desc: 'Denetim kaydı — kim, neyi, ne zaman değiştirdi (eski → yeni); her kolon filtrelenir, CSV dışa aktarılır', wide: true, el: <AuditLogPanel /> },
   ] },
 ]

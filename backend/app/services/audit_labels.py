@@ -33,6 +33,7 @@ ACTION_LABELS = {
     "trigger": "Tetikleme", "rerun": "Yeniden çalıştırma", "retry": "Adım tekrarı",
     "cancel": "İptal", "ct-scan": "CT izleme", "mail_retry": "Mail yeniden kuyruğa",
     "name_mismatch_ok": "Adres uyumsuzluğu onayı", "chain_repair": "Zincir düzeltme",
+    "ai_ask": "AI sorusu",
 }
 
 # İşlem rengi (UI çip) — kategori renginden bağımsız, işlemin doğasına göre
@@ -56,7 +57,7 @@ TABLE_LABELS = {
     "discovered_certificates": "Keşfedilen sertifika", "notifications": "Bildirim",
     "deployment_flows": "Dağıtım akışı", "deployment_run": "Dağıtım çalıştırması",
     "deployment_run_step": "Dağıtım adımı", "jenkins_job": "Jenkins işi", "jobs": "Zamanlanmış iş",
-    "mail_queue": "Mail kuyruğu",
+    "mail_queue": "Mail kuyruğu", "ai": "AI asistanı",
 }
 
 FIELD_LABELS = {
@@ -191,6 +192,8 @@ def summarize(action: str, details) -> str:
         if details.get("by_status"):
             bits.append(_fmt(details["by_status"]))
         return f"{details.get('job', '')} {st}" + (f" — {', '.join(bits)}" if bits else "")
+    if action == "ai_ask":
+        return details.get("question") or ""
     if action == "test":
         return f"{details.get('target', '')}: {'başarılı' if details.get('success') else 'BAŞARISIZ'}"
     if action in ("propose", "approve", "propose_reject", "propose_cancel", "supersede_apply"):

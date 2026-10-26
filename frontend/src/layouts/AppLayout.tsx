@@ -30,6 +30,8 @@ import { api } from '../api/client'
 import type { DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
+import { BRAND_GRADIENT } from '../theme'
+import AiAssistant from '../components/AiAssistant'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
@@ -99,6 +101,7 @@ export default function AppLayout() {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)   // mobil (xs) navigasyon çekmecesi
   const [collapsed, setCollapsed] = useState(readCollapsed)  // masaüstü sol menü daraltılmış mı (tarayıcıda hatırlanır)
+  const [aiDock, setAiDock] = useState(0)   // AI paneli açık ve sayfayı itiyorsa sağda bırakılan boşluk (px)
   const toggleCollapsed = () => setCollapsed((c) => {
     try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* gizli pencere: yalnız bu oturum */ }
     return !c
@@ -174,7 +177,7 @@ export default function AppLayout() {
 
   const navContent = (compact: boolean) => (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: '#fff',
-               background: 'linear-gradient(180deg, #7e1a1f 0%, #5e1317 100%)' }}>
+               background: BRAND_GRADIENT }}>
       {/* Üst: logo + menüyü daralt/genişlet (masaüstü). Daraltılmışta düğme logonun altında. */}
       <Box sx={{ display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: 'center',
                  gap: compact ? 0.5 : 0, px: compact ? 1 : 2, pr: compact ? 1 : 1, py: compact ? 1.25 : 1.75 }}>
@@ -252,7 +255,7 @@ export default function AppLayout() {
         {navContent(collapsed)}
       </Box>
 
-      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+      <Box sx={{ flexGrow: 1, minWidth: 0, mr: `${aiDock}px`, transition: 'margin-right 180ms ease' }}>
       {/* Üst çubuk yalnız mobilde (xs/sm): menü düğmesi + logo. Masaüstünde sol menü yeterli. */}
       <AppBar position="sticky" elevation={0} color="inherit"
               sx={{ display: { xs: 'block', md: 'none' }, bgcolor: 'background.paper', backgroundImage: 'none',
@@ -315,6 +318,7 @@ export default function AppLayout() {
         <Outlet />
       </Container>
       </Box>
+      <AiAssistant navWidth={collapsed ? NAV_W_COMPACT : NAV_W} onDock={setAiDock} />
     </Box>
   )
 }
