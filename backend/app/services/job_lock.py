@@ -45,6 +45,9 @@ _LOCK_SQL = text(
 _UNLOCK_SQL = text(
     "SET NOCOUNT ON; DECLARE @r int; "
     "EXEC @r = sp_releaseapplock @Resource = :res, @LockOwner = 'Session'; SELECT @r AS r")
+# NOCOUNT oturuma yapışır: açık kalırsa bağlantı havuza dönünce UPDATE'ler satır sayısı -1 verir
+# ve SQLAlchemy StaleDataError atar (girişte last_login → 500). Her kilit sorgusundan sonra kapatılır.
+_NOCOUNT_OFF = "SET NOCOUNT OFF"
 
 
 def _local(name: str) -> threading.Lock:
@@ -92,6 +95,7 @@ class JobLock:
         try:
             code = conn.execute(_LOCK_SQL, {"res": self.resource,
                                             "ms": int(max(0, wait_seconds) * 1000)}).scalar()
+            conn.exec_driver_sql(_NOCOUNT_OFF)
             conn.commit()
         except Exception:
             conn.invalidate()
@@ -113,6 +117,7 @@ class JobLock:
             conn, self._conn = self._conn, None
             try:
                 conn.execute(_UNLOCK_SQL, {"res": self.resource}).scalar()
+                conn.exec_driver_sql(_NOCOUNT_OFF)
                 conn.commit()
                 conn.close()
             except Exception:
