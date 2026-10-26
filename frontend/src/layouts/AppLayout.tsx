@@ -30,6 +30,7 @@ import { api } from '../api/client'
 import type { DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
+import { BRAND_GRADIENT } from '../theme'
 import AiAssistant from '../components/AiAssistant'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
@@ -175,7 +176,7 @@ export default function AppLayout() {
 
   const navContent = (compact: boolean) => (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: '#fff',
-               background: 'linear-gradient(180deg, #7e1a1f 0%, #5e1317 100%)' }}>
+               background: BRAND_GRADIENT }}>
       {/* Üst: logo + menüyü daralt/genişlet (masaüstü). Daraltılmışta düğme logonun altında. */}
       <Box sx={{ display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: 'center',
                  gap: compact ? 0.5 : 0, px: compact ? 1 : 2, pr: compact ? 1 : 1, py: compact ? 1.25 : 1.75 }}>

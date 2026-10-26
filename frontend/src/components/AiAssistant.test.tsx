@@ -11,12 +11,14 @@ vi.mock('../api/client', async (importOriginal) => ({
 }))
 const apiGet = vi.mocked(api.get)
 const apiPost = vi.mocked(api.post)
+const ON = { enabled: true, name: 'Fil', suggestions: ['Onay bekleyen değişiklik talepleri neler?', 'Bitecekler?'] }
 
 describe('AiAssistant', () => {
   beforeEach(() => {
     apiGet.mockReset()
     apiPost.mockReset()
     sessionStorage.clear()
+    localStorage.removeItem('jumbo.ai.big')
   })
 
   it('AI kapalıyken simge görünmez', async () => {
@@ -27,7 +29,7 @@ describe('AiAssistant', () => {
   })
 
   it('soruyu gönderir, cevaptaki kayıt bağlantısını gösterir', async () => {
-    apiGet.mockResolvedValue({ data: { enabled: true, name: 'Fil' } })
+    apiGet.mockResolvedValue({ data: ON })
     apiPost.mockResolvedValue({ data: {
       answer: '1 sertifika var:\n- [web.firma.local](/certificates?cert=7) — **12 gün** kaldı',
       tools_used: ['sertifika_ara'], tool_mode: true } })
@@ -42,11 +44,40 @@ describe('AiAssistant', () => {
   })
 
   it('servis hatasını sohbet içinde gösterir', async () => {
-    apiGet.mockResolvedValue({ data: { enabled: true, name: 'Fil' } })
+    apiGet.mockResolvedValue({ data: ON })
     apiPost.mockRejectedValue({ isAxiosError: true, response: { data: { detail: 'AI servisi anahtarı kabul etmedi' } } })
     renderPage(<AiAssistant />)
     await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
     await userEvent.click(screen.getByText('Onay bekleyen değişiklik talepleri neler?'))
     expect(await screen.findByText(/anahtarı kabul etmedi/)).toBeTruthy()
+  })
+
+  it('hazır sorular Ayarlar\'dan gelir, sohbet sırasında menüden de sorulur; Büyüt pencereyi büyütür', async () => {
+    apiGet.mockResolvedValue({ data: ON })
+    apiPost.mockResolvedValue({ data: { answer: 'tamam', tools_used: [], tool_mode: true } })
+    renderPage(<AiAssistant />)
+    await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
+    expect(screen.getByText('Bitecekler?')).toBeTruthy()
+    await userEvent.click(screen.getByText('Bitecekler?'))
+    await screen.findByText('tamam')
+    await userEvent.click(screen.getByRole('button', { name: 'Hazır sorular' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Onay bekleyen değişiklik talepleri neler?' }))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(2))
+    expect(apiPost.mock.calls[1][1]).toMatchObject({ messages: [
+      { role: 'user', content: 'Bitecekler?' }, { role: 'assistant', content: 'tamam' },
+      { role: 'user', content: 'Onay bekleyen değişiklik talepleri neler?' }] })
+    await userEvent.click(screen.getByRole('button', { name: 'Büyüt' }))
+    expect(screen.getByRole('button', { name: 'Küçült' })).toBeTruthy()
+    expect(localStorage.getItem('jumbo.ai.big')).toBe('1')
+  })
+
+  it('hazır soru yoksa öneri ve menü düğmesi görünmez', async () => {
+    apiGet.mockResolvedValue({ data: { ...ON, suggestions: [] } })
+    apiPost.mockResolvedValue({ data: { answer: 'tamam', tools_used: [], tool_mode: true } })
+    renderPage(<AiAssistant />)
+    await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
+    await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'selam{Enter}')
+    await screen.findByText('tamam')
+    expect(screen.queryByRole('button', { name: 'Hazır sorular' })).toBeNull()
   })
 })

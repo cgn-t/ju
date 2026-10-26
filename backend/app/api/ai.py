@@ -12,13 +12,26 @@ from app.services.settings_service import get_category
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
+MAX_SUGGESTIONS = 20
+
+
+def _suggestions(value) -> list[str]:
+    """Hazır sorular: boşlar ve tekrarlar atılır, en fazla MAX_SUGGESTIONS, her biri 300 karakter."""
+    out: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        text = str(item or "").strip()[:300]
+        if text and text not in out:
+            out.append(text)
+    return out[:MAX_SUGGESTIONS]
+
 
 @router.get("/status")
 def ai_status(db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
     """Simge yalnız AI açık ve ayarları tamamken görünür. Sır içermez."""
     cfg = get_category(db, "ai", mask_secrets=True)
     return {"enabled": ai_assistant.is_available(cfg),
-            "name": cfg.get("assistant_name") or "Jumbo AI"}
+            "name": cfg.get("assistant_name") or "Jumbo AI",
+            "suggestions": _suggestions(cfg.get("suggestions"))}
 
 
 @router.post("/chat")

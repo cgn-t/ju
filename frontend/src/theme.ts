@@ -12,6 +12,11 @@ export const MONO_FONT = '"JetBrains Mono","SFMono-Regular","Menlo","Consolas",m
 // eski 8000ms'den kısaltıldı (kullanıcı geri bildirimi: ekranda çok uzun kalıyordu).
 export const TRANSFER_TOAST_MS = 3000
 
+// Sol menünün koyu kırmızısı — menü ve AI asistanı (simge, başlık, soru balonları) aynı tonu kullanır
+export const BRAND_DARK = '#7e1a1f'
+export const BRAND_DARKER = '#5e1317'
+export const BRAND_GRADIENT = `linear-gradient(180deg, ${BRAND_DARK} 0%, ${BRAND_DARKER} 100%)`
+
 // JUMBO teması — koyu mod varsayılan (kurumsal koyu zemin + kırmızı vurgu), açık mod seçilebilir
 export function createAppTheme(mode: ThemeMode) {
   return createTheme({

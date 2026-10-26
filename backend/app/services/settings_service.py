@@ -282,6 +282,12 @@ DEFAULTS: dict[str, dict] = {
         "use_tools": True,            # AI Jumbo verisini okuyabilsin (servis tool calling desteklemeli)
         "daily_limit": 100,           # kullanıcı başına günlük soru sınırı (0 = sınırsız)
         "extra_instructions": "",     # AI'a her soruda verilecek ek talimat (banka kuralları vb.)
+        # Sohbet panelindeki hazır sorular (admin Ayarlar'dan ekler/çıkarır; sıra korunur)
+        "suggestions": [
+            "Önümüzdeki 30 günde süresi dolacak sertifikalar hangileri?",
+            "Onay bekleyen değişiklik talepleri neler?",
+            "Süresi dolmuş domainleri listele",
+        ],
         "proxy_url": "",
         "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev)
         "timeout_seconds": 60,

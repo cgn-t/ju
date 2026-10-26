@@ -74,9 +74,24 @@ def test_status_off_by_default_and_key_is_secret(client, auth_headers):
     assert "kapalı" in r.json()["detail"]
 
 
-def test_status_on_shows_name(client, auth_headers, ai_on):
+def test_status_on_shows_name_and_default_suggestions(client, auth_headers, ai_on):
     r = client.get("/api/ai/status", headers=auth_headers)
-    assert r.json() == {"enabled": True, "name": "Fil"}
+    body = r.json()
+    assert body["enabled"] is True and body["name"] == "Fil"
+    assert body["suggestions"][0] == "Önümüzdeki 30 günde süresi dolacak sertifikalar hangileri?"
+
+
+def test_admin_edits_suggestions(client, auth_headers, ai_on):
+    r = client.put("/api/settings/ai", headers=auth_headers, json={
+        "suggestions": ["  Bitecek sertifikalar? ", "", "Bitecek sertifikalar?", "Bekleyen talepler?"]})
+    assert r.status_code == 200
+    assert client.get("/api/ai/status", headers=auth_headers).json()["suggestions"] == [
+        "Bitecek sertifikalar?", "Bekleyen talepler?"]
+    client.put("/api/settings/ai", headers=auth_headers, json={"suggestions": []})
+    assert client.get("/api/ai/status", headers=auth_headers).json()["suggestions"] == []
+    # varsayılana dön (diğer testler etkilenmesin)
+    from app.services.settings_service import DEFAULTS
+    client.put("/api/settings/ai", headers=auth_headers, json={"suggestions": DEFAULTS["ai"]["suggestions"]})
 
 
 def test_endpoint_and_headers():
