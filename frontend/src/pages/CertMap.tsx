@@ -18,7 +18,7 @@ import { alpha, useTheme, type Theme } from '@mui/material/styles'
 import { useQuery } from '@tanstack/react-query'
 import dagre from 'dagre'
 import { toPng } from 'html-to-image'
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ReactFlow, {
   Background, BackgroundVariant, Controls, Handle, MarkerType, MiniMap, Panel, Position,
   ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps,
@@ -47,6 +47,9 @@ const EDGE_LABELS: Record<string, string> = {
 const DASHED = new Set(['client', 'depends'])
 const NODE_W = 250
 const NODE_H = 62
+// Üzerine gelme bu kadar süre sabit kalınca vurgulama/ipucu değişir. Fare harita üzerinde
+// gezinirken her düğümde tüm harita sönüp yanmasın (titreme) diye bekletilir.
+const HOVER_DELAY = 220
 
 const NODE_TYPE_NAMES: Record<string, string> = {
   root: 'Root', intermediate: 'Intermediate', leaf: 'Leaf', domain: 'Domain', app: 'Uygulama',
@@ -103,6 +106,7 @@ interface MapNodeData {
   label: string
   nodeType: string
   daysLeft?: number | null
+  validTo?: string | null
   emphasis: Emphasis
   selected: boolean
 }
@@ -115,7 +119,22 @@ const MapNodeCard = memo(function MapNodeCard({ data }: NodeProps<MapNodeData>) 
   const dark = theme.palette.mode === 'dark'
   const toneColor = st ? theme.palette[st.tone].main : undefined
   const lit = data.emphasis === 'active' || data.selected
+  // Uzaklaştırılmış haritada kart yazıları okunmaz: üzerine gelince adı ve süresi baloncukta gösterilir.
+  // Baloncuk fareyi yakalamaz (disableInteractive) — altındaki düğümleri örtüp titretmez.
+  const tip = (
+    <Box sx={{ py: 0.25, maxWidth: 320 }}>
+      <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.75 }}>
+        {NODE_TYPE_NAMES[data.nodeType] ?? data.nodeType}
+      </Typography>
+      <Typography sx={{ fontSize: 13, fontWeight: 700, wordBreak: 'break-all', lineHeight: 1.35 }}>{data.label}</Typography>
+      {st && (
+        <Typography sx={{ fontSize: 12, mt: 0.25 }}>ValidTo {fmtDate(data.validTo)} · {st.long}</Typography>
+      )}
+      <Typography sx={{ fontSize: 11, mt: 0.5, opacity: 0.7 }}>Tıklayın: bilgi kartı · Çift tık: detay</Typography>
+    </Box>
+  )
   return (
+    <Tooltip title={tip} placement="top" arrow disableInteractive enterDelay={HOVER_DELAY} enterNextDelay={HOVER_DELAY}>
     <Box
       data-testid="map-node" data-emphasis={data.emphasis}
       sx={{
@@ -128,10 +147,9 @@ const MapNodeCard = memo(function MapNodeCard({ data }: NodeProps<MapNodeData>) 
           : data.emphasis === 'related'
             ? `0 0 0 1px ${alpha(color, 0.6)}, 0 4px 14px ${alpha('#000', dark ? 0.4 : 0.1)}`
             : `0 1px 2px ${alpha('#000', dark ? 0.4 : 0.08)}`,
-        opacity: data.emphasis === 'dim' ? 0.16 : 1,
-        filter: data.emphasis === 'dim' ? 'grayscale(0.8)' : 'none',
-        transform: data.emphasis === 'active' ? 'scale(1.03)' : 'none',
-        transition: 'opacity .18s ease, filter .18s ease, box-shadow .18s ease, transform .18s ease',
+        // Yalnız saydamlık değişir: yüzlerce düğümde filtre/ölçek animasyonu ekranı titretiyordu
+        opacity: data.emphasis === 'dim' ? 0.22 : 1,
+        transition: 'opacity .15s ease, box-shadow .15s ease',
         overflow: 'hidden',
         '&::before': { content: '""', position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, bgcolor: color },
       }}
@@ -160,6 +178,7 @@ const MapNodeCard = memo(function MapNodeCard({ data }: NodeProps<MapNodeData>) 
       )}
       <Handle type="source" position={Position.Right} style={{ opacity: 0, width: 1, height: 1, border: 0 }} />
     </Box>
+    </Tooltip>
   )
 })
 const NODE_TYPES = { card: MapNodeCard }
@@ -245,7 +264,7 @@ function Legend({ view }: { view: 'certs' | 'relationships' }) {
       ))}
       {sep}
       <Typography sx={{ fontSize: 11.5, color: 'text.secondary' }}>
-        Üzerine gelin: ilişkililer öne çıkar · Tıklayın: sabitlenir · Çift tık: detay
+        Üzerine gelin: kısa bilgi ve ilişkililer · Tıklayın: bilgi kartı · Çift tık: detay
       </Typography>
     </Stack>
   )
@@ -316,7 +335,7 @@ function InfoCard({ node, lin, nodesById, edges, view, pinned, onOpen, onFocus, 
         </Box>
         <Box sx={{ minWidth: 0, flexGrow: 1 }}>
           <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color }}>
-            {NODE_TYPE_NAMES[node.node_type] ?? node.node_type}{pinned ? ' · seçili' : ''}
+            {NODE_TYPE_NAMES[node.node_type] ?? node.node_type}
           </Typography>
           <Typography sx={{ fontSize: 13.5, fontWeight: 700, wordBreak: 'break-all', lineHeight: 1.35 }}>
             {node.label}
@@ -409,6 +428,14 @@ function CertMapInner() {
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const { fitView } = useReactFlow()
+  // Üzerine gelme/ayrılma HOVER_DELAY kadar bekletilir; arada yeni bir giriş/çıkış önceki bekleyeni iptal eder.
+  // Böylece fare düğümlerin üzerinden geçip giderken vurgulama hiç değişmez.
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const scheduleHover = useCallback((node: string | null, edge: string | null) => {
+    clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(() => { setHoverNode(node); setHoverEdge(edge) }, HOVER_DELAY)
+  }, [])
+  useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
   // Takım filtresi: 'all' = tüm ekipler; sayı = o SY takımının mapping'i. Harita GLOBAL'dir
   // (herkes tümünü görebilir), ama VARSAYILAN olarak kullanıcının kendi SY takımı seçilir.
@@ -437,7 +464,9 @@ function CertMapInner() {
     enabled: view === 'relationships',
   })
 
-  const clearSelection = useCallback(() => { setSelectedId(null); setHoverNode(null); setHoverEdge(null) }, [])
+  const clearSelection = useCallback(() => {
+    clearTimeout(hoverTimer.current); setSelectedId(null); setHoverNode(null); setHoverEdge(null)
+  }, [])
 
   // 1) Görünür alt-grafik (filtre + odak) — vurgulamadan bağımsız, yerleşim yalnız bu değişince hesaplanır
   const graph = useMemo<{ nodes: RawNode[]; edges: RawEdge[] }>(() => {
@@ -500,7 +529,7 @@ function CertMapInner() {
     className: 'nopan',
     position: positions.get(n.id) ?? { x: 0, y: 0 },
     data: {
-      label: n.label, nodeType: n.node_type, daysLeft: n.days_left,
+      label: n.label, nodeType: n.node_type, daysLeft: n.days_left, validTo: n.valid_to,
       selected: n.id === selectedId,
       emphasis: !lin ? 'normal' : n.id === activeId ? 'active' : lin.nodes.has(n.id) ? 'related' : 'dim',
     },
@@ -719,14 +748,14 @@ function CertMapInner() {
             nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} fitView minZoom={0.1}
             proOptions={{ hideAttribution: true }} nodesDraggable={false} nodesConnectable={false}
             elementsSelectable={false} zoomOnDoubleClick={false}
-            onNodeMouseEnter={(_, n) => { setHoverNode(n.id); setHoverEdge(null) }}
-            onNodeMouseLeave={() => setHoverNode(null)}
-            onEdgeMouseEnter={(_, e) => setHoverEdge(e.id)}
-            onEdgeMouseLeave={() => setHoverEdge(null)}
+            onNodeMouseEnter={(_, n) => scheduleHover(n.id, null)}
+            onNodeMouseLeave={() => scheduleHover(null, null)}
+            onEdgeMouseEnter={(_, e) => scheduleHover(null, e.id)}
+            onEdgeMouseLeave={() => scheduleHover(null, null)}
             onNodeClick={(_, n) => setSelectedId(n.id)}
             onNodeDoubleClick={(_, n) => openDetail(n.id)}
             onPaneClick={clearSelection}
-            onPaneMouseLeave={() => { setHoverNode(null); setHoverEdge(null) }}
+            onPaneMouseLeave={() => scheduleHover(null, null)}
           >
             <Background variant={BackgroundVariant.Dots} gap={18} size={1.2}
                         color={dark ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.13)'} />
