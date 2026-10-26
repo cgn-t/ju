@@ -214,12 +214,9 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
                          background: BRAND_GRADIENT, color: '#fff', flexShrink: 0 }}>
                 <AutoAwesomeIcon sx={{ fontSize: 19 }} />
               </Box>
-              <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>{name}</Typography>
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                  Kurum içi AI · yalnız okur · sizin yetkinizle
-                </Typography>
-              </Box>
+              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2, flexGrow: 1, minWidth: 0 }} noWrap>
+                {name}
+              </Typography>
               <Tooltip title="Yeni sohbet">
                 <span>
                   <IconButton size="small" aria-label="Yeni sohbet" disabled={!messages.length || ask.isPending}
