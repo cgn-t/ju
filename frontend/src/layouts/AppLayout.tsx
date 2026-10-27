@@ -2,6 +2,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AppsIcon from '@mui/icons-material/Apps'
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import GroupsIcon from '@mui/icons-material/Groups'
@@ -21,7 +22,7 @@ import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser'
 import {
-  AppBar, Avatar, Badge, Box, ButtonBase, Chip, Container, Divider, Drawer, IconButton, List,
+  AppBar, Avatar, Badge, Box, ButtonBase, Chip, Collapse, Container, Divider, Drawer, IconButton, List,
   ListItemButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Switch, Toolbar,
   Tooltip, Typography,
 } from '@mui/material'
@@ -83,9 +84,14 @@ const ROLE_PATHS: Record<string, string[]> = {
 const NAV_W = 248
 const NAV_W_COMPACT = 68
 const COLLAPSE_KEY = 'jumbo.nav.collapsed'
+const CLOSED_GROUPS_KEY = 'jumbo.nav.closedGroups'   // kapatılan menü başlıkları (Analiz, İşlemler, Yardım)
 
 function readCollapsed() {
   try { return localStorage.getItem(COLLAPSE_KEY) === '1' } catch { return false }
+}
+
+function readClosedGroups(): string[] {
+  try { return JSON.parse(localStorage.getItem(CLOSED_GROUPS_KEY) ?? '[]') } catch { return [] }
 }
 
 // Sayfa-görünürlük ayarına tabi rotalar → usePageAccess() anahtarı (bkz. security.page_visible)
@@ -107,6 +113,13 @@ export default function AppLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)   // mobil (xs) navigasyon çekmecesi
   const [collapsed, setCollapsed] = useState(readCollapsed)  // masaüstü sol menü daraltılmış mı (tarayıcıda hatırlanır)
   const [aiDock, setAiDock] = useState(0)   // AI paneli açık ve sayfayı itiyorsa sağda bırakılan boşluk (px)
+  // Menü başlıkları tıklanınca açılıp kapanır; seçim tarayıcıda hatırlanır (varsayılan: hepsi açık)
+  const [closedGroups, setClosedGroups] = useState(readClosedGroups)
+  const toggleGroup = (label: string) => setClosedGroups((g) => {
+    const next = g.includes(label) ? g.filter((x) => x !== label) : [...g, label]
+    try { localStorage.setItem(CLOSED_GROUPS_KEY, JSON.stringify(next)) } catch { /* gizli pencere: yalnız bu oturum */ }
+    return next
+  })
   const toggleCollapsed = () => setCollapsed((c) => {
     try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1') } catch { /* gizli pencere: yalnız bu oturum */ }
     return !c
@@ -215,19 +228,39 @@ export default function AppLayout() {
       </Box>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       <List sx={{ py: 1, flexGrow: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        {navEntries.map((entry) => (isGroup(entry) ? (
-          <Fragment key={entry.label}>
-            {compact ? (
+        {navEntries.map((entry) => {
+          if (!isGroup(entry)) return navItem(entry, compact)
+          // Daraltılmış menüde başlık yok: simgeler hep görünür
+          if (compact) return (
+            <Fragment key={entry.label}>
               <Divider sx={{ my: 1, mx: 1.5, borderColor: 'rgba(255,255,255,0.15)' }} />
-            ) : (
-              <ListSubheader sx={{ bgcolor: 'transparent', color: 'rgba(255,255,255,0.5)', lineHeight: '30px', mt: 1.5, pl: 2.75,
-                                   fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                {entry.label}
+              {entry.items.map((item) => navItem(item, compact, true))}
+            </Fragment>
+          )
+          const open = !closedGroups.includes(entry.label)
+          // Kapalı başlıkta içerideki uyarı sayıları başlığın yanında toplanır
+          const hidden = open ? 0 : entry.items.reduce((n, i) => n + badgeFor(i.to), 0)
+          return (
+            <Fragment key={entry.label}>
+              <ListSubheader component="div" disableGutters sx={{ bgcolor: 'transparent', mt: 1, px: 1.25, lineHeight: 'normal', position: 'static' }}>
+                <ButtonBase onClick={() => toggleGroup(entry.label)} aria-expanded={open}
+                            aria-label={`${entry.label} menüsünü ${open ? 'kapat' : 'aç'}`}
+                            sx={{ width: '100%', justifyContent: 'flex-start', gap: 0.75, pl: 1.5, pr: 1, height: 30,
+                                  borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600,
+                                  letterSpacing: '.08em', textTransform: 'uppercase',
+                                  '&:hover': { color: 'rgba(255,255,255,0.85)', bgcolor: 'rgba(255,255,255,0.06)' } }}>
+                  <Box component="span" sx={{ flexGrow: 1, textAlign: 'left' }}>{entry.label}</Box>
+                  {hidden > 0 && <Chip size="small" color="warning" label={hidden} sx={{ height: 18, fontSize: 11 }} />}
+                  <ExpandMoreIcon sx={{ fontSize: 18, transition: 'transform 150ms',
+                                        transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
+                </ButtonBase>
               </ListSubheader>
-            )}
-            {entry.items.map((item) => navItem(item, compact, true))}
-          </Fragment>
-        ) : navItem(entry, compact)))}
+              <Collapse in={open} timeout={150} unmountOnExit>
+                {entry.items.map((item) => navItem(item, compact, true))}
+              </Collapse>
+            </Fragment>
+          )
+        })}
       </List>
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.10)' }} />
       {/* Kullanıcı: dikey menünün altında (tıklayınca tema / ayarlar / çıkış menüsü yukarı açılır) */}
