@@ -1,4 +1,3 @@
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
@@ -8,7 +7,7 @@ import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import {
-  Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
+  Box, ButtonBase, CircularProgress, Drawer, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
   TextField, ThemeProvider, Tooltip, Typography, createTheme, type Theme,
 } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
@@ -16,7 +15,9 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import { useAiStatus } from '../hooks/useAiStatus'
-import { BRAND_DARK, BRAND_DARKER, BRAND_GRADIENT } from '../theme'
+import AiLauncher from './AiLauncher'
+import JumboAiIcon from './JumboAiIcon'
+import { BRAND_DARK } from '../theme'
 
 // AI asistanı: Ayarlar > AI Asistanı açıkken her sayfanın sağ altında simge. Sohbet bu sekmede
 // (sessionStorage) tutulur; AI yalnız OKUR. Neyi görebileceğine sunucu karar verir (Ayarlar'daki
@@ -191,10 +192,7 @@ export default function AiAssistant() {
           {/* Başlık — diğer yan pencerelerle aynı düzen */}
           <Box sx={{ px: 2.5, py: 1.75, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                         background: BRAND_GRADIENT, color: '#fff', flexShrink: 0 }}>
-                <AutoAwesomeIcon sx={{ fontSize: 19 }} />
-              </Box>
+              <JumboAiIcon size={36} />
               <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2, flexGrow: 1, minWidth: 0 }} noWrap>
                 {name}
               </Typography>
@@ -258,10 +256,7 @@ export default function AiAssistant() {
                 </Box>
               ) : (
                 <Box key={i} sx={{ display: 'flex', gap: 1.25 }}>
-                  <Box sx={{ width: 26, height: 26, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                             background: BRAND_GRADIENT, color: '#fff', flexShrink: 0, mt: 0.25 }}>
-                    <AutoAwesomeIcon sx={{ fontSize: 14 }} />
-                  </Box>
+                  <Box sx={{ mt: 0.25 }}><JumboAiIcon size={26} /></Box>
                   <Box sx={{ minWidth: 0, flexGrow: 1 }}>
                     <Box sx={{
                       px: 1.75, py: 1.25, borderRadius: '4px 14px 14px 14px', fontSize: 14.5, lineHeight: 1.55,
@@ -340,16 +335,7 @@ export default function AiAssistant() {
         </Box>
       </Drawer>
 
-      {!open && (
-        <Tooltip title={`${name}'a sor`} placement="left">
-          <Fab aria-label={`${name}'a sor`} onClick={() => setOpen(true)}
-               sx={{ position: 'fixed', right: { xs: 16, sm: 24 }, bottom: { xs: 16, sm: 24 },
-                     zIndex: (t) => t.zIndex.drawer + 1, color: '#fff', background: BRAND_GRADIENT,
-                     '&:hover': { background: BRAND_DARKER } }}>
-            <AutoAwesomeIcon />
-          </Fab>
-        </Tooltip>
-      )}
+      {!open && <AiLauncher name={name} onOpen={() => setOpen(true)} />}
     </ThemeProvider>
   )
 }

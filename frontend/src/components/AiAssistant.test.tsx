@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
@@ -19,6 +19,7 @@ describe('AiAssistant', () => {
     apiPost.mockReset()
     sessionStorage.clear()
     localStorage.removeItem('jumbo.ai.big')
+    localStorage.removeItem('jumbo.ai.launcherBottom')
   })
 
   it('AI kapalıyken simge görünmez', async () => {
@@ -95,5 +96,22 @@ describe('AiAssistant', () => {
     await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'selam{Enter}')
     await screen.findByText('tamam')
     expect(screen.queryByRole('button', { name: 'Hazır sorular' })).toBeNull()
+  })
+
+  it('düğme sürüklenince panel açılmaz, sağ kenarda bırakıldığı yükseklikte kalır; sağ tıkla varsayılana döner', async () => {
+    apiGet.mockResolvedValue({ data: ON })
+    renderPage(<AiAssistant />)
+    const btn = await screen.findByRole('button', { name: "Fil'a sor" })
+    btn.getBoundingClientRect = () => ({ left: 900, right: 968, top: 600, bottom: 668, width: 68, height: 68, x: 900, y: 600, toJSON: () => ({}) })
+    fireEvent.pointerDown(btn, { button: 0, clientX: 930, clientY: 630, pointerId: 1 })
+    fireEvent.pointerMove(btn, { clientX: 300, clientY: 330, pointerId: 1 })
+    fireEvent.pointerUp(btn, { clientX: 300, clientY: 330, pointerId: 1 })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    // üst kenar 300'e taşındı → alta uzaklık = pencere yüksekliği - 300 - 68
+    expect(Number(localStorage.getItem('jumbo.ai.launcherBottom'))).toBe(window.innerHeight - 300 - 68)
+    expect(btn.style.right || getComputedStyle(btn).right).toBe('24px')
+    fireEvent.contextMenu(btn)
+    await userEvent.click(await screen.findByText('Varsayılan yere taşı (sağ alt)'))
+    expect(localStorage.getItem('jumbo.ai.launcherBottom')).toBeNull()
   })
 })
