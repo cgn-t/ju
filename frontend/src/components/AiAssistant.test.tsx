@@ -32,17 +32,31 @@ describe('AiAssistant', () => {
     apiGet.mockResolvedValue({ data: ON })
     apiPost.mockResolvedValue({ data: {
       answer: '1 sertifika var:\n- [web.firma.local](/certificates?cert=7) — **12 gün** kaldı',
-      tools_used: ['sertifika_ara'], tool_mode: true } })
+      tools_used: ['sertifika_ara', 'kilavuz_ara', 'veri_sorgula', 'veri_tablolari'], tool_mode: true } })
     renderPage(<AiAssistant />, { url: '/domains' })
     await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
     await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'Bitecekler?{Enter}')
     const link = await screen.findByRole('link', { name: 'web.firma.local' })
     expect(link.getAttribute('href')).toBe('/certificates?cert=7')
     expect(screen.getByText('12 gün').tagName).toBe('B')
-    expect(screen.getByText('Baktığı yerler: SSL Sertifikaları')).toBeTruthy()
-    expect(screen.getByText('Domainler')).toBeTruthy()   // "Bu sayfa: Domainler"
+    expect(screen.getByText('Baktığı yerler: SSL Sertifikaları, Kullanım Kılavuzu, Jumbo veritabanı')).toBeTruthy()
+    expect(screen.queryByText(/Bu sayfa/)).toBeNull()   // v3.9.16: panelde sayfa adı yazmaz (AI'a yine gider)
     expect(apiPost).toHaveBeenCalledWith('/ai/chat', {
       messages: [{ role: 'user', content: 'Bitecekler?' }], page: '/domains' })
+  })
+
+  it('kılavuz cevabındaki wiki linki yeni sekmede açılır', async () => {
+    apiGet.mockResolvedValue({ data: ON })
+    apiPost.mockResolvedValue({ data: {
+      answer: '1. **Domainler** > **Yeni Domain**\nAyrıntı: [Domain ekleme](https://wiki.firma.local/display/JUMBO/Domain+ekleme)',
+      tools_used: ['kilavuz_ara'], tool_mode: true } })
+    renderPage(<AiAssistant />)
+    await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
+    await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'Domain nasıl eklenir?{Enter}')
+    const link = await screen.findByRole('link', { name: 'Domain ekleme' })
+    expect(link.getAttribute('href')).toBe('https://wiki.firma.local/display/JUMBO/Domain+ekleme')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(screen.getByText('Baktığı yerler: Kullanım Kılavuzu')).toBeTruthy()
   })
 
   it('servis hatasını sohbet içinde gösterir', async () => {

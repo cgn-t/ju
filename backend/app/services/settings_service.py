@@ -27,6 +27,7 @@ SENSITIVE_KEYS = {
     "jira.api_token",        # Jira API token / PAT / şifre (Basic ya da Bearer)
     "jenkins.api_token",     # Jenkins API token ya da şifre (Basic auth)
     "ai.api_key",            # Kurum içi AI servisinin API anahtarı
+    "ai.wiki_token",         # Kullanım Kılavuzu'nun okunduğu kurum wiki'sinin token'ı / şifresi
 }
 
 DEFAULTS: dict[str, dict] = {
@@ -272,7 +273,7 @@ DEFAULTS: dict[str, dict] = {
     },
     "ai": {
         # Kurum içi AI servisi (OpenAI uyumlu /chat/completions). Varsayılan KAPALI. Açıkken her
-        # sayfada AI simgesi görünür; AI Jumbo verisini yalnız soran kullanıcının yetkisiyle OKUR.
+        # sayfada AI simgesi görünür; AI Jumbo verisini yalnız OKUR (bkz. full_access).
         "enabled": False,
         "assistant_name": "Jumbo AI",  # simgede ve sohbet başlığında görünen ad
         "api_url": "",                # ör. https://ai.firma.local/v1 (ya da tam …/chat/completions)
@@ -280,6 +281,9 @@ DEFAULTS: dict[str, dict] = {
         "api_key": "",                # API anahtarı (gizli — Fernet ile şifrelenir)
         "model": "",                  # servisteki model adı
         "use_tools": True,            # AI Jumbo verisini okuyabilsin (servis tool calling desteklemeli)
+        # Açık: herkes AI üzerinden tüm uygulama verisini sorabilir (kişisel bilgiler, şifreler ve
+        # ayarlar hariç). Kapalı: AI yalnız soranın ekranda görebildiği kayıtları okur.
+        "full_access": True,
         "daily_limit": 100,           # kullanıcı başına günlük soru sınırı (0 = sınırsız)
         "extra_instructions": "",     # AI'a her soruda verilecek ek talimat (banka kuralları vb.)
         # Sohbet panelindeki hazır sorular (admin Ayarlar'dan ekler/çıkarır; sıra korunur)
@@ -288,8 +292,15 @@ DEFAULTS: dict[str, dict] = {
             "Onay bekleyen değişiklik talepleri neler?",
             "Süresi dolmuş domainleri listele",
         ],
+        # Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence) yazılır; AI "nasıl yapılır" sorularını
+        # oradan cevaplar, sol menüdeki Kullanım Kılavuzu bu linki açar (bkz. app/services/wiki.py).
+        "wiki_url": "",               # kılavuzun ana sayfasının linki (altındaki sayfalar da okunur)
+        "wiki_auth_mode": "bearer",   # bearer (Data Center kişisel erişim token'ı) | basic (kullanıcı + token)
+        "wiki_username": "",          # basic'te kullanıcı adı (Cloud'da hesap e-postası)
+        "wiki_token": "",             # token ya da şifre (gizli — Fernet ile şifrelenir)
+        "wiki_refresh_minutes": 15,   # wiki'deki değişiklik en geç bu sürede AI'a yansır
         "proxy_url": "",
-        "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev)
+        "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev) — AI servisi ve wiki
         "timeout_seconds": 60,
     },
 }

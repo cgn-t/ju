@@ -3,34 +3,49 @@
 Ayarlar > AI Asistanı alanları (api_url, api_key, model, ...) burada okunur.
   - health(): bağlantı + kimlik testi ("Bağlantıyı Test Et")
   - ask(): kullanıcının sorusunu cevaplar. AI, Jumbo verisini yalnız aşağıdaki SALT-OKUR araçlarla
-    (tool calling) ve SORAN KULLANICININ YETKİSİYLE okur: araçlar mevcut API uçlarını aynı
-    kullanıcıyla çağırır, böylece ekranda göremeyeceği bir kaydı AI üzerinden de göremez.
-    AI hiçbir kaydı değiştiremez (yazan araç yok).
-Servis tool calling desteklemiyorsa (ya da ayarlarda kapatıldıysa) yalnız genel sohbet yapılır.
+    (tool calling) okur. AI hiçbir kaydı değiştiremez (yazan araç yok).
+Kapsam (Ayarlar > AI Asistanı > full_access):
+  - Açık (varsayılan, sahibin kararı 27.10.2026): herkes tüm uygulama verisini sorabilir. Araçlar
+    soranın yerine "Genel İzleyici" gözüyle okur; kişisel bilgiler, şifreler ve ayarlar araçlarda
+    hiç yoktur (bkz. ai_data.py).
+  - Kapalı: araçlar mevcut API uçlarını soran kullanıcıyla çağırır; ekranda göremeyeceği bir kaydı
+    AI üzerinden de göremez.
+"Nasıl yapılır" soruları kurumun wiki'sindeki Kullanım Kılavuzu'ndan cevaplanır (bkz. wiki.py).
+Servis tool calling desteklemiyorsa (ya da ayarlarda kapatıldıysa) araçsız sohbet yapılır; bu
+durumda kılavuzun metni sistem mesajına eklenir.
 """
 
 import json
 import logging
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.security import page_visible
+from app.core.textmatch import fold
+from app.core.timeutil import ISTANBUL
 from app.db.models import User
+from app.services import ai_data, wiki
 from app.services.settings_service import get_category
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 6          # bir soruda AI'ın en fazla kaç kez araç çağırabileceği
+MAX_TOOL_ROUNDS = 8          # bir soruda AI'ın en fazla kaç kez araç çağırabileceği
 MAX_LIST_ITEMS = 40          # bir aracın AI'a döndürdüğü en fazla satır
 MAX_HISTORY = 20             # AI'a gönderilen en fazla önceki mesaj (soru-cevap)
 MAX_QUESTION_CHARS = 4000
 
-ROLE_NAMES = {"admin": "Yönetici (admin)", "editor": "Editör", "viewer": "Ekip İzleyici",
+ROLE_NAMES = {"admin": "Yönetici", "editor": "Ekip Editörü", "viewer": "Ekip İzleyici",
               "allviewer": "Genel İzleyici"}
+WIKI_DIGEST_CHARS = 20_000   # araçsız modda sistem mesajına eklenen kılavuz metni üst sınırı
+GUIDE_PROMPT = ("Jumbo'nun nasıl kullanılacağı sorulursa (bir iş nerede, nasıl yapılır, bir düğme ya da durum ne "
+                "demek, kim onaylar) önce kilavuz_ara ile kurumun wiki'sindeki Kullanım Kılavuzu'na bak ve "
+                "cevabı oradaki bilgiye dayandır.")
+NO_GUIDE_PROMPT = ("Jumbo için bir kullanım kılavuzu tanımlı değil. Bir işin Jumbo'da nasıl yapılacağı "
+                   "sorulursa ekran adlarını tahmin etme; emin değilsen bilmediğini söyle.")
 
 
 class AiError(Exception):
@@ -141,6 +156,26 @@ def _d(v) -> str | None:
     return v
 
 
+def _ts(v) -> str:
+    """Olay zamanı (DB'de naive UTC) → Türkiye saati."""
+    if not isinstance(v, datetime):
+        return ""
+    return v.replace(tzinfo=timezone.utc).astimezone(ISTANBUL).strftime("%Y-%m-%d %H:%M")
+
+
+def full_access(cfg: dict) -> bool:
+    return bool(cfg.get("full_access", True))
+
+
+def _reader(user: User, cfg: dict) -> User:
+    """Araçların kimin gözüyle okuyacağı. Tam erişimde yönetici olmayan herkes Genel İzleyici
+    gibi okur (her şeyi görür, kişisel veri araçlarda zaten yok). Oturuma eklenmeyen geçici nesne."""
+    if full_access(cfg) and user.role not in ("admin", "allviewer"):
+        return User(id=user.id, username=user.username, full_name=user.full_name,
+                    role="allviewer", auth_source=user.auth_source, is_active=True)
+    return user
+
+
 def _call(fn, *args, **kwargs):
     """API ucunu doğrudan çağırır; yetki/bulunamadı hatası AI'a düz metin olarak döner."""
     try:
@@ -202,7 +237,7 @@ def tool_get_certificate(db: Session, user: User, id: int) -> dict:
         out["etkilenenler"] = json.loads(impact.model_dump_json())
     mails = _call(certificate_mails, int(id), db=db, user=user)
     if isinstance(mails, list):
-        out["son_mailler"] = [{"zaman": str(m.sent_at)[:16], "tur": m.mail_type, "alicilar": m.recipients,
+        out["son_mailler"] = [{"zaman": _ts(m.sent_at), "tur": m.mail_type, "alicilar": m.recipients,
                                "durum": m.status} for m in mails[:10]]
     return out
 
@@ -241,7 +276,7 @@ def tool_get_domain(db: Session, user: User, id: int) -> dict:
         "sertifikalar": [{"id": c.certificate_id, "ad": c.name, "baglanti": c.mapping_type,
                           "tur": c.cert_type, "valid_to": _d(c.valid_to), "kalan_gun": c.days_left,
                           "aktif": c.is_active} for c in d.certificates],
-        "canli_dogrulama": {"durum": d.live_check_status, "zaman": str(d.live_check_at or "")[:16],
+        "canli_dogrulama": {"durum": d.live_check_status, "zaman": _ts(d.live_check_at),
                             "detay": detail},
         "bekleyen_talep": d.pending_proposals, "link": f"/domains?domain={d.id}",
     }
@@ -259,8 +294,8 @@ def tool_list_change_requests(db: Session, user: User, durum: str = "pending",
     rows = [{"id": p.id, "tur": p.kind, "durum": p.status, "eski": p.old_cert_name,
              "yeni": p.new_cert_name, "domain": p.domain_name, "uygulama": p.app_name,
              "ekip": p.sy_team_name, "acan": p.created_by_name or p.created_by,
-             "acilis": str(p.created_at)[:16], "karar_veren": p.decided_by,
-             "karar_zamani": str(p.decided_at or "")[:16], "not": p.note,
+             "acilis": _ts(p.created_at), "karar_veren": p.decided_by,
+             "karar_zamani": _ts(p.decided_at), "not": p.note,
              "link": f"/proposals?domain={p.domain_id}" if p.domain_id else "/proposals"}
             for p in page.items]
     return {"toplam": page.total, "durum_sayilari": page.counts, "talepler": rows}
@@ -280,18 +315,80 @@ def tool_dashboard(db: Session, user: User) -> dict:
 
 def tool_change_history(db: Session, user: User, metin: str | None = None,
                         kullanici: str | None = None, son_gun: int = 30) -> dict:
-    if user.role != "admin":
-        return {"hata": "Kayıt geçmişini (Audit Log) yalnız yöneticiler görebilir"}
+    """Kim açabilir: run_tool'daki _available. Yönetici dışındakiler giriş kayıtlarını ve
+    kullanıcı/ayar değişikliklerini görmez (kişisel bilgi); AI soruları kimseye gösterilmez."""
     from app.api.users import _audit_query, _to_audit_out
     from app.db.models import AuditLog
     days = max(1, min(int(son_gun or 30), 366))
     rows = (_audit_query(db, q=metin or None, username=kullanici or None, since_hours=days * 24)
-            .filter(AuditLog.action != "ai_ask")
+            .filter(*ai_data._audit_filter(user))
             .order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(MAX_LIST_ITEMS).all())
     return {"son_gun": days, "kayitlar": [
-        {"zaman": str(a.created_at)[:16], "kullanici": a.user_full_name or a.username,
+        {"zaman": _ts(a.created_at), "kullanici": a.user_full_name or a.username,
          "islem": a.action, "nesne": a.table_name, "kayit": a.record_label or a.record_id,
          "ozet": a.summary} for a in _to_audit_out(db, rows)]}
+
+
+def tool_policy(db: Session, user: User, metin: str | None = None, kural: str | None = None) -> dict:
+    if not page_visible(db, user, "policy"):
+        return {"hata": "Uyum sayfası bu kullanıcıya kapalı"}
+    from app.services import policy
+    result = policy.evaluate_inventory(db)
+    rows = []
+    for cert, violations in result["violations"]:
+        if metin and fold(metin) not in fold(cert.name):
+            continue
+        if kural and kural not in [v["rule"] for v in violations]:
+            continue
+        rows.append({"id": cert.id, "ad": cert.name, "issuer": cert.issuer, "valid_to": _d(cert.valid_to),
+                     "onem": policy.max_severity(violations),
+                     "ihlaller": [f"{v['rule']}: {v['detail']}" for v in violations],
+                     "link": f"/certificates?cert={cert.id}"})
+    return {"degerlendirilen": result["total_evaluated"], "uyumlu": result["compliant"],
+            "uyumsuz": len(result["violations"]), "kural_sayilari": result["rule_counts"],
+            "bulunan": len(rows), "ihlaller": rows[:MAX_LIST_ITEMS]}
+
+
+def _guide(db: Session) -> list:
+    try:
+        return wiki.pages(db)
+    except wiki.WikiError as exc:
+        raise HTTPException(status_code=503, detail=f"Kullanım Kılavuzu şu an okunamıyor: {exc}")
+
+
+def tool_wiki_search(db: Session, user: User, metin: str | None = None) -> dict:
+    guide = _guide(db)
+    hits = wiki.search(guide, metin, limit=4)
+    if not hits:
+        return {"sonuc": "Kılavuzda bu konuda sayfa bulunamadı",
+                "sayfalar": [{"baslik": p.title, "link": p.url} for p in guide[:MAX_LIST_ITEMS]]}
+    # En iyi eşleşmenin metni doğrudan döner; çoğu soruda ikinci bir çağrı gerekmez.
+    best = hits[0][0]
+    return {"en_uygun": {"baslik": best.title, "link": best.url, "metin": best.text[:6000]},
+            "diger_sayfalar": [{"baslik": p.title, "adres": p.id, "link": p.url, "ozet": ex}
+                               for p, ex in hits[1:]]}
+
+
+def tool_wiki_read(db: Session, user: User, adres: str) -> dict:
+    page = wiki.find(_guide(db), adres)
+    if page is None:
+        return {"hata": "Kılavuz sayfası bulunamadı"}
+    return {"baslik": page.title, "link": page.url, "metin": page.text}
+
+
+def tool_tables(db: Session, user: User, tablo: str | None = None) -> dict:
+    return ai_data.describe(tablo)
+
+
+def tool_query(db: Session, user: User, tablo: str, filtreler: list | None = None,
+               alanlar: list | None = None, sirala: str | None = None, azalan: bool | None = None,
+               grupla: list | None = None, adet: int | None = None) -> dict:
+    try:
+        return ai_data.query(db, user, tablo, filtreler=filtreler, alanlar=alanlar, sirala=sirala,
+                             azalan=azalan, grupla=grupla, adet=adet)
+    except ai_data.QueryError as exc:
+        db.rollback()
+        return {"hata": str(exc)}
 
 
 TOOLS = {
@@ -329,19 +426,74 @@ TOOLS = {
         "description": "Anasayfa özeti: domain/sertifika sayıları, ekip bazında domain sayısı, yaklaşan bitişler.",
         "properties": {}}),
     "kayit_gecmisi": (tool_change_history, {
-        "description": "Kim, ne zaman, neyi değiştirdi (Audit Log, eski → yeni). Yalnız yöneticiler.",
+        "description": "Kim, ne zaman, neyi değiştirdi (Audit Log, eski → yeni).",
         "properties": {
             "metin": {"type": "string", "description": "Kayıt adı (domain, sertifika...) ya da değişiklikte geçen metin"},
             "kullanici": {"type": "string", "description": "Kullanıcı adı ya da Ad Soyad"},
             "son_gun": {"type": "integer", "description": "Son kaç gün (varsayılan 30)"},
         }}),
+    "uyum_ihlalleri": (tool_policy, {
+        "description": "Uyum (politika) ihlalleri: izin listesi dışı CA, zayıf anahtar, zayıf imza, aşırı ömür.",
+        "properties": {
+            "metin": {"type": "string", "description": "Sertifika adında geçen metin"},
+            "kural": {"type": "string", "enum": ["untrusted_issuer", "weak_key", "weak_signature", "excessive_validity"]},
+        }}),
+    "kilavuz_ara": (tool_wiki_search, {
+        "description": "Kurumun wiki'sindeki Jumbo Kullanım Kılavuzu'nda arar: bir işin nasıl/nerede "
+                       "yapılacağı, ekranlar, düğmeler, roller, kurallar. En uygun sayfanın tam metnini ve "
+                       "diğer eşleşmeleri döndürür.",
+        "properties": {"metin": {"type": "string", "description": "Konu, ör. 'domain ekleme', 'değişiklik talebi onay'"}},
+        "required": ["metin"]}),
+    "kilavuz_oku": (tool_wiki_read, {
+        "description": "Kullanım Kılavuzu'ndan bir sayfanın tam metni.",
+        "properties": {"adres": {"type": "string", "description": "Sayfa adresi (kilavuz_ara'nın verdiği 'adres') ya da başlığı"}},
+        "required": ["adres"]}),
+    "veri_tablolari": (tool_tables, {
+        "description": "Jumbo veritabanındaki okunabilir tablolar; tablo adı verilirse o tablonun alanları. "
+                       "Diğer araçlar yetmediğinde veri_sorgula'dan önce kullan.",
+        "properties": {"tablo": {"type": "string", "enum": list(ai_data.TABLES)}}}),
+    "veri_sorgula": (tool_query, {
+        "description": "Bir tabloyu süzerek okur ya da sayar (salt-okur). Satırlarda kimlik alanlarının "
+                       "yanında okunur adı da gelir (ör. sy_team_id + sy_team_adi). grupla verilirse "
+                       "gruplara göre kayıt sayısı döner. Tarih değerleri YYYY-MM-DD.",
+        "properties": {
+            "tablo": {"type": "string", "enum": list(ai_data.TABLES)},
+            "filtreler": {"type": "array", "description": "Hepsi birlikte (VE) uygulanır", "items": {
+                "type": "object", "properties": {
+                    "alan": {"type": "string"},
+                    "islem": {"type": "string", "enum": list(ai_data.OPERATORS),
+                              "description": "icerir/baslar harf duyarsız; bos/dolu değer istemez; liste virgüllü ya da dizi"},
+                    "deger": {"description": "Karşılaştırılacak değer"},
+                }, "required": ["alan", "islem"]}},
+            "alanlar": {"type": "array", "items": {"type": "string"}, "description": "Dönecek alanlar (boşsa hepsi)"},
+            "sirala": {"type": "string", "description": "Sıralanacak alan"},
+            "azalan": {"type": "boolean"},
+            "grupla": {"type": "array", "items": {"type": "string"}, "description": "Sayım için gruplanacak alanlar (en fazla 3)"},
+            "adet": {"type": "integer", "description": f"En fazla satır (varsayılan {ai_data.DEFAULT_ROWS}, üst sınır {ai_data.MAX_ROWS})"},
+        }, "required": ["tablo"]}),
 }
 
 
-def tool_specs(user: User) -> list[dict]:
+def _available(name: str, user: User, cfg: dict) -> bool:
+    """Aracı bu kullanıcıya sunalım mı? Tam erişim kapalıyken ekrandaki yetki geçerlidir:
+    Audit Log yalnız yönetici; tablo okuma yalnız her şeyi gören roller (ekip kapsamı uygulanamaz).
+    Kılavuz araçları yalnız Ayarlar'da kurum wiki'si tanımlıysa sunulur."""
+    if name in ("kilavuz_ara", "kilavuz_oku"):
+        return wiki.is_configured(cfg)
+    if full_access(cfg):
+        return True
+    if name == "kayit_gecmisi":
+        return user.role == "admin"
+    if name in ("veri_tablolari", "veri_sorgula"):
+        return user.role in ("admin", "allviewer")
+    return True
+
+
+def tool_specs(user: User, cfg: dict | None = None) -> list[dict]:
+    cfg = cfg if cfg is not None else {}
     specs = []
     for name, (_, spec) in TOOLS.items():
-        if name == "kayit_gecmisi" and user.role != "admin":
+        if not _available(name, user, cfg):
             continue
         params = {"type": "object", "properties": spec["properties"]}
         if spec.get("required"):
@@ -351,12 +503,16 @@ def tool_specs(user: User) -> list[dict]:
     return specs
 
 
-def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None) -> str:
+def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None,
+             cfg: dict | None = None) -> str:
+    cfg = cfg if cfg is not None else get_category(db, "ai", mask_secrets=True)
     entry = TOOLS.get(name)
     if entry is None:
         return json.dumps({"hata": f"Bilinmeyen araç: {name}"}, ensure_ascii=False)
-    if name == "kayit_gecmisi" and user.role != "admin":
-        return json.dumps({"hata": "Kayıt geçmişini yalnız yöneticiler görebilir"}, ensure_ascii=False)
+    if not _available(name, user, cfg):
+        msg = ("Kayıt geçmişini yalnız yöneticiler görebilir" if name == "kayit_gecmisi"
+               else "Bu araç bu kullanıcıya kapalı")
+        return json.dumps({"hata": msg}, ensure_ascii=False)
     try:
         args = raw_args if isinstance(raw_args, dict) else json.loads(raw_args or "{}")
     except ValueError:
@@ -364,7 +520,7 @@ def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None) ->
     allowed = set(entry[1]["properties"])
     args = {k: v for k, v in (args or {}).items() if k in allowed and v not in (None, "")}
     try:
-        result = entry[0](db, user, **args)
+        result = entry[0](db, _reader(user, cfg), **args)
     except HTTPException as exc:
         result = {"hata": exc.detail}
     except Exception as exc:   # araç hatası soruyu düşürmesin; AI'a söylenir
@@ -375,7 +531,26 @@ def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None) ->
 
 
 # ---------------------------------------------------------------- sohbet
-def system_prompt(cfg: dict, user: User, page: str | None, with_tools: bool) -> str:
+def _wiki_digest(db: Session) -> str:
+    """Araçsız mod: kılavuz metni (bütçe kadar) sistem mesajına eklenir."""
+    try:
+        guide = wiki.pages(db)
+    except wiki.WikiError as exc:
+        logger.warning("Kılavuz araçsız mod için okunamadı: %s", exc)
+        return ""
+    parts, used = [], 0
+    for p in guide:
+        chunk = f"### {p.title} ({p.url})\n{p.text}\n"
+        if used + len(chunk) > WIKI_DIGEST_CHARS:
+            parts.append(f"### {p.title} ({p.url}) — metin sığmadı, kullanıcıyı bu sayfaya yönlendir\n")
+            continue
+        parts.append(chunk)
+        used += len(chunk)
+    return "\n".join(parts)
+
+
+def system_prompt(cfg: dict, user: User, page: str | None, with_tools: bool,
+                  db: Session | None = None) -> str:
     name = cfg.get("assistant_name") or "Jumbo AI"
     lines = [
         f"Sen {name}'sın: bankanın 'Jumbo Sertifika Takip' uygulamasının yardımcısısın.",
@@ -390,13 +565,31 @@ def system_prompt(cfg: dict, user: User, page: str | None, with_tools: bool) -> 
         lines += [
             "Jumbo verisi gereken her soruda araçları kullan; sayı, tarih ya da ad UYDURMA. "
             "Araç bir şey bulamadıysa bunu açıkça söyle.",
-            "Araçlar yalnız bu kullanıcının görmeye yetkili olduğu kayıtları döndürür; 'hata' dönerse "
-            "nedenini kullanıcıya aynen söyle.",
+            ("Jumbo'daki tüm uygulama verisini okuyabilirsin; kullanıcının rolü ne olursa olsun soruyu cevapla. "
+             "Kişisel bilgiler (telefon, şifre, kişisel e-posta, giriş kayıtları) ve sistem ayarları araçlarda "
+             "yoktur; sorulursa bunlara erişimin olmadığını söyle."
+             if full_access(cfg) else
+             "Araçlar yalnız bu kullanıcının görmeye yetkili olduğu kayıtları döndürür."),
+            "Araç 'hata' dönerse nedenini kullanıcıya aynen söyle.",
+            "Önce hazır araçları dene (sertifika_ara, domain_ara, degisiklik_talepleri …). Yetmezse "
+            "veri_tablolari ile tabloları ve alanları öğren, veri_sorgula ile oku ya da say.",
+            (GUIDE_PROMPT + " Cevabın sonunda kılavuz sayfasının bağlantısını aracın verdiği 'link' ile ver, "
+             "ör. [Domain ekleme](https://wiki.firma.local/display/JUMBO/Domain+ekleme). Kılavuzda yoksa "
+             "tahmin yürütme, bulunmadığını söyle."
+             if wiki.is_configured(cfg) else NO_GUIDE_PROMPT),
             "Kayıtlardan söz ederken aracın verdiği 'link' ile Markdown bağlantısı ver, ör. "
             "[web.firma.com](/domains?domain=12).",
+            "Araçlardaki saatler Türkiye saatidir.",
         ]
     else:
-        lines.append("Jumbo verisine erişimin yok; kayıtlarla ilgili sorularda kullanıcıyı ilgili ekrana yönlendir.")
+        lines.append("Jumbo kayıtlarına erişimin yok; kayıtlarla ilgili sorularda kullanıcıyı ilgili ekrana yönlendir.")
+        digest = _wiki_digest(db) if db is not None and wiki.is_configured(cfg) else ""
+        if digest:
+            lines.append("Jumbo'nun nasıl kullanılacağı sorulursa yalnız aşağıdaki Kullanım Kılavuzu'na "
+                         "dayan ve ilgili sayfanın bağlantısını ver; bağlantı her başlığın yanındaki adrestir.\n"
+                         "--- KULLANIM KILAVUZU ---\n" + digest + "--- KILAVUZ SONU ---")
+        else:
+            lines.append(NO_GUIDE_PROMPT)
     if page:
         lines.append(f"Kullanıcı şu an bu ekranda: {page[:200]}")
     if cfg.get("extra_instructions"):
@@ -426,12 +619,12 @@ def ask(db: Session, user: User, messages: list[dict], page: str | None = None) 
         raise AiError(f"Bugünkü soru sınırına ulaştınız ({cfg.get('daily_limit')}). Yarın tekrar deneyin.")
 
     with_tools = bool(cfg.get("use_tools", True))
-    convo = [{"role": "system", "content": system_prompt(cfg, user, page, with_tools)}] + history
+    convo = [{"role": "system", "content": system_prompt(cfg, user, page, with_tools, db)}] + history
     used: list[str] = []
     for _ in range(MAX_TOOL_ROUNDS + 1):
         body = {"model": cfg["model"], "messages": convo, "temperature": 0.2}
         if with_tools:
-            body["tools"] = tool_specs(user)
+            body["tools"] = tool_specs(user, cfg)
         try:
             data = _post(cfg, body)
         except _HttpError as exc:
@@ -439,7 +632,7 @@ def ask(db: Session, user: User, messages: list[dict], page: str | None = None) 
             if with_tools and exc.status in (400, 422) and not used:
                 logger.warning("AI servisi araçlı isteği reddetti, araçsız deneniyor: %s", exc.text[:200])
                 with_tools = False
-                convo[0] = {"role": "system", "content": system_prompt(cfg, user, page, False)}
+                convo[0] = {"role": "system", "content": system_prompt(cfg, user, page, False, db)}
                 continue
             raise
         msg = _message(data)
@@ -453,6 +646,6 @@ def ask(db: Session, user: User, messages: list[dict], page: str | None = None) 
             name = fn.get("name") or ""
             used.append(name)
             convo.append({"role": "tool", "tool_call_id": call.get("id") or name,
-                          "content": run_tool(db, user, name, fn.get("arguments"))})
+                          "content": run_tool(db, user, name, fn.get("arguments"), cfg)})
     return {"answer": "Bu soru için çok fazla adım gerekti; soruyu daha dar sormayı deneyin.",
             "tools_used": used, "tool_mode": with_tools}

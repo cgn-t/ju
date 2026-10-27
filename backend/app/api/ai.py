@@ -1,4 +1,5 @@
-"""AI asistanı uçları: durum (simge görünsün mü), soru-cevap ve Ayarlar'daki bağlantı testi."""
+"""AI asistanı uçları: durum (simge görünsün mü), soru-cevap, Ayarlar'daki bağlantı testi ve
+Kullanım Kılavuzu'nun kurum wiki'sinden yeniden okunması."""
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -6,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.security import require_role
 from app.db.models import User
 from app.db.session import get_db
-from app.services import ai_assistant
+from app.services import ai_assistant, wiki
 from app.services.audit import log_standalone
 from app.services.settings_service import get_category
 
@@ -27,11 +28,13 @@ def _suggestions(value) -> list[str]:
 
 @router.get("/status")
 def ai_status(db: Session = Depends(get_db), _: User = Depends(require_role("viewer"))):
-    """Simge yalnız AI açık ve ayarları tamamken görünür. Sır içermez."""
+    """Simge yalnız AI açık ve ayarları tamamken görünür. guide_url: sol menüdeki Kullanım Kılavuzu
+    (kurum wiki'si; AI kapalı olsa da). Sır içermez."""
     cfg = get_category(db, "ai", mask_secrets=True)
     return {"enabled": ai_assistant.is_available(cfg),
             "name": cfg.get("assistant_name") or "Jumbo AI",
-            "suggestions": _suggestions(cfg.get("suggestions"))}
+            "suggestions": _suggestions(cfg.get("suggestions")),
+            "guide_url": (cfg.get("wiki_url") or "").strip() or None}
 
 
 @router.post("/chat")
@@ -63,3 +66,21 @@ def ai_test(request: Request, db: Session = Depends(get_db), user: User = Depend
     log_standalone(user.username, "test", "app_settings", "ai",
                    {"target": "ai", "success": ok, "message": message[:500]}, request)
     return {"success": ok, "message": message}
+
+
+@router.post("/wiki/refresh")
+def ai_wiki_refresh(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    """Ayarlar'daki "Wiki'yi Şimdi Oku": kaydedilmiş ayarlarla kılavuzu wiki'den hemen okur."""
+    cfg = get_category(db, "ai", mask_secrets=False)
+    if not wiki.is_configured(cfg):
+        return {"success": False, "message": "Önce kılavuzun wiki linkini girip kaydedin.", "pages": []}
+    try:
+        guide = wiki.refresh_now(db, cfg)
+    except wiki.WikiError as exc:
+        ok, message, out = False, str(exc), []
+    else:
+        ok, message = True, f"{len(guide)} sayfa okundu"
+        out = [{"title": p.title, "url": p.url, "depth": p.depth, "chars": len(p.text)} for p in guide]
+    log_standalone(user.username, "test", "app_settings", "ai",
+                   {"target": "wiki", "success": ok, "message": message[:500]}, request)
+    return {"success": ok, "message": message, "pages": out}

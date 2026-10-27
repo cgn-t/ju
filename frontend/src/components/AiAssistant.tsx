@@ -5,23 +5,24 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
-import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import {
   Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
   TextField, ThemeProvider, Tooltip, Typography, createTheme, useMediaQuery, type Theme,
 } from '@mui/material'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
+import { useAiStatus } from '../hooks/useAiStatus'
 import { BRAND_DARK, BRAND_DARKER, BRAND_GRADIENT } from '../theme'
 
 // AI asistanı: Ayarlar > AI Asistanı açıkken her sayfanın sağ altında simge. Sohbet bu sekmede
-// (sessionStorage) tutulur; AI yalnız OKUR, kayıtları sunucu tarafında soranın yetkisiyle görür.
+// (sessionStorage) tutulur; AI yalnız OKUR. Neyi görebileceğine sunucu karar verir (Ayarlar'daki
+// tam erişim; kişisel bilgiler hiçbir zaman verilmez). "Nasıl yapılır" sorularını kurum wiki'sindeki
+// Kullanım Kılavuzu'ndan cevaplar.
 type ChatMessage = { role: 'user' | 'assistant'; content: string; error?: boolean; sources?: string[] }
-type AiStatus = { enabled: boolean; name: string; suggestions?: string[] }
 type AiAnswer = { answer: string; tools_used: string[]; tool_mode: boolean }
 
 const STORE_KEY = 'jumbo.ai.chat'
@@ -34,17 +35,10 @@ const MIN_PAGE_W = 720       // sayfa bundan daralacaksa panel sayfayı itmez, �
 const SOURCE_LABELS: Record<string, string> = {
   sertifika_ara: 'SSL Sertifikaları', sertifika_detay: 'SSL Sertifikaları',
   domain_ara: 'Domainler', domain_detay: 'Domainler', degisiklik_talepleri: 'Değişiklik Talepleri',
-  genel_durum: 'Anasayfa', kayit_gecmisi: 'Audit Log',
+  genel_durum: 'Anasayfa', kayit_gecmisi: 'Audit Log', uyum_ihlalleri: 'Uyum',
+  kilavuz_ara: 'Kullanım Kılavuzu', kilavuz_oku: 'Kullanım Kılavuzu',
+  veri_tablolari: 'Jumbo veritabanı', veri_sorgula: 'Jumbo veritabanı',
 }
-// Panel başlığının altındaki "Bu sayfa" bilgisi (AI'a da gönderilir)
-const PAGE_LABELS: Record<string, string> = {
-  '/': 'Anasayfa', '/overview': 'Genel Durum', '/my-team': 'Ekibim', '/certificates': 'SSL Sertifikaları',
-  '/domains': 'Domainler', '/applications': 'Uygulamalar', '/cert-map': 'Sertifika Haritası',
-  '/policy': 'Uyum', '/discovery': 'Keşif', '/proposals': 'Değişiklik Talepleri', '/deployments': 'Dağıtım',
-  '/settings': 'Ayarlar', '/profile': 'Profilim', '/system-health': 'Sistem Sağlığı',
-}
-const pageLabel = (path: string) =>
-  PAGE_LABELS[path] ?? PAGE_LABELS['/' + (path.split('/')[1] ?? '')] ?? 'Jumbo'
 
 // Panel içi vurgu rengi sol menünün koyu kırmızısı (bağlantı, odak çizgisi, gönder düğmesi).
 // Koyu temada koyu kırmızı yazı okunmadığı için bağlantılar açık tonda kalır; simge/başlık/balon aynı.
@@ -69,7 +63,8 @@ function readStored(): ChatMessage[] {
   }
 }
 
-// Satır içi: **kalın**, `kod` ve [metin](/yol) bağlantıları (iç yollar sayfayı açar).
+// Satır içi: **kalın**, `kod` ve [metin](/yol) bağlantıları (iç yollar sayfayı açar, wiki gibi dış
+// adresler yeni sekmede).
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = []
   const re = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|`([^`]+)`/g
@@ -94,19 +89,23 @@ function inline(text: string): ReactNode[] {
   return out
 }
 
-// Basit Markdown: başlık (#), madde (- / * / 1.) ve paragraflar.
+// Basit Markdown: başlık (#), madde (- / *), numaralı adım (1.) ve paragraflar.
 export function AiText({ text }: { text: string }) {
   return (
     <>
       {text.split('\n').map((line, i) => {
-        const bullet = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/)
+        const bullet = line.match(/^\s*([-*•]|\d+[.)])\s+(.*)$/)
         const heading = line.match(/^#{1,4}\s+(.*)$/)
         if (!line.trim()) return <Box key={i} sx={{ height: 6 }} />
         if (heading) return <Typography key={i} sx={{ fontWeight: 700, fontSize: 14, mt: 0.5 }}>{inline(heading[1])}</Typography>
         if (bullet) {
           return (
             <Box key={i} sx={{ display: 'flex', gap: 0.75, pl: 0.5 }}>
-              <span>•</span><Box sx={{ minWidth: 0 }}>{inline(bullet[1])}</Box>
+              <Box component="span" sx={{ flexShrink: 0, minWidth: 14, whiteSpace: 'nowrap', color: /\d/.test(bullet[1]) ? 'primary.main' : undefined,
+                                          fontWeight: /\d/.test(bullet[1]) ? 700 : undefined }}>
+                {/\d/.test(bullet[1]) ? bullet[1].replace(')', '.') : '•'}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>{inline(bullet[2])}</Box>
             </Box>
           )
         }
@@ -125,11 +124,7 @@ type Props = {
 
 export default function AiAssistant({ navWidth = 0, onDock }: Props) {
   const location = useLocation()
-  const { data: status } = useQuery<AiStatus>({
-    queryKey: ['ai-status'],
-    queryFn: async () => (await api.get('/ai/status')).data,
-    staleTime: 5 * 60_000,
-  })
+  const { data: status } = useAiStatus()
   const [open, setOpen] = useState(false)
   const [wide, setWide] = useState(readBig)
   const [messages, setMessages] = useState<ChatMessage[]>(readStored)
@@ -208,7 +203,7 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
               onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           {/* Başlık — diğer yan pencerelerle aynı düzen */}
-          <Box sx={{ px: 2.5, pt: 2, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+          <Box sx={{ px: 2.5, py: 1.75, borderBottom: 1, borderColor: 'divider' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center',
                          background: BRAND_GRADIENT, color: '#fff', flexShrink: 0 }}>
@@ -237,11 +232,6 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
                 </IconButton>
               </Tooltip>
             </Box>
-            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 1.25, px: 1, py: 0.25,
-                       borderRadius: 5, bgcolor: 'action.hover', color: 'text.secondary', fontSize: 12 }}>
-              <PlaceOutlinedIcon sx={{ fontSize: 14 }} />
-              Bu sayfa: <b>{pageLabel(location.pathname)}</b>
-            </Box>
           </Box>
 
           {/* Konuşma */}
@@ -250,8 +240,8 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
               <Box sx={{ maxWidth: 640, mx: 'auto', mt: 1 }}>
                 <Typography sx={{ fontWeight: 700, fontSize: 17 }}>Size nasıl yardımcı olabilirim?</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-                  Sertifikalar, domainler ve değişiklik talepleri hakkında sorabilirsiniz. Yalnız görmeye
-                  yetkili olduğunuz kayıtlara bakarım, hiçbir şeyi değiştirmem.
+                  Jumbo'daki sertifika, domain, uygulama ve ekip kayıtlarını ya da bir işin nasıl yapılacağını
+                  sorabilirsiniz. Kayıtları yalnız okurum, hiçbir şeyi değiştirmem.
                 </Typography>
                 {suggestions.length > 0 && (
                   <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>Hazır sorular</Typography>
