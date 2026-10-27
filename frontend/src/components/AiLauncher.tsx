@@ -6,7 +6,7 @@ import JumboAiIcon from './JumboAiIcon'
 // (sahibin isteği). Yüksekliği bu tarayıcıda alt kenara uzaklık olarak hatırlanır; pencere küçülünce
 // ekranda kalır. Kısa tıklama paneli açar; sürüklemek açmaz. Sağ tık: "Varsayılan yere taşı".
 const POS_KEY = 'jumbo.ai.launcherBottom'
-const SIZE = 68          // simge 60 + iç boşluk
+const SIZE = 68          // daire çapı (çerçeve dahil)
 const MARGIN = 24        // kenar boşluğu
 const DRAG_PX = 5        // bu kadar oynamadan sürükleme sayılmaz
 
@@ -79,13 +79,16 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
              onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }}
              sx={{ position: 'fixed', right: MARGIN, ...place, width: SIZE, height: SIZE, touchAction: 'none',
-                   zIndex: (t) => t.zIndex.drawer + 1, p: 0.5, borderRadius: 2,
+                   zIndex: (t) => t.zIndex.drawer + 1, borderRadius: '50%',
                    cursor: dragTop !== null ? 'grabbing' : 'pointer',
-                   filter: 'drop-shadow(0 3px 4px rgba(0,0,0,.28))',
+                   // Belli olsun diye bordo çerçeveli, yarı saydam daire (sahibin seçimi, v3.9.26)
+                   border: '3px solid', borderColor: 'primary.main', backdropFilter: 'blur(4px)',
+                   bgcolor: (t) => t.palette.mode === 'dark' ? 'rgba(40,42,46,.72)' : 'rgba(255,255,255,.72)',
+                   boxShadow: (t) => t.palette.mode === 'dark' ? '0 4px 12px rgba(0,0,0,.5)' : '0 4px 12px rgba(0,0,0,.25)',
                    transition: 'transform 150ms ease',
                    '&:hover': { transform: dragTop !== null ? 'scale(1.12)' : 'scale(1.08)' },
-                   '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' } }}>
-          <JumboAiIcon size={60} />
+                   '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 } }}>
+          <JumboAiIcon size={46} />
         </ButtonBase>
       </Tooltip>
       <Menu open={!!menu} onClose={() => setMenu(null)} anchorReference="anchorPosition"
