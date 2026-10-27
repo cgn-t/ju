@@ -21,7 +21,7 @@ from app.api.schemas import (
 )
 from app.core.security import effective_role, get_current_user, hash_password, require_role
 from app.db.models import (Application, AuditLog, Certificate, DeploymentFlow, Domain, ScanTarget, Tag,
-                            Team, TransferProposal, User, UserTeam)
+                            Team, TransferProposal, User, UserTeam, WikiPage)
 from app.core.timeutil import ISTANBUL, ist_day_start_utc, ist_to_utc, utcnow
 from app.db.session import get_db
 from app.services.audit import (CATEGORIES, MASK, category_filter, category_of, diff_fields, log_action,
@@ -402,9 +402,9 @@ _LABEL_MODELS = {
     "domains": (Domain, "domain"), "applications": (Application, "app_name"),
     "users": (User, "username"), "teams": (Team, "name"), "user_teams": (Team, "name"),
     "tags": (Tag, "name"), "scan_targets": (ScanTarget, "name"),
-    "deployment_flows": (DeploymentFlow, "name"),
+    "deployment_flows": (DeploymentFlow, "name"), "wiki_pages": (WikiPage, "title"),
 }
-_LABEL_KEYS = ("name", "domain", "app_name", "username", "job", "category", "target")
+_LABEL_KEYS = ("name", "domain", "app_name", "username", "job", "category", "target", "title")
 
 
 def _record_labels(db: Session, rows: list[AuditLog], parsed: dict[int, object]) -> dict[int, str]:

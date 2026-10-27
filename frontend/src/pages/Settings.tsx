@@ -1701,9 +1701,9 @@ function AiTab() {
     <Stack spacing={2}>
       <Alert severity="info">
         Kurum içi AI servisine bağlanır. Açıkken <b>her sayfanın sağ altında</b> AI simgesi görünür;
-        kullanıcılar sertifika, domain ve değişiklik talepleri hakkında soru sorabilir. AI Jumbo verisini
-        <b> yalnız soran kişinin yetkisiyle okur</b>, hiçbir kaydı değiştiremez. Her soru Audit Log'a
-        “AI sorusu” olarak yazılır.
+        kullanıcılar Jumbo kayıtlarını ve uygulamanın nasıl kullanılacağını (Kullanım Kılavuzu) sorabilir.
+        AI <b>hiçbir kaydı değiştiremez</b>. Kişisel bilgiler (e-posta, telefon, fotoğraf, şifre, giriş kayıtları)
+        ve sistem ayarları AI'a hiç verilmez. Her soru Audit Log'a “AI sorusu” olarak yazılır.
       </Alert>
       {bool('enabled', 'AI Asistanı Etkin')}
       <Grid container spacing={2}>
@@ -1728,8 +1728,15 @@ function AiTab() {
       <Box>
         {bool('use_tools', 'AI Jumbo verisini okuyabilsin')}
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-          Servisin “tool calling” desteği gerekir. Desteklemiyorsa ya da kapalıysa AI yalnız genel sorulara
-          cevap verir (ör. “CSR nedir?”).
+          Servisin “tool calling” desteği gerekir. Desteklemiyorsa ya da kapalıysa AI kayıtlara bakamaz;
+          genel sorulara ve Kullanım Kılavuzu'ndaki konulara cevap verir.
+        </Typography>
+      </Box>
+      <Box>
+        {bool('full_access', 'Herkes tüm uygulama verisini sorabilsin (kişisel bilgiler hariç)')}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Açıkken Ekip Editörü ve Ekip İzleyici de AI'a sorarak başka ekiplerin kayıtlarını ve işlem geçmişini
+          görebilir. Kapalıyken AI yalnız soran kişinin ekranda görebildiği kayıtlara bakar.
         </Typography>
       </Box>
       <Grid container spacing={2}>

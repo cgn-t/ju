@@ -676,3 +676,23 @@ class DeploymentRunStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     run: Mapped["DeploymentRun"] = relationship(back_populates="steps")
+
+
+class WikiPage(Base):
+    """Kullanım Kılavuzu sayfası (Markdown). YENİ tablo (prod'da yok) — create_all kurar.
+    Jumbo'yla gelen sayfalar açılışta eklenir (app/services/wiki.py); updated_by boş olan sayfa
+    hiç elle düzenlenmemiştir ve yeni sürümdeki metinle güncellenir. Yöneticinin düzenlediği sayfaya
+    dokunulmaz. AI asistanı "nasıl yapılır" sorularını bu sayfalardan cevaplar."""
+
+    __tablename__ = "wiki_pages"
+    __table_args__ = (UniqueConstraint("slug", name="uq_wiki_slug"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(Unicode(100))
+    title: Mapped[str] = mapped_column(Unicode(255))
+    category: Mapped[str] = mapped_column(Unicode(100), index=True)
+    body: Mapped[str] = mapped_column(UnicodeText)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    updated_by: Mapped[str | None] = mapped_column(Unicode(100))   # boş = Jumbo'yla gelen, el değmemiş
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

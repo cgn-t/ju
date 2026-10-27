@@ -1,4 +1,5 @@
-"""AI asistanı (v3.9.15): ayarlar, soru-cevap, araçların kullanıcı yetkisiyle çalışması.
+"""AI asistanı (v3.9.15, v3.9.16): ayarlar, soru-cevap, araçların kapsamı (tam erişim / soranın
+yetkisi), veri tabloları aracı ve Kullanım Kılavuzu aracı.
 
 Gerçek AI servisi yerine ai_assistant._post sahte cevaplarla değiştirilir."""
 
@@ -55,11 +56,19 @@ def _tool(name, args, call_id="c1"):
 def ai_on(client, auth_headers):
     r = client.put("/api/settings/ai", headers=auth_headers, json={
         "enabled": True, "api_url": "https://ai.firma.local/v1", "api_key": "gizli-anahtar",
-        "model": "kurum-model", "assistant_name": "Fil", "daily_limit": 0, "use_tools": True})
+        "model": "kurum-model", "assistant_name": "Fil", "daily_limit": 0, "use_tools": True,
+        "full_access": True})
     assert r.status_code == 200, r.text
     ai_assistant._usage.clear()
     yield
-    client.put("/api/settings/ai", headers=auth_headers, json={"enabled": False, "daily_limit": 100})
+    client.put("/api/settings/ai", headers=auth_headers,
+               json={"enabled": False, "daily_limit": 100, "full_access": True})
+
+
+def _scoped(client, headers):
+    """Tam erişim kapalı: AI yalnız soranın ekranda görebildiğini okur."""
+    r = client.put("/api/settings/ai", headers=headers, json={"full_access": False})
+    assert r.status_code == 200, r.text
 
 
 def test_status_off_by_default_and_key_is_secret(client, auth_headers):
@@ -135,7 +144,8 @@ def test_chat_uses_tool_and_answers(client, auth_headers, ai_on, monkeypatch):
     assert audit and audit[0]["summary"] == "30 günde bitecek sertifikalar?"
 
 
-def test_tools_respect_user_scope(client, auth_headers, ai_on, monkeypatch):
+def test_scoped_mode_respects_user_scope(client, auth_headers, ai_on, monkeypatch):
+    _scoped(client, auth_headers)
     own = _sy_team(client, auth_headers, "AiOwn")
     other = _sy_team(client, auth_headers, "AiOther")
     hdr = _user_in(client, auth_headers, "ai_viewer", own)
@@ -155,14 +165,18 @@ def test_tools_respect_user_scope(client, auth_headers, ai_on, monkeypatch):
     assert detail == {"hata": "Domain bulunamadı"}
     found = json.loads(fake.bodies[2]["messages"][-1]["content"])
     assert [d["domain"] for d in found["domainler"]] == ["ai-own.firma.local"]
-    # Kayıt geçmişi aracı yöneticiye özel: viewer'a hiç sunulmaz
+    # Kayıt geçmişi ve tablo okuma araçları viewer'a hiç sunulmaz; kılavuz herkese açık
     names = [t["function"]["name"] for t in fake.bodies[0]["tools"]]
-    assert "kayit_gecmisi" not in names and "sertifika_ara" in names
-    assert "kayit_gecmisi" in [t["function"]["name"] for t in ai_assistant.tool_specs(
-        type("U", (), {"role": "admin"})())]
+    assert "kayit_gecmisi" not in names and "veri_sorgula" not in names
+    assert "sertifika_ara" in names and "kilavuz_ara" in names
+    assert "yetkili olduğu" in fake.bodies[0]["messages"][0]["content"]
+    admin_names = [t["function"]["name"] for t in ai_assistant.tool_specs(
+        type("U", (), {"role": "admin"})(), {"full_access": False})]
+    assert "kayit_gecmisi" in admin_names and "veri_sorgula" in admin_names
 
 
-def test_history_tool_refuses_non_admin_even_if_called(client, auth_headers, ai_on, monkeypatch):
+def test_scoped_mode_history_refuses_non_admin_even_if_called(client, auth_headers, ai_on, monkeypatch):
+    _scoped(client, auth_headers)
     own = _sy_team(client, auth_headers, "AiHist")
     hdr = _user_in(client, auth_headers, "ai_editor", own, role="editor")
     fake = FakeAi([_tool("kayit_gecmisi", {"son_gun": 7}), _text("yok")])
@@ -217,3 +231,129 @@ def test_connection_test_admin_only(client, auth_headers, ai_on, monkeypatch):
     own = _sy_team(client, auth_headers, "AiTest")
     hdr = _user_in(client, auth_headers, "ai_viewer2", own)
     assert client.post("/api/ai/test", headers=hdr).status_code == 403
+
+
+# ---------------------------------------------------------------- v3.9.16: tam erişim
+def _last_tool_result(fake, i):
+    return json.loads(fake.bodies[i]["messages"][-1]["content"])
+
+
+def test_full_access_viewer_sees_other_teams_and_history(client, auth_headers, ai_on, monkeypatch):
+    own = _sy_team(client, auth_headers, "AiFullOwn")
+    other = _sy_team(client, auth_headers, "AiFullOther")
+    hdr = _user_in(client, auth_headers, "ai_full_viewer", own)
+    dom = client.post("/api/domains", headers=auth_headers,
+                      json={"domain": "ai-full-other.firma.local", "sy_team_id": other}).json()
+    fake = FakeAi([_tool("domain_detay", {"id": dom["id"]}),
+                   _tool("kayit_gecmisi", {"son_gun": 1}, "c2"), _text("ok")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    r = client.post("/api/ai/chat", headers=hdr,
+                    json={"messages": [{"role": "user", "content": "ai-full-other kimin?"}]})
+    assert r.status_code == 200, r.text
+    assert _last_tool_result(fake, 1)["sy_ekip"] == "AiFullOther"
+    rows = _last_tool_result(fake, 2)["kayitlar"]
+    # Uygulama değişiklikleri görünür; girişler, kullanıcı/ayar değişiklikleri ve AI soruları görünmez
+    assert any(x["nesne"] == "domains" for x in rows)
+    assert not [x for x in rows if x["islem"] in ("login", "login_failed", "ai_ask")
+                or x["nesne"] in ("users", "app_settings")]
+    names = [t["function"]["name"] for t in fake.bodies[0]["tools"]]
+    assert {"kayit_gecmisi", "veri_tablolari", "veri_sorgula", "kilavuz_ara"} <= set(names)
+    assert "tüm uygulama verisini" in fake.bodies[0]["messages"][0]["content"]
+    # Audit'e yine gerçek kullanıcı yazılır
+    audit = client.get("/api/audit?action=ai_ask", headers=auth_headers).json()["items"]
+    assert audit[0]["username"] == "ai_full_viewer"
+
+
+def test_data_tools_hide_personal_fields(client, auth_headers, ai_on, monkeypatch):
+    team = _sy_team(client, auth_headers, "AiData")
+    hdr = _user_in(client, auth_headers, "ai_data_viewer", team)
+    client.post("/api/domains", headers=auth_headers,
+                json={"domain": "ai-data-1.firma.local", "sy_team_id": team})
+    client.post("/api/domains", headers=auth_headers,
+                json={"domain": "ai-data-2.firma.local", "sy_team_id": team})
+    fake = FakeAi([
+        _tool("veri_tablolari", {}),
+        _tool("veri_tablolari", {"tablo": "kullanicilar"}, "c2"),
+        _tool("veri_sorgula", {"tablo": "kullanicilar", "filtreler": [
+            {"alan": "username", "islem": "=", "deger": "AI_DATA_VIEWER"}]}, "c3"),
+        _tool("veri_sorgula", {"tablo": "domainler", "alanlar": ["domain", "sy_team_id"], "filtreler": [
+            {"alan": "domain", "islem": "icerir", "deger": "ai-data-"}]}, "c4"),
+        _tool("veri_sorgula", {"tablo": "domainler", "grupla": ["sy_team_id"], "filtreler": [
+            {"alan": "domain", "islem": "baslar", "deger": "ai-data-"}]}, "c5"),
+        _tool("veri_sorgula", {"tablo": "kullanicilar", "alanlar": ["email"]}, "c6"),
+        _tool("veri_sorgula", {"tablo": "islem_gecmisi", "filtreler": [
+            {"alan": "action", "islem": "liste", "deger": "login,ai_ask"}]}, "c7"),
+        _text("ok")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    r = client.post("/api/ai/chat", headers=hdr,
+                    json={"messages": [{"role": "user", "content": "veri"}]})
+    assert r.status_code == 200, r.text
+    tables = _last_tool_result(fake, 1)["tablolar"]
+    assert "domainler" in tables and "app_settings" not in tables and "ayarlar" not in tables
+    fields = _last_tool_result(fake, 2)["alanlar"]
+    assert "username" in fields and not {"email", "password_hash", "last_login"} & set(fields)
+    users = _last_tool_result(fake, 3)
+    assert users["toplam"] == 1 and set(users["satirlar"][0]) == {
+        "id", "username", "full_name", "role", "auth_source", "is_active"}
+    doms = _last_tool_result(fake, 4)
+    assert doms["toplam"] == 2
+    row = doms["satirlar"][0]
+    assert row["domain"] == "ai-data-1.firma.local" and row["sy_team_adi"] == "AiData"
+    assert row["link"] == f"/domains?domain={row['id']}"
+    groups = _last_tool_result(fake, 5)["gruplar"]
+    assert groups == [{"sy_team_id": team, "adet": 2, "sy_team_adi": "AiData"}]
+    assert "email" in _last_tool_result(fake, 6)["hata"]
+    assert _last_tool_result(fake, 7)["toplam"] == 0   # giriş kayıtları ve AI soruları gizli
+
+
+def test_data_tool_admin_sees_logins_but_never_ai_questions(client, auth_headers, ai_on, monkeypatch):
+    fake = FakeAi([_tool("veri_sorgula", {"tablo": "islem_gecmisi", "grupla": ["action"], "filtreler": [
+        {"alan": "action", "islem": "liste", "deger": ["login", "ai_ask"]},
+        {"alan": "created_at", "islem": ">=", "deger": "2020-01-01"}]}), _text("ok")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=auth_headers, json={"messages": [{"role": "user", "content": "x"}]})
+    groups = {g["action"]: g["adet"] for g in _last_tool_result(fake, 1)["gruplar"]}
+    assert groups.get("login", 0) >= 1 and "ai_ask" not in groups
+
+
+def test_data_tools_hidden_for_team_roles_in_scoped_mode(client, auth_headers, ai_on, monkeypatch):
+    _scoped(client, auth_headers)
+    team = _sy_team(client, auth_headers, "AiDataScoped")
+    hdr = _user_in(client, auth_headers, "ai_data_scoped", team, role="editor")
+    fake = FakeAi([_tool("veri_sorgula", {"tablo": "domainler"}), _text("ok")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=hdr, json={"messages": [{"role": "user", "content": "x"}]})
+    assert _last_tool_result(fake, 1) == {"hata": "Bu araç bu kullanıcıya kapalı"}
+
+
+def test_wiki_tool_answers_how_to(client, auth_headers, ai_on, monkeypatch):
+    fake = FakeAi([_tool("kilavuz_ara", {"metin": "yeni domain nasıl eklenir"}),
+                   _tool("kilavuz_oku", {"adres": "degisiklik-talepleri"}, "c2"),
+                   _text("[Domain ekleme](/wiki/domain-ekleme)")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    r = client.post("/api/ai/chat", headers=auth_headers,
+                    json={"messages": [{"role": "user", "content": "Yeni domain nasıl eklenir?"}]})
+    assert r.status_code == 200, r.text
+    hit = _last_tool_result(fake, 1)["en_uygun"]
+    assert hit["link"] == "/wiki/domain-ekleme" and "Yeni Domain" in hit["metin"]
+    page = _last_tool_result(fake, 2)
+    assert page["baslik"].startswith("Değişiklik talepleri") and "Kim onaylar?" in page["metin"]
+    assert "kilavuz_ara" in fake.bodies[0]["messages"][0]["content"]
+
+
+def test_policy_tool(client, auth_headers, ai_on, monkeypatch):
+    fake = FakeAi([_tool("uyum_ihlalleri", {}), _text("ok")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=auth_headers, json={"messages": [{"role": "user", "content": "uyum"}]})
+    result = _last_tool_result(fake, 1)
+    assert {"degerlendirilen", "uyumlu", "uyumsuz", "ihlaller"} <= set(result)
+
+
+def test_fallback_without_tools_carries_wiki(client, auth_headers, ai_on, monkeypatch):
+    fake = FakeAi([ai_assistant._HttpError(400, "tools not supported"), _text("kılavuzdan cevap")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=auth_headers,
+                json={"messages": [{"role": "user", "content": "Domain nasıl eklenir?"}]})
+    system = fake.bodies[1]["messages"][0]["content"]
+    assert "KULLANIM KILAVUZU" in system and "(/wiki/domain-ekleme)" in system
+    assert len(system) < ai_assistant.WIKI_DIGEST_CHARS + 6000

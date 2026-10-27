@@ -11,6 +11,7 @@ import LanguageIcon from '@mui/icons-material/Language'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import PersonIcon from '@mui/icons-material/Person'
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import RuleIcon from '@mui/icons-material/Rule'
@@ -37,7 +38,7 @@ import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
 import { usePendingProposalCount } from '../pages/Proposals'
 
-// Sol menü: sık kullanılanlar tekil; kalanı 'Analiz' ve 'İşlemler' başlıkları altında gruplanır.
+// Sol menü: sık kullanılanlar tekil; kalanı 'Analiz', 'İşlemler' ve 'Yardım' başlıkları altında gruplanır.
 type NavLink = { to: string; label: string }
 type NavGroup = { label: string; items: NavLink[] }
 type NavEntry = NavLink | NavGroup
@@ -60,13 +61,16 @@ const NAV: NavEntry[] = [
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
     { to: '/system-health', label: 'Sistem Sağlığı' },
   ] },
+  { label: 'Yardım', items: [
+    { to: '/wiki', label: 'Kullanım Kılavuzu' },
+  ] },
 ]
 
 const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
-  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon,
+  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/wiki': MenuBookIcon,
 }
 
 // Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı yalnız admin.
@@ -125,7 +129,7 @@ export default function AppLayout() {
   const shadowCount = useDiscoveredCount()
   const violationCount = usePolicyViolationCount()
 
-  const isActive = (to: string) => location.pathname === to
+  const isActive = (to: string) => location.pathname === to || (to === '/wiki' && location.pathname.startsWith('/wiki/'))
   const badgeFor = (to: string) =>
     to === '/proposals' ? pendingCount
       : to === '/discovery' ? shadowCount
