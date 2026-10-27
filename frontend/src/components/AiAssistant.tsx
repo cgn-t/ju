@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import { useAiStatus } from '../hooks/useAiStatus'
+import AiLauncher from './AiLauncher'
 import JumboAiIcon from './JumboAiIcon'
 import { BRAND_DARK } from '../theme'
 
@@ -334,18 +335,7 @@ export default function AiAssistant() {
         </Box>
       </Drawer>
 
-      {!open && (
-        <Tooltip title={`${name}'a sor`} placement="left">
-          <ButtonBase aria-label={`${name}'a sor`} onClick={() => setOpen(true)}
-               sx={{ position: 'fixed', right: { xs: 16, sm: 24 }, bottom: { xs: 16, sm: 24 },
-                     zIndex: (t) => t.zIndex.drawer + 1, p: 0.5, borderRadius: 2,
-                     filter: 'drop-shadow(0 3px 4px rgba(0,0,0,.28))', transition: 'transform 150ms ease',
-                     '&:hover': { transform: 'scale(1.08)' },
-                     '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' } }}>
-            <JumboAiIcon size={60} />
-          </ButtonBase>
-        </Tooltip>
-      )}
+      {!open && <AiLauncher name={name} onOpen={() => setOpen(true)} />}
     </ThemeProvider>
   )
 }

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
@@ -19,6 +19,7 @@ describe('AiAssistant', () => {
     apiPost.mockReset()
     sessionStorage.clear()
     localStorage.removeItem('jumbo.ai.big')
+    localStorage.removeItem('jumbo.ai.launcherPos')
   })
 
   it('AI kapalıyken simge görünmez', async () => {
@@ -95,5 +96,20 @@ describe('AiAssistant', () => {
     await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'selam{Enter}')
     await screen.findByText('tamam')
     expect(screen.queryByRole('button', { name: 'Hazır sorular' })).toBeNull()
+  })
+
+  it('düğme sürüklenince panel açılmaz, bırakıldığı yer hatırlanır; sağ tıkla varsayılan yere döner', async () => {
+    apiGet.mockResolvedValue({ data: ON })
+    renderPage(<AiAssistant />)
+    const btn = await screen.findByRole('button', { name: "Fil'a sor" })
+    fireEvent.pointerDown(btn, { button: 0, clientX: 900, clientY: 700, pointerId: 1 })
+    fireEvent.pointerMove(btn, { clientX: 400, clientY: 500, pointerId: 1 })
+    btn.getBoundingClientRect = () => ({ left: 420, right: 488, top: 400, bottom: 468, width: 68, height: 68, x: 20, y: 400, toJSON: () => ({}) })
+    fireEvent.pointerUp(btn, { clientX: 54, clientY: 434, pointerId: 1 })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('jumbo.ai.launcherPos')!).right).toBe((document.documentElement.clientWidth || window.innerWidth) - 488)
+    fireEvent.contextMenu(btn)
+    await userEvent.click(await screen.findByText('Varsayılan yere taşı (sağ alt)'))
+    expect(localStorage.getItem('jumbo.ai.launcherPos')).toBeNull()
   })
 })
