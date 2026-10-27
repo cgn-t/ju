@@ -292,10 +292,11 @@ DEFAULTS: dict[str, dict] = {
             "Onay bekleyen değişiklik talepleri neler?",
             "Süresi dolmuş domainleri listele",
         ],
-        # Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence) yazılır; AI "nasıl yapılır" sorularını
-        # oradan cevaplar, sol menüdeki Kullanım Kılavuzu bu linki açar (bkz. app/services/wiki.py).
+        # Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence ya da Azure DevOps/TFS) yazılır; AI
+        # "nasıl yapılır" sorularını oradan cevaplar, sol menüdeki Kullanım Kılavuzu bu linki açar
+        # (bkz. app/services/wiki.py).
         "wiki_url": "",               # kılavuzun ana sayfasının linki (altındaki sayfalar da okunur)
-        "wiki_auth_mode": "bearer",   # bearer (Data Center kişisel erişim token'ı) | basic (kullanıcı + token)
+        "wiki_auth_mode": "bearer",   # bearer (Data Center PAT) | basic (kullanıcı + token); Azure DevOps'ta hep basic
         "wiki_username": "",          # basic'te kullanıcı adı (Cloud'da hesap e-postası)
         "wiki_token": "",             # token ya da şifre (gizli — Fernet ile şifrelenir)
         "wiki_refresh_minutes": 15,   # wiki'deki değişiklik en geç bu sürede AI'a yansır

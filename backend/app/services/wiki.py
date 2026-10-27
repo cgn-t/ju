@@ -1,18 +1,26 @@
-"""Kullanım Kılavuzu: kurumun kendi wiki'sinden (Confluence) okunur; Jumbo'da kılavuz tablosu yok.
+"""Kullanım Kılavuzu: kurumun kendi wiki'sinden (Confluence ya da Azure DevOps/TFS wiki) okunur;
+Jumbo'da kılavuz tablosu yok.
 
 Sahibin kararı (27.10.2026): kılavuz kurum wiki'sinde yazılır ve güncellenir, Jumbo AI oradan okur.
 Ayarlar > AI Asistanı:
   wiki_url             kılavuzun wiki'deki ana sayfasının linki. Jumbo bu sayfayı ve altındaki bütün
                        sayfaları okur; wiki'nin başka hiçbir yerine bakmaz, hiçbir şey yazmaz.
   wiki_auth_mode       bearer (Data Center kişisel erişim token'ı) | basic (kullanıcı + token/şifre;
-                       Cloud'da hesap e-postası + API token)
+                       Cloud'da hesap e-postası + API token). Azure DevOps'ta her zaman basic: kişisel
+                       erişim token'ı (PAT), kullanıcı adı boş kalabilir.
   wiki_username, wiki_token (gizli)
   wiki_refresh_minutes metin bu kadar dakika bellekte tutulur, sonra wiki'den yeniden okunur.
-Desteklenen linkler:
+Desteklenen linkler (Confluence):
   …/pages/viewpage.action?pageId=123            (Data Center / Server)
   …/display/ALAN/Sayfa+Adi                      (Data Center / Server)
   …/spaces/ALAN/pages/123/Sayfa+Adi             (Cloud ve yeni Data Center)
   …/display/ALAN  ya da  …/spaces/ALAN/overview (alanın ana sayfası)
+Desteklenen linkler (Azure DevOps Server / TFS ve Azure DevOps Services; linkte "/_wiki" geçer):
+  …/Proje/_wiki/wikis/Proje.wiki/12/Sayfa-Adi           (sayfa numaralı)
+  …/Proje/_wiki/wikis/Proje.wiki?pagePath=%2FSayfa      (sayfa yolu; eski TFS sürümleri)
+  …/Proje/_wiki/wikis/Proje.wiki  ya da  …/Proje/_wiki  (bütün wiki)
+  Sayfa ağacı ?recursionLevel=full ile, her sayfanın Markdown metni ayrıca okunur. Sunucunun desteklediği
+  REST sürümü (6.0 → 5.0 → 4.1) kendiliğinden bulunur.
 "Wiki'yi Şimdi Oku" (POST /api/ai/wiki/refresh) app_settings'e zaman damgası yazar; her pod bir sonraki
 soruda bunu görüp wiki'yi yeniden okur. Wiki'ye ulaşılamazsa elde olan son metin kullanılmaya devam eder.
 """
@@ -27,7 +35,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, unquote_plus, urlsplit
+from urllib.parse import parse_qs, quote, unquote, unquote_plus, urlsplit
 
 import httpx
 from sqlalchemy.orm import Session
@@ -43,12 +51,20 @@ MAX_PAGES = 300              # ana sayfa + alt sayfalar; fazlası okunmaz
 MAX_PAGE_CHARS = 40_000      # bir sayfadan alınan en fazla metin
 SEARCH_BATCH = 50            # CQL aramasında sayfa başına sonuç
 RETRY_SECONDS = 60           # okuma başarısızsa bu süre içinde tekrar denenmez
+AZURE_VERSIONS = ("6.0", "5.0", "4.1")   # Azure DevOps REST sürümleri; sunucu hangisini kabul ederse
 
 _TR = str.maketrans("çğıöşüâîû", "cgiosuaiu")
 
 
 class WikiError(Exception):
     """Kullanıcıya (yöneticiye) gösterilecek, anlaşılır hata."""
+
+
+class _HttpStatus(WikiError):
+    def __init__(self, status: int, text: str, message: str | None = None):
+        super().__init__(message or f"Wiki hata döndürdü (HTTP {status}).")
+        self.status = status
+        self.text = text
 
 
 @dataclass
@@ -65,6 +81,11 @@ class GuidePage:
 
 def is_configured(cfg: dict) -> bool:
     return bool((cfg.get("wiki_url") or "").strip())
+
+
+def is_azure(url: str | None) -> bool:
+    """Azure DevOps (TFS) wiki linki mi? Bu wiki'nin bütün adreslerinde "/_wiki" geçer."""
+    return "/_wiki" in urlsplit((url or "").strip()).path
 
 
 # ---------------------------------------------------------------- link çözümleme
@@ -91,9 +112,25 @@ def parse_link(url: str) -> tuple[str, str | None, str | None, str | None]:
         return origin + path[:m.start()], None, m.group(1), title
     if re.search(r"/x/[^/]+/?$", path):
         raise WikiError("Kısa link (…/x/…) desteklenmiyor; sayfanın tam linkini girin.")
-    raise WikiError("Link bir Confluence sayfasına benzemiyor. Örnek: "
-                    "https://wiki.firma.local/pages/viewpage.action?pageId=123456 ya da "
-                    "https://wiki.firma.local/display/ALAN/Sayfa+Adi")
+    raise WikiError("Link bir Confluence ya da Azure DevOps (TFS) wiki sayfasına benzemiyor. Örnek: "
+                    "https://wiki.firma.local/display/ALAN/Sayfa+Adi ya da "
+                    "https://tfs.firma.local/tfs/DefaultCollection/Proje/_wiki/wikis/Proje.wiki/12/Sayfa")
+
+
+def parse_azure_link(url: str) -> tuple[str, str | None, str | None, str | None]:
+    """Azure DevOps wiki linki → (proje adresi, wiki adı, sayfa yolu, sayfa numarası)."""
+    parts = urlsplit((url or "").strip())
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise WikiError("Kılavuz linki http(s):// ile başlayan tam bir wiki sayfası linki olmalı.")
+    prefix, _, rest = parts.path.partition("/_wiki")
+    if not prefix.strip("/"):
+        raise WikiError("Linkte proje adı yok. Wiki sayfasını tarayıcıda açıp adres çubuğundaki linkin "
+                        "tamamını girin (…/Proje/_wiki/wikis/…).")
+    segs = [unquote(s) for s in rest.split("/") if s]
+    wiki_id = segs[1] if len(segs) > 1 and segs[0] == "wikis" else None
+    page_id = segs[2] if len(segs) > 2 and segs[0] == "wikis" and segs[2].isdigit() else None
+    page_path = (parse_qs(parts.query).get("pagePath") or [None])[0]
+    return f"{parts.scheme}://{parts.netloc}{prefix}", wiki_id, page_path, page_id
 
 
 # ---------------------------------------------------------------- Confluence storage → düz metin
@@ -226,7 +263,8 @@ def storage_to_text(html: str) -> str:
 def _headers(cfg: dict) -> dict:
     headers = {"Accept": "application/json", "User-Agent": "JUMBO-CLM/wiki"}
     token = cfg.get("wiki_token") or ""
-    if cfg.get("wiki_auth_mode") == "basic":
+    if cfg.get("wiki_auth_mode") == "basic" or (is_azure(cfg.get("wiki_url")) and token):
+        # Azure DevOps kişisel erişim token'ını (PAT) yalnız Basic ile kabul eder; kullanıcı adı boş olabilir
         raw = f"{cfg.get('wiki_username') or ''}:{token}".encode()
         headers["Authorization"] = "Basic " + base64.b64encode(raw).decode()
     elif token:
@@ -248,22 +286,22 @@ def _get(client: httpx.Client, url: str, params: dict | None = None) -> dict:
     except httpx.HTTPError as exc:
         raise WikiError(f"Wiki'ye bağlanılamadı: {exc}")
     if r.status_code == 401:
-        raise WikiError("Wiki kullanıcı adını ya da token'ı kabul etmedi (HTTP 401).")
+        raise _HttpStatus(401, r.text[:1000], "Wiki kullanıcı adını ya da token'ı kabul etmedi (HTTP 401).")
     if r.status_code == 403:
-        raise WikiError("Bu hesabın kılavuz sayfasını okuma yetkisi yok (HTTP 403).")
+        raise _HttpStatus(403, r.text[:1000], "Bu hesabın kılavuz sayfasını okuma yetkisi yok (HTTP 403).")
     if r.status_code == 404:
-        raise WikiError("Kılavuz sayfası wiki'de bulunamadı (HTTP 404). Linki ve hesabın bu sayfayı "
-                        "görme yetkisini kontrol edin.")
+        raise _HttpStatus(404, r.text[:1000], "Kılavuz sayfası wiki'de bulunamadı (HTTP 404). Linki ve "
+                                              "hesabın bu sayfayı görme yetkisini kontrol edin.")
     if 300 <= r.status_code < 400:
         raise WikiError(f"Wiki isteği başka bir adrese yönlendirdi (HTTP {r.status_code}); büyük olasılıkla "
                         "giriş sayfasına. Kimlik bilgilerini kontrol edin.")
     if r.status_code >= 400:
-        raise WikiError(f"Wiki hata döndürdü (HTTP {r.status_code}).")
+        raise _HttpStatus(r.status_code, r.text[:1000])
     try:
         data = r.json()
     except ValueError:
-        raise WikiError("Wiki'nin cevabı okunamadı (JSON değil). Link bir Confluence sayfası mı, "
-                        "istek giriş sayfasına mı gidiyor?")
+        raise WikiError("Wiki'nin cevabı okunamadı (JSON değil). Link bir wiki sayfası mı, istek giriş "
+                        "sayfasına mı gidiyor? Token'ı kontrol edin.")
     if not isinstance(data, dict):
         raise WikiError("Wiki'nin cevabı beklenen biçimde değil.")
     return data
@@ -290,6 +328,12 @@ def _page(item: dict, base: str) -> GuidePage:
 
 def fetch(cfg: dict) -> list[GuidePage]:
     """Ana sayfayı ve altındaki bütün sayfaları wiki'den okur (ağaç sırasıyla)."""
+    if is_azure(cfg.get("wiki_url")):
+        return _fetch_azure(cfg)
+    return _fetch_confluence(cfg)
+
+
+def _fetch_confluence(cfg: dict) -> list[GuidePage]:
     base, page_id, space, title = parse_link(cfg.get("wiki_url") or "")
     api = f"{base}/rest/api"
     with _client(cfg) as client:
@@ -339,6 +383,120 @@ def _tree_order(root: GuidePage, pages: dict[str, GuidePage]) -> list[GuidePage]
 
     walk(root, 0)
     return out
+
+
+# ---------------------------------------------------------------- Azure DevOps (TFS) wiki
+_MD_DROP = [
+    (re.compile(r"\[\[_TO(?:C|SP)_\]\]"), ""),                      # içindekiler / alt sayfa listesi
+    (re.compile(r"<!--.*?-->", re.S), ""),                           # yorumlar
+    (re.compile(r"!\[[^\]]*\]\([^)]*\)"), ""),                        # resimler
+    (re.compile(r"(?<!!)\[([^\]]+)\]\([^)]*\)"), r"\1"),                # bağlantı → yalnız metni
+    (re.compile(r"</?(?:br|img|div|span|p|b|i|u|font|sup|sub|a|center|details|summary)\b[^>]*>", re.I), " "),
+]
+
+
+def markdown_to_text(md: str) -> str:
+    """Azure DevOps wiki sayfası (Markdown): başlık, liste ve tablolar olduğu gibi kalır; resim,
+    içindekiler ve HTML etiketleri atılır."""
+    text = (md or "").replace("\r", "")
+    for pattern, repl in _MD_DROP:
+        text = pattern.sub(repl, text)
+    text = "\n".join(ln.rstrip() for ln in text.split("\n"))
+    return re.sub(r"\n{3,}", "\n\n", text).strip()[:MAX_PAGE_CHARS]
+
+
+def _slug_title(url: str) -> str | None:
+    """Linkin son parçasındaki sayfa adı: Azure DevOps boşluğu '-', asıl '-' işaretini '%2D' yazar."""
+    _, _, rest = urlsplit(url).path.partition("/_wiki")
+    segs = [s for s in rest.split("/") if s]
+    return unquote(segs[3].replace("-", " ")) if len(segs) > 3 else None
+
+
+def _find_node(node: dict, page_id: str, title: str | None) -> dict | None:
+    by_title = []
+
+    def walk(n: dict) -> dict | None:
+        if str(n.get("id")) == page_id:
+            return n
+        if title and (n.get("path") or "").rstrip("/").rsplit("/", 1)[-1] == title:
+            by_title.append(n)
+        for sub in n.get("subPages") or []:
+            found = walk(sub)
+            if found is not None:
+                return found
+        return None
+
+    found = walk(node)
+    return found or (by_title[0] if len(by_title) == 1 else None)
+
+
+def _fetch_azure(cfg: dict) -> list[GuidePage]:
+    project, wiki_id, page_path, page_id = parse_azure_link(cfg.get("wiki_url") or "")
+    origin = urlsplit(project)
+    # Koddan yayımlanan wiki'lerde linkteki dal (wikiVersion=GBmain) okunur; proje wiki'si için gerekmez
+    branch = (parse_qs(urlsplit(cfg.get("wiki_url") or "").query).get("wikiVersion") or [""])[0]
+    extra = ({"versionDescriptor.version": branch[2:], "versionDescriptor.versionType": "branch"}
+             if branch.startswith("GB") and branch != "GBwikiMaster" else {})
+    with _client(cfg) as client:
+        versions = list(AZURE_VERSIONS)
+
+        def call(url: str, params: dict | None = None) -> dict:
+            """Sunucunun desteklemediği REST sürümünde bir eskisine geçer; bulunan sürüm saklanır."""
+            while True:
+                try:
+                    return _get(client, url, {**(params or {}), **(extra if "/pages" in url else {}),
+                                              "api-version": versions[0]})
+                except _HttpStatus as exc:
+                    out_of_range = exc.status == 400 and ("api-version" in exc.text.lower()
+                                                          or "VersionOutOfRange" in exc.text)
+                    if not out_of_range or len(versions) == 1:
+                        raise
+                    versions.pop(0)
+
+        if wiki_id is None:
+            wikis = call(f"{project}/_apis/wiki/wikis").get("value") or []
+            if not wikis:
+                raise WikiError("Bu projede wiki bulunamadı (ya da token'ın wiki okuma yetkisi yok).")
+            wiki_id = next((w for w in wikis if w.get("type") == "projectWiki"), wikis[0]).get("name")
+        api = f"{project}/_apis/wiki/wikis/{quote(wiki_id, safe='')}/pages"
+        tree = None
+        if page_path is None and page_id:
+            try:
+                page_path = call(f"{api}/{page_id}").get("path")
+            except _HttpStatus as exc:
+                if exc.status in (401, 403):
+                    raise
+                # Eski sunucular sayfayı numarayla vermez: bütün ağaçta numara ya da linkteki adla aranır
+                tree = _find_node(call(api, {"path": "/", "recursionLevel": "full"}), page_id,
+                                  _slug_title(cfg.get("wiki_url") or ""))
+                if tree is None:
+                    raise WikiError("Linkteki sayfa wiki'de bulunamadı. Sayfayı tarayıcıda açıp linki yeniden "
+                                    "kopyalayın ya da ?pagePath=… içeren biçimde girin.")
+        if tree is None:
+            tree = call(api, {"path": page_path or "/", "recursionLevel": "full"})
+        nodes: list[tuple[dict, int, str | None]] = []
+
+        def walk(node: dict, depth: int, parent: str | None):
+            if len(nodes) >= MAX_PAGES:
+                return
+            nodes.append((node, depth, parent))
+            for sub in sorted(node.get("subPages") or [], key=lambda n: n.get("order") or 0):
+                walk(sub, depth + 1, node.get("path"))
+
+        walk(tree, 0, None)
+        out = []
+        for node, depth, parent in nodes:
+            path = node.get("path") or "/"
+            content = node.get("content")
+            if content is None and path != "/":
+                content = call(api, {"path": path, "includeContent": "true"}).get("content")
+            web = node.get("remoteUrl") or (f"{origin.scheme}://{origin.netloc}{urlsplit(project).path}"
+                                            f"/_wiki/wikis/{quote(wiki_id, safe='')}?pagePath={quote(path, safe='')}")
+            out.append(GuidePage(
+                id=str(node.get("id") or path), title=path.rstrip("/").rsplit("/", 1)[-1] or wiki_id,
+                url=web, text=markdown_to_text(content or ""), parent=parent, position=node.get("order") or 0,
+                depth=depth))
+        return out
 
 
 # ---------------------------------------------------------------- bellek (pod başına)

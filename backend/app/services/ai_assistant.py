@@ -132,7 +132,8 @@ def is_available(cfg: dict) -> bool:
 def health(db: Session) -> tuple[bool, str]:
     cfg = get_category(db, "ai", mask_secrets=False)
     if not cfg.get("api_url") or not cfg.get("model"):
-        return False, "API adresi ve model adı girilmeli (önce kaydedin)"
+        return False, ("AI servisi tanımlı değil: API adresi ve model adı girilmeli (önce kaydedin). "
+                       "Wiki bağlantısını denemek için Kullanım Kılavuzu bölümündeki \"Wiki'yi Şimdi Oku\"yu kullanın.")
     try:
         data = _post(cfg, {"model": cfg["model"], "max_tokens": 20,
                            "messages": [{"role": "user", "content": "Sadece 'tamam' yaz."}]})

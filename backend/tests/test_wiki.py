@@ -45,7 +45,7 @@ def test_parse_link_formats():
         "https://firma.atlassian.net/wiki", None, "JUMBO", None)
     for bad, msg in [("wiki.firma.local/display/JUMBO", "http(s)://"),
                      ("https://wiki.firma.local/x/AbCd", "Kısa link"),
-                     ("https://wiki.firma.local/baska/bir/yer", "Confluence sayfasına benzemiyor")]:
+                     ("https://wiki.firma.local/baska/bir/yer", "Azure DevOps (TFS) wiki sayfasına benzemiyor")]:
         with pytest.raises(wiki.WikiError, match=msg.replace("(", r"\(").replace(")", r"\)")):
             wiki.parse_link(bad)
 

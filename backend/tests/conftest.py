@@ -77,3 +77,26 @@ def wiki_on(client, auth_headers, confluence, monkeypatch):
     assert r.status_code == 200, r.text
     yield confluence
     client.put("/api/settings/ai", headers=auth_headers, json={"wiki_url": "", "wiki_token": ""})
+
+
+@pytest.fixture()
+def azure_wiki(client, auth_headers, monkeypatch):
+    """Ayarlar'da Azure DevOps (TFS) wiki linki ve PAT girilmiş; wiki sahte (tests/fake_azure_wiki.py)."""
+    import httpx
+    from cryptography.fernet import Fernet
+
+    from app.core.config import get_settings
+    from app.services import wiki
+    from tests.fake_azure_wiki import ID_LINK, FakeAzureWiki
+
+    monkeypatch.setattr(get_settings(), "fernet_key", Fernet.generate_key().decode())
+    fake = FakeAzureWiki()
+    monkeypatch.setattr(wiki, "_client", lambda cfg: httpx.Client(
+        headers=wiki._headers(cfg), transport=httpx.MockTransport(fake)))
+    wiki.reset_cache()
+    r = client.put("/api/settings/ai", headers=auth_headers, json={
+        "wiki_url": ID_LINK, "wiki_auth_mode": "bearer", "wiki_username": "", "wiki_token": "pat"})
+    assert r.status_code == 200, r.text
+    yield fake
+    client.put("/api/settings/ai", headers=auth_headers, json={"wiki_url": "", "wiki_token": ""})
+    wiki.reset_cache()

@@ -1759,7 +1759,7 @@ function AiTab() {
       <Stack direction="row" spacing={2}>
         <Button variant="contained" onClick={saveAndRefresh} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => test.mutate()} disabled={test.isPending}>
-          Bağlantıyı Test Et
+          AI Bağlantısını Test Et
         </Button>
       </Stack>
     </Stack>
@@ -1768,9 +1768,10 @@ function AiTab() {
 
 type WikiRefresh = { success: boolean; message: string; pages: { title: string; url: string; depth: number }[] }
 
-// Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence) yazılır; AI "nasıl yapılır" sorularını oradan
-// cevaplar, sol menüdeki Yardım > Kullanım Kılavuzu bu linki açar. "Wiki'yi Şimdi Oku" kaydedilmiş
-// ayarlarla okur ve bulunan sayfaları listeler.
+// Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence ya da Azure DevOps/TFS) yazılır; AI "nasıl
+// yapılır" sorularını oradan cevaplar, sol menüdeki Yardım > Kullanım Kılavuzu bu linki açar. "Wiki'yi
+// Şimdi Oku" kaydedilmiş ayarlarla okur ve bulunan sayfaları listeler. Azure DevOps linkinde ("/_wiki")
+// giriş her zaman kişisel erişim token'ıyla (PAT) yapılır, giriş şekli sorulmaz.
 function AiGuideSection({ form, setForm }: {
   form: Record<string, unknown>
   setForm: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
@@ -1781,7 +1782,8 @@ function AiGuideSection({ form, setForm }: {
     onSuccess: setResult,
     onError: (e) => setResult({ success: false, message: apiErrorMessage(e), pages: [] }),
   })
-  const basic = form.wiki_auth_mode === 'basic'
+  const azure = String(form.wiki_url ?? '').includes('/_wiki')
+  const basic = !azure && form.wiki_auth_mode === 'basic'
   return (
     <Box>
       <Divider sx={{ mb: 1 }} />
@@ -1794,22 +1796,26 @@ function AiGuideSection({ form, setForm }: {
       <Grid container spacing={2}>
         <Text form={form} setForm={setForm} field="wiki_url" label="Kılavuzun Ana Sayfası (link)"
               width={{ xs: 12, sm: 12 }}
-              helper="Confluence sayfa linki, ör. https://wiki.firma.local/display/JUMBO/Jumbo+Kullanım+Kılavuzu" />
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <TextField select fullWidth size="small" label="Giriş Şekli"
-                     value={String(form.wiki_auth_mode ?? 'bearer')}
-                     onChange={(e) => setForm((f) => ({ ...f, wiki_auth_mode: e.target.value }))}>
-            <MenuItem value="bearer">Kişisel erişim token'ı</MenuItem>
-            <MenuItem value="basic">Kullanıcı adı + token/şifre</MenuItem>
-          </TextField>
-        </Grid>
+              helper="Wiki sayfasını tarayıcıda açıp adres çubuğundaki linki yapıştırın (Confluence ya da Azure DevOps / TFS wiki)" />
+        {!azure && (
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <TextField select fullWidth size="small" label="Giriş Şekli"
+                       value={String(form.wiki_auth_mode ?? 'bearer')}
+                       onChange={(e) => setForm((f) => ({ ...f, wiki_auth_mode: e.target.value }))}>
+              <MenuItem value="bearer">Kişisel erişim token'ı</MenuItem>
+              <MenuItem value="basic">Kullanıcı adı + token/şifre</MenuItem>
+            </TextField>
+          </Grid>
+        )}
         {basic && (
           <Text form={form} setForm={setForm} field="wiki_username" label="Kullanıcı Adı"
                 width={{ xs: 12, sm: 4 }} helper="Cloud'da hesabın e-postası" />
         )}
-        <Text form={form} setForm={setForm} field="wiki_token" label={basic ? 'Token / Şifre' : 'Token'}
-              type="password" width={{ xs: 12, sm: basic ? 4 : 8 }}
-              helper="Şifreli saklanır. Kılavuz sayfasını okuma yetkisi yeterli." />
+        <Text form={form} setForm={setForm} field="wiki_token"
+              label={azure ? "Kişisel Erişim Token'ı (PAT)" : basic ? 'Token / Şifre' : 'Token'}
+              type="password" width={{ xs: 12, sm: azure ? 12 : basic ? 4 : 8 }}
+              helper={azure ? "Şifreli saklanır. Azure DevOps'ta token için Wiki (Read) yetkisi yeterli."
+                : 'Şifreli saklanır. Kılavuz sayfasını okuma yetkisi yeterli.'} />
         <Text form={form} setForm={setForm} field="wiki_refresh_minutes" label="Yenileme Aralığı (dk)"
               type="number" width={{ xs: 6, sm: 4 }} helper="Wiki'deki değişiklik en geç bu sürede AI'a yansır" />
         <Grid size={{ xs: 6, sm: 8 }} sx={{ display: 'flex', alignItems: 'flex-start' }}>
