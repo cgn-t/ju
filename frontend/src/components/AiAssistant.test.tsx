@@ -98,7 +98,7 @@ describe('AiAssistant', () => {
     expect(screen.queryByRole('button', { name: 'Hazır sorular' })).toBeNull()
   })
 
-  it('düğme sürüklenince panel açılmaz, en yakın köşeye geçer; sağ tıkla varsayılan köşeye döner', async () => {
+  it('düğme sürüklenince panel açılmaz, üst yarıya bırakılınca sağ üst köşeye geçer; sağ tıkla varsayılan köşeye döner', async () => {
     apiGet.mockResolvedValue({ data: ON })
     renderPage(<AiAssistant />)
     const btn = await screen.findByRole('button', { name: "Fil'a sor" })
@@ -107,7 +107,7 @@ describe('AiAssistant', () => {
     btn.getBoundingClientRect = () => ({ left: 60, right: 128, top: 30, bottom: 98, width: 68, height: 68, x: 60, y: 30, toJSON: () => ({}) })
     fireEvent.pointerUp(btn, { clientX: 100, clientY: 60, pointerId: 1 })
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(localStorage.getItem('jumbo.ai.launcherPos')).toBe('tl')
+    expect(localStorage.getItem('jumbo.ai.launcherPos')).toBe('tr')
     fireEvent.contextMenu(btn)
     await userEvent.click(await screen.findByText('Sağ alt (varsayılan) köşeye taşı'))
     expect(localStorage.getItem('jumbo.ai.launcherPos')).toBeNull()

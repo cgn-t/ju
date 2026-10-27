@@ -2,19 +2,18 @@ import { ButtonBase, Menu, MenuItem, Tooltip } from '@mui/material'
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import JumboAiIcon from './JumboAiIcon'
 
-// Jumbo AI düğmesi sürüklenebilir (v3.9.25): yalnız sayfanın dört köşesinde durur (sahibin isteği);
-// bırakınca en yakın köşeye geçer, soldaki menünün üstüne çıkmaz. Köşe bu tarayıcıda hatırlanır.
-// Kısa tıklama paneli açar; sürüklemek açmaz. Sağ tık menüsünden de köşe seçilir.
+// Jumbo AI düğmesi sürüklenebilir (v3.9.25): yalnız sağ alt ve sağ üst köşede durur (sahibin isteği);
+// bırakınca yakın olan köşeye geçer. Köşe bu tarayıcıda hatırlanır. Kısa tıklama paneli açar;
+// sürüklemek açmaz. Sağ tık menüsünden de köşe seçilir.
 
 const POS_KEY = 'jumbo.ai.launcherPos'
 const SIZE = 68          // simge 60 + iç boşluk
 const MARGIN = 24        // kenar boşluğu
 const DRAG_PX = 5        // bu kadar oynamadan sürükleme sayılmaz
 
-type Corner = 'br' | 'bl' | 'tr' | 'tl'
+type Corner = 'br' | 'tr'
 const CORNERS: { id: Corner; label: string }[] = [
-  { id: 'br', label: 'Sağ alt (varsayılan)' }, { id: 'bl', label: 'Sol alt' },
-  { id: 'tr', label: 'Sağ üst' }, { id: 'tl', label: 'Sol üst' },
+  { id: 'br', label: 'Sağ alt (varsayılan)' }, { id: 'tr', label: 'Sağ üst' },
 ]
 const DEFAULT_CORNER: Corner = 'br'
 
@@ -39,10 +38,7 @@ const viewW = () => document.documentElement.clientWidth || window.innerWidth
 // Soldaki menünün sağ kenarı (dar ekranda menü gizli → 0)
 const navRight = () => document.querySelector('nav[aria-label="Ana menü"]')?.getBoundingClientRect().right ?? 0
 
-const cornerPlace = (c: Corner) => ({
-  ...(c[0] === 'b' ? { bottom: MARGIN } : { top: MARGIN }),
-  ...(c[1] === 'r' ? { right: MARGIN } : { left: navRight() + MARGIN }),
-})
+const cornerPlace = (c: Corner) => ({ right: MARGIN, ...(c === 'br' ? { bottom: MARGIN } : { top: MARGIN }) })
 
 export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () => void }) {
   const [corner, setCorner] = useState<Corner>(readCorner)
@@ -51,7 +47,7 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
   const start = useRef<{ px: number; py: number; ox: number; oy: number; moved: boolean } | null>(null)
   const [, setTick] = useState(0)
 
-  // Menü daralıp genişleyince / pencere değişince sol köşeler yeniden hesaplansın
+  // Pencere boyu değişince yeniden çiz
   useEffect(() => {
     const onResize = () => setTick((t) => t + 1)
     window.addEventListener('resize', onResize)
@@ -81,9 +77,7 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
     if (!s) return
     if (!s.moved) { onOpen(); return }
     const r = e.currentTarget.getBoundingClientRect()
-    const left = navRight()
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2
-    const next: Corner = `${cy > window.innerHeight / 2 ? 'b' : 't'}${cx > (left + viewW()) / 2 ? 'r' : 'l'}`
+    const next: Corner = r.top + r.height / 2 > window.innerHeight / 2 ? 'br' : 'tr'
     setDrag(null)
     pick(next)
   }
@@ -93,8 +87,8 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
 
   return (
     <>
-      <Tooltip title={drag ? '' : `${name}'a sor · başka köşeye sürükleyebilirsiniz`}
-               placement={corner[1] === 'r' ? 'left' : 'right'}>
+      <Tooltip title={drag ? '' : `${name}'a sor · sağ üst/alt köşeye sürükleyebilirsiniz`}
+               placement="left">
         <ButtonBase aria-label={`${name}'a sor`}
              onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
              onPointerCancel={() => { start.current = null; setDrag(null) }}
