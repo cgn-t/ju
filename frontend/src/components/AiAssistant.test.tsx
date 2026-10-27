@@ -19,7 +19,7 @@ describe('AiAssistant', () => {
     apiPost.mockReset()
     sessionStorage.clear()
     localStorage.removeItem('jumbo.ai.big')
-    localStorage.removeItem('jumbo.ai.launcherPos')
+    localStorage.removeItem('jumbo.ai.launcherBottom')
   })
 
   it('AI kapalıyken simge görünmez', async () => {
@@ -98,18 +98,20 @@ describe('AiAssistant', () => {
     expect(screen.queryByRole('button', { name: 'Hazır sorular' })).toBeNull()
   })
 
-  it('düğme sürüklenince panel açılmaz, üst yarıya bırakılınca sağ üst köşeye geçer; sağ tıkla varsayılan köşeye döner', async () => {
+  it('düğme sürüklenince panel açılmaz, sağ kenarda bırakıldığı yükseklikte kalır; sağ tıkla varsayılana döner', async () => {
     apiGet.mockResolvedValue({ data: ON })
     renderPage(<AiAssistant />)
     const btn = await screen.findByRole('button', { name: "Fil'a sor" })
-    fireEvent.pointerDown(btn, { button: 0, clientX: 900, clientY: 700, pointerId: 1 })
-    fireEvent.pointerMove(btn, { clientX: 100, clientY: 60, pointerId: 1 })
-    btn.getBoundingClientRect = () => ({ left: 60, right: 128, top: 30, bottom: 98, width: 68, height: 68, x: 60, y: 30, toJSON: () => ({}) })
-    fireEvent.pointerUp(btn, { clientX: 100, clientY: 60, pointerId: 1 })
+    btn.getBoundingClientRect = () => ({ left: 900, right: 968, top: 600, bottom: 668, width: 68, height: 68, x: 900, y: 600, toJSON: () => ({}) })
+    fireEvent.pointerDown(btn, { button: 0, clientX: 930, clientY: 630, pointerId: 1 })
+    fireEvent.pointerMove(btn, { clientX: 300, clientY: 330, pointerId: 1 })
+    fireEvent.pointerUp(btn, { clientX: 300, clientY: 330, pointerId: 1 })
     expect(screen.queryByRole('textbox')).toBeNull()
-    expect(localStorage.getItem('jumbo.ai.launcherPos')).toBe('tr')
+    // üst kenar 300'e taşındı → alta uzaklık = pencere yüksekliği - 300 - 68
+    expect(Number(localStorage.getItem('jumbo.ai.launcherBottom'))).toBe(window.innerHeight - 300 - 68)
+    expect(btn.style.right || getComputedStyle(btn).right).toBe('24px')
     fireEvent.contextMenu(btn)
-    await userEvent.click(await screen.findByText('Sağ alt (varsayılan) köşeye taşı'))
-    expect(localStorage.getItem('jumbo.ai.launcherPos')).toBeNull()
+    await userEvent.click(await screen.findByText('Varsayılan yere taşı (sağ alt)'))
+    expect(localStorage.getItem('jumbo.ai.launcherBottom')).toBeNull()
   })
 })
