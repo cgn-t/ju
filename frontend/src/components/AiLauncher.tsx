@@ -2,30 +2,34 @@ import { ButtonBase, Menu, MenuItem, Tooltip } from '@mui/material'
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import JumboAiIcon from './JumboAiIcon'
 
-// Jumbo AI düğmesi sürüklenebilir (v3.9.25): bırakıldığı yerde kalır; ekran dışına ve soldaki menünün
-// üstüne çıkmaz; yeri bu tarayıcıda hatırlanır (sağ/alt kenara uzaklık olarak, pencere boyu değişince
-// köşeye göre yerinde kalsın). Kısa tıklama paneli açar; sürüklemek açmaz. Sağ tık: "Varsayılan yere taşı".
+// Jumbo AI düğmesi sürüklenebilir (v3.9.25): yalnız sayfanın dört köşesinde durur (sahibin isteği);
+// bırakınca en yakın köşeye geçer, soldaki menünün üstüne çıkmaz. Köşe bu tarayıcıda hatırlanır.
+// Kısa tıklama paneli açar; sürüklemek açmaz. Sağ tık menüsünden de köşe seçilir.
 
 const POS_KEY = 'jumbo.ai.launcherPos'
 const SIZE = 68          // simge 60 + iç boşluk
 const MARGIN = 24        // kenar boşluğu
 const DRAG_PX = 5        // bu kadar oynamadan sürükleme sayılmaz
 
-type Pos = { right: number; bottom: number }
-const DEFAULT_POS: Pos = { right: MARGIN, bottom: MARGIN }
+type Corner = 'br' | 'bl' | 'tr' | 'tl'
+const CORNERS: { id: Corner; label: string }[] = [
+  { id: 'br', label: 'Sağ alt (varsayılan)' }, { id: 'bl', label: 'Sol alt' },
+  { id: 'tr', label: 'Sağ üst' }, { id: 'tl', label: 'Sol üst' },
+]
+const DEFAULT_CORNER: Corner = 'br'
 
-function readPos(): Pos {
+function readCorner(): Corner {
   try {
-    const p = JSON.parse(localStorage.getItem(POS_KEY) || 'null')
-    if (p && typeof p.right === 'number' && typeof p.bottom === 'number') return p
-  } catch { /* bozuk kayıt: varsayılan */ }
-  return DEFAULT_POS
+    const c = localStorage.getItem(POS_KEY)
+    if (CORNERS.some((x) => x.id === c)) return c as Corner
+  } catch { /* depolama kapalı: varsayılan */ }
+  return DEFAULT_CORNER
 }
 
-function savePos(p: Pos | null) {
+function saveCorner(c: Corner) {
   try {
-    if (p) localStorage.setItem(POS_KEY, JSON.stringify(p))
-    else localStorage.removeItem(POS_KEY)
+    if (c === DEFAULT_CORNER) localStorage.removeItem(POS_KEY)
+    else localStorage.setItem(POS_KEY, c)
   } catch { /* depolama kapalıysa yalnız bu oturumda geçerli */ }
 }
 
@@ -35,19 +39,19 @@ const viewW = () => document.documentElement.clientWidth || window.innerWidth
 // Soldaki menünün sağ kenarı (dar ekranda menü gizli → 0)
 const navRight = () => document.querySelector('nav[aria-label="Ana menü"]')?.getBoundingClientRect().right ?? 0
 
-const clamp = (p: Pos): Pos => ({
-  right: Math.max(MARGIN, Math.min(p.right, viewW() - navRight() - SIZE - MARGIN)),
-  bottom: Math.max(MARGIN, Math.min(p.bottom, window.innerHeight - SIZE - MARGIN)),
+const cornerPlace = (c: Corner) => ({
+  ...(c[0] === 'b' ? { bottom: MARGIN } : { top: MARGIN }),
+  ...(c[1] === 'r' ? { right: MARGIN } : { left: navRight() + MARGIN }),
 })
 
 export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () => void }) {
-  const [pos, setPos] = useState<Pos>(readPos)
+  const [corner, setCorner] = useState<Corner>(readCorner)
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const start = useRef<{ px: number; py: number; ox: number; oy: number; moved: boolean } | null>(null)
   const [, setTick] = useState(0)
 
-  // Pencere küçülünce düğme ekranda kalsın
+  // Menü daralıp genişleyince / pencere değişince sol köşeler yeniden hesaplansın
   useEffect(() => {
     const onResize = () => setTick((t) => t + 1)
     window.addEventListener('resize', onResize)
@@ -77,20 +81,20 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
     if (!s) return
     if (!s.moved) { onOpen(); return }
     const r = e.currentTarget.getBoundingClientRect()
-    const next = clamp({ right: viewW() - r.right, bottom: window.innerHeight - r.bottom })
+    const left = navRight()
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+    const next: Corner = `${cy > window.innerHeight / 2 ? 'b' : 't'}${cx > (left + viewW()) / 2 ? 'r' : 'l'}`
     setDrag(null)
-    setPos(next)
-    savePos(next)
+    pick(next)
   }
 
-  const place = drag
-    ? { left: drag.x, top: drag.y }
-    : clamp(pos)
+  const pick = (c: Corner) => { setCorner(c); saveCorner(c) }
+  const place = drag ? { left: drag.x, top: drag.y } : cornerPlace(corner)
 
   return (
     <>
-      <Tooltip title={drag ? '' : `${name}'a sor · sürükleyerek taşıyabilirsiniz`}
-               placement="left">
+      <Tooltip title={drag ? '' : `${name}'a sor · başka köşeye sürükleyebilirsiniz`}
+               placement={corner[1] === 'r' ? 'left' : 'right'}>
         <ButtonBase aria-label={`${name}'a sor`}
              onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
              onPointerCancel={() => { start.current = null; setDrag(null) }}
@@ -100,7 +104,7 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
                    zIndex: (t) => t.zIndex.drawer + 1, p: 0.5, borderRadius: 2,
                    cursor: drag ? 'grabbing' : 'pointer',
                    filter: 'drop-shadow(0 3px 4px rgba(0,0,0,.28))',
-                   transition: drag ? 'none' : 'transform 150ms ease, right 200ms ease, bottom 200ms ease',
+                   transition: 'transform 150ms ease',
                    '&:hover': { transform: drag ? 'scale(1.12)' : 'scale(1.08)' },
                    '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' } }}>
           <JumboAiIcon size={60} />
@@ -109,9 +113,11 @@ export default function AiLauncher({ name, onOpen }: { name: string; onOpen: () 
       <Menu open={!!menu} onClose={() => setMenu(null)} anchorReference="anchorPosition"
             anchorPosition={menu ? { top: menu.y, left: menu.x } : undefined}>
         <MenuItem onClick={() => { setMenu(null); onOpen() }}>{name}'ı aç</MenuItem>
-        <MenuItem onClick={() => { setMenu(null); setPos(DEFAULT_POS); savePos(null) }}>
-          Varsayılan yere taşı (sağ alt)
-        </MenuItem>
+        {CORNERS.map((c) => (
+          <MenuItem key={c.id} selected={c.id === corner} onClick={() => { setMenu(null); pick(c.id) }}>
+            {c.label} köşeye taşı
+          </MenuItem>
+        ))}
       </Menu>
     </>
   )
