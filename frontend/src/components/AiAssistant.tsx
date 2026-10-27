@@ -9,7 +9,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import {
   Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
-  TextField, ThemeProvider, Tooltip, Typography, createTheme, useMediaQuery, type Theme,
+  TextField, ThemeProvider, Tooltip, Typography, createTheme, type Theme,
 } from '@mui/material'
 import { useMutation } from '@tanstack/react-query'
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -29,7 +29,6 @@ const STORE_KEY = 'jumbo.ai.chat'
 const BIG_KEY = 'jumbo.ai.big'
 const PANEL_W = 480          // normal genişlik
 const PANEL_W_WIDE = 760     // "Genişlet"
-const MIN_PAGE_W = 720       // sayfa bundan daralacaksa panel sayfayı itmez, üstüne açılır
 
 // Cevabın altında "Baktığı yerler": AI'ın kullandığı araç → ekran adı
 const SOURCE_LABELS: Record<string, string> = {
@@ -115,14 +114,7 @@ export function AiText({ text }: { text: string }) {
   )
 }
 
-type Props = {
-  /** Sol menünün o anki genişliği — panelin sayfayı itip itmeyeceği hesaplanır */
-  navWidth?: number
-  /** Panel sayfayı itiyorsa sağda boşaltılacak genişlik (px), itmiyorsa 0 */
-  onDock?: (px: number) => void
-}
-
-export default function AiAssistant({ navWidth = 0, onDock }: Props) {
+export default function AiAssistant() {
   const location = useLocation()
   const { data: status } = useAiStatus()
   const [open, setOpen] = useState(false)
@@ -133,15 +125,9 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // Panel her zaman sayfanın üstüne açılır; sayfa daralmaz (sahibin isteği, v3.9.21)
   const width = wide ? PANEL_W_WIDE : PANEL_W
-  // Ekran yetiyorsa panel sayfayı sola iter (yan yana çalışılır); yetmiyorsa sayfanın üstüne açılır.
-  const canDock = useMediaQuery(`(min-width:${navWidth + width + MIN_PAGE_W}px)`)
   const enabled = !!status?.enabled
-  const docked = enabled && open && canDock
-
-  useEffect(() => {
-    onDock?.(docked ? width : 0)
-  }, [docked, width, onDock])
 
   useEffect(() => {
     try {
@@ -197,7 +183,7 @@ export default function AiAssistant({ navWidth = 0, onDock }: Props) {
       <Drawer anchor="right" variant="persistent" open={open}
               slotProps={{ paper: { role: 'dialog', 'aria-label': name, sx: {
                 width: { xs: '100%', md: width }, maxWidth: '100%', borderLeft: 1, borderColor: 'divider',
-                boxShadow: docked ? 'none' : '-12px 0 32px rgba(0,0,0,0.18)',
+                boxShadow: '-12px 0 32px rgba(0,0,0,0.18)',
                 transition: 'width 180ms ease',
               } } }}
               onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}>
