@@ -263,8 +263,11 @@ def storage_to_text(html: str) -> str:
 def _headers(cfg: dict) -> dict:
     headers = {"Accept": "application/json", "User-Agent": "JUMBO-CLM/wiki"}
     token = cfg.get("wiki_token") or ""
-    if cfg.get("wiki_auth_mode") == "basic" or (is_azure(cfg.get("wiki_url")) and token):
-        # Azure DevOps kişisel erişim token'ını (PAT) yalnız Basic ile kabul eder; kullanıcı adı boş olabilir
+    if is_azure(cfg.get("wiki_url")) and token:
+        # Azure DevOps kişisel erişim token'ını (PAT) Basic ":PAT" ile kabul eder. Kullanıcı adı gönderilmez:
+        # Confluence için girilip ekranda gizlenen eski bir kullanıcı adı TFS'te 401'e yol açıyordu (v3.9.18)
+        headers["Authorization"] = "Basic " + base64.b64encode(f":{token}".encode()).decode()
+    elif cfg.get("wiki_auth_mode") == "basic":
         raw = f"{cfg.get('wiki_username') or ''}:{token}".encode()
         headers["Authorization"] = "Basic " + base64.b64encode(raw).decode()
     elif token:

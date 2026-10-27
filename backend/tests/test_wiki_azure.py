@@ -116,3 +116,9 @@ def test_ai_test_button_explains_wiki_is_separate(client, auth_headers):
     _set(client, auth_headers, api_url="", model="")
     r = client.post("/api/ai/test", headers=auth_headers).json()
     assert not r["success"] and "Wiki'yi Şimdi Oku" in r["message"]
+
+
+def test_pat_is_sent_without_saved_username(client, auth_headers, azure_wiki):
+    """Confluence için girilmiş, ekranda gizli kalan kullanıcı adı TFS'e gönderilmez (v3.9.18; sahipte 401)."""
+    _set(client, auth_headers, wiki_auth_mode="basic", wiki_username="DOMAIN\\kullanici")
+    assert len(_pages()) == 4
