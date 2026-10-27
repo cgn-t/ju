@@ -279,6 +279,8 @@ DEFAULTS: dict[str, dict] = {
         "api_url": "",                # ör. https://ai.firma.local/v1 (ya da tam …/chat/completions)
         "auth_mode": "bearer",        # bearer (Authorization: Bearer) | api-key (api-key başlığı)
         "api_key": "",                # API anahtarı (gizli — Fernet ile şifrelenir)
+        "url_as_is": False,           # adres olduğu gibi kullanılır (sonuna /chat/completions eklenmez)
+        "extra_headers": "",          # ek HTTP başlıkları, satır başına "ad: değer" (ör. x-cluster: test-v2)
         "model": "",                  # servisteki model adı
         "use_tools": True,            # AI Jumbo verisini okuyabilsin (servis tool calling desteklemeli)
         # Açık: herkes AI üzerinden tüm uygulama verisini sorabilir (kişisel bilgiler, şifreler ve

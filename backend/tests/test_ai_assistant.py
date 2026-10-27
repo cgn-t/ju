@@ -379,3 +379,14 @@ def test_fallback_without_tools_carries_wiki(client, auth_headers, ai_on, wiki_o
     assert "KULLANIM KILAVUZU" in system
     assert "### Domain ekleme (https://wiki.firma.local/confluence/display/JUMBO/Domain+ekleme)" in system
     assert len(system) < ai_assistant.WIKI_DIGEST_CHARS + 6000
+
+
+def test_extra_headers_and_url_as_is():
+    """Kurum ağ geçidi: api-key + x-cluster başlığı, adres tam uç (v3.9.20, sahibin curl'ü)."""
+    cfg = {"api_url": "https://ai.kurum.local/gateway/llm", "auth_mode": "api-key", "api_key": "k",
+           "extra_headers": "x-cluster: test-v2\n\nbozuk satır\nContent-Type: text/plain\n x-ekip : SY "}
+    h = ai_assistant._headers(cfg)
+    assert h["api-key"] == "k" and h["x-cluster"] == "test-v2" and h["x-ekip"] == "SY"
+    assert h["Content-Type"] == "application/json" and "bozuk satır" not in h
+    assert ai_assistant._endpoint(cfg) == "https://ai.kurum.local/gateway/llm/chat/completions"
+    assert ai_assistant._endpoint({**cfg, "url_as_is": True}) == "https://ai.kurum.local/gateway/llm"
