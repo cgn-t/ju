@@ -27,8 +27,8 @@ type AiAnswer = { answer: string; tools_used: string[]; tool_mode: boolean }
 
 const STORE_KEY = 'jumbo.ai.chat'
 const BIG_KEY = 'jumbo.ai.big'
-const PANEL_W = 576          // normal genişlik (v3.9.22: %20 büyütüldü)
-const PANEL_W_WIDE = 912     // "Genişlet"
+const PANEL_W = 880          // normal genişlik: değişiklik talebi penceresiyle aynı (v3.9.23)
+const PANEL_W_WIDE = 1200    // "Genişlet"
 
 // Cevabın altında "Baktığı yerler": AI'ın kullandığı araç → ekran adı
 const SOURCE_LABELS: Record<string, string> = {
@@ -223,7 +223,7 @@ export default function AiAssistant() {
           {/* Konuşma */}
           <Box sx={{ flexGrow: 1, overflowY: 'auto', px: 2.5, py: 2, bgcolor: 'background.default' }}>
             {!messages.length && (
-              <Box sx={{ maxWidth: 640, mx: 'auto', mt: 1 }}>
+              <Box sx={{ mt: 1 }}>
                 <Typography sx={{ fontWeight: 700, fontSize: 17 }}>Size nasıl yardımcı olabilirim?</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
                   Jumbo'daki sertifika, domain, uygulama ve ekip kayıtlarını ya da bir işin nasıl yapılacağını
