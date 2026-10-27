@@ -77,7 +77,7 @@ def _endpoint(cfg: dict) -> str:
     yalnız taban (…/v1) — tabansa /chat/completions eklenir."""
     url = (cfg.get("api_url") or "").strip()
     base = url.split("?", 1)[0].rstrip("/")
-    if base.endswith("/chat/completions"):
+    if cfg.get("url_as_is") or base.endswith("/chat/completions"):
         return url
     query = url.split("?", 1)[1] if "?" in url else ""
     return f"{base}/chat/completions" + (f"?{query}" if query else "")
@@ -91,6 +91,11 @@ def _headers(cfg: dict) -> dict:
             headers["api-key"] = key          # Azure OpenAI ve bazı kurum içi ağ geçitleri
         else:
             headers["Authorization"] = f"Bearer {key}"
+    # Kurum ağ geçidinin istediği ek başlıklar (ör. "x-cluster: test-v2"), satır başına bir tane
+    for line in str(cfg.get("extra_headers") or "").splitlines():
+        name, sep, value = line.partition(":")
+        if sep and name.strip() and name.strip().lower() not in ("content-type", "content-length", "host"):
+            headers[name.strip()] = value.strip()
     return headers
 
 

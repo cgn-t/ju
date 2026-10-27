@@ -1725,7 +1725,17 @@ function AiTab() {
         </Grid>
         <Text form={form} setForm={setForm} field="api_key" label="API Anahtarı" type="password"
               width={{ xs: 12, sm: 8 }} helper="Şifreli saklanır" />
+        <Text form={form} setForm={setForm} field="extra_headers" label="Ek HTTP Başlıkları (opsiyonel)"
+              width={{ xs: 12, sm: 12 }} multiline rows={2}
+              helper="Kurumun AI ağ geçidi istiyorsa, satır başına bir tane: x-cluster: test-v2" />
       </Grid>
+      <Box>
+        {bool('url_as_is', 'API adresini olduğu gibi kullan')}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Kapalıyken adres …/chat/completions ile bitmiyorsa sonuna eklenir. Kurumun verdiği adres tam uç ise
+          (curl'deki adresin aynısı) açın.
+        </Typography>
+      </Box>
       <Box>
         {bool('use_tools', 'AI Jumbo verisini okuyabilsin')}
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
