@@ -45,6 +45,20 @@ describe('AiAssistant', () => {
       messages: [{ role: 'user', content: 'Bitecekler?' }], page: '/domains' })
   })
 
+  it('kılavuz cevabındaki wiki linki yeni sekmede açılır', async () => {
+    apiGet.mockResolvedValue({ data: ON })
+    apiPost.mockResolvedValue({ data: {
+      answer: '1. **Domainler** > **Yeni Domain**\nAyrıntı: [Domain ekleme](https://wiki.firma.local/display/JUMBO/Domain+ekleme)',
+      tools_used: ['kilavuz_ara'], tool_mode: true } })
+    renderPage(<AiAssistant />)
+    await userEvent.click(await screen.findByRole('button', { name: "Fil'a sor" }))
+    await userEvent.type(screen.getByPlaceholderText('Sorunuzu yazın…'), 'Domain nasıl eklenir?{Enter}')
+    const link = await screen.findByRole('link', { name: 'Domain ekleme' })
+    expect(link.getAttribute('href')).toBe('https://wiki.firma.local/display/JUMBO/Domain+ekleme')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(screen.getByText('Baktığı yerler: Kullanım Kılavuzu')).toBeTruthy()
+  })
+
   it('servis hatasını sohbet içinde gösterir', async () => {
     apiGet.mockResolvedValue({ data: ON })
     apiPost.mockRejectedValue({ isAxiosError: true, response: { data: { detail: 'AI servisi anahtarı kabul etmedi' } } })

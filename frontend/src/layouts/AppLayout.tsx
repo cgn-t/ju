@@ -12,6 +12,7 @@ import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import PersonIcon from '@mui/icons-material/Person'
 import RocketLaunchIcon from '@mui/icons-material/RocketLaunch'
 import RuleIcon from '@mui/icons-material/Rule'
@@ -28,6 +29,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Fragment, useState, type ComponentType } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
+import { useAiStatus } from '../hooks/useAiStatus'
 import type { DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
@@ -38,8 +40,10 @@ import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
 import { usePendingProposalCount } from '../pages/Proposals'
 
-// Sol menü: sık kullanılanlar tekil; kalanı 'Analiz', 'İşlemler' ve 'Yardım' başlıkları altında gruplanır.
-type NavLink = { to: string; label: string }
+// Sol menü: sık kullanılanlar tekil; kalanı 'Analiz' ve 'İşlemler' başlıkları altında gruplanır.
+// 'Yardım > Kullanım Kılavuzu' yalnız Ayarlar > AI Asistanı'nda kurum wiki'si tanımlıysa görünür ve
+// wiki sayfasını yeni sekmede açar (href).
+type NavLink = { to: string; label: string; href?: string }
 type NavGroup = { label: string; items: NavLink[] }
 type NavEntry = NavLink | NavGroup
 const isGroup = (e: NavEntry): e is NavGroup => 'items' in e
@@ -61,16 +65,13 @@ const NAV: NavEntry[] = [
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
     { to: '/system-health', label: 'Sistem Sağlığı' },
   ] },
-  { label: 'Yardım', items: [
-    { to: '/wiki', label: 'Kullanım Kılavuzu' },
-  ] },
 ]
 
 const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
-  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/wiki': MenuBookIcon,
+  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/guide': MenuBookIcon,
 }
 
 // Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı yalnız admin.
@@ -129,7 +130,7 @@ export default function AppLayout() {
   const shadowCount = useDiscoveredCount()
   const violationCount = usePolicyViolationCount()
 
-  const isActive = (to: string) => location.pathname === to || (to === '/wiki' && location.pathname.startsWith('/wiki/'))
+  const isActive = (to: string) => location.pathname === to
   const badgeFor = (to: string) =>
     to === '/proposals' ? pendingCount
       : to === '/discovery' ? shadowCount
@@ -141,7 +142,9 @@ export default function AppLayout() {
     const page = PAGE_FOR_PATH[to]
     return !page || access.nav[page]
   }
-  const navEntries: NavEntry[] = NAV
+  const guideUrl = useAiStatus().data?.guide_url
+  const navEntries: NavEntry[] = [...NAV, ...(guideUrl
+    ? [{ label: 'Yardım', items: [{ to: '/guide', label: 'Kullanım Kılavuzu', href: guideUrl }] }] : [])]
     .map((e) => (isGroup(e) ? { ...e, items: e.items.filter((i) => canSee(i.to)) } : e))
     .filter((e) => (isGroup(e) ? e.items.length > 0 : canSee(e.to)))
 
@@ -150,8 +153,12 @@ export default function AppLayout() {
   const navItem = (item: NavLink, compact: boolean, nested = false) => {
     const Icon = NAV_ICONS[item.to]
     const badge = badgeFor(item.to)
+    // Dış bağlantı (kurum wiki'si) yeni sekmede açılır; Jumbo içi rotalar router ile.
+    const target = item.href
+      ? { component: 'a' as const, href: item.href, target: '_blank', rel: 'noreferrer' }
+      : { component: Link, to: item.to }
     const button = (
-      <ListItemButton key={item.to} component={Link} to={item.to} selected={isActive(item.to)}
+      <ListItemButton key={item.to} {...target} selected={isActive(item.to)}
                       onClick={() => setDrawerOpen(false)}
                       sx={{ mx: 1.25, my: 0.25, borderRadius: '10px', minHeight: 40, position: 'relative',
                             pl: compact ? 1.5 : nested ? 1.75 : 1.5, pr: compact ? 1.5 : 1,
@@ -172,6 +179,7 @@ export default function AppLayout() {
             <ListItemText primary={item.label}
                           slotProps={{ primary: { noWrap: true, sx: { fontSize: 14, fontWeight: isActive(item.to) ? 700 : 500 } } }} />
             {badge > 0 && <Chip size="small" color="warning" label={badge} sx={{ height: 20 }} />}
+            {item.href && <OpenInNewIcon sx={{ fontSize: 15, opacity: 0.7 }} />}
           </>
         )}
       </ListItemButton>

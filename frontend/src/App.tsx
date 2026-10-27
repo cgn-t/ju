@@ -24,7 +24,6 @@ import Proposals from './pages/Proposals'
 import Settings from './pages/Settings'
 import SystemHealth from './pages/SystemHealth'
 import TeamSummary from './pages/TeamSummary'
-import Wiki from './pages/Wiki'
 import { createAppTheme, type ThemeMode } from './theme'
 import { usePageAccess } from './hooks/usePageAccess'
 
@@ -135,8 +134,6 @@ export default function App() {
                   <Route path="/deployments/runs/:runId" element={<PageAccessRoute page="deployments"><DeploymentRunDetail /></PageAccessRoute>} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/profile" element={<Profile />} />
-                  <Route path="/wiki" element={<Wiki />} />
-                  <Route path="/wiki/:slug" element={<Wiki />} />
                   <Route path="/profile/:userId" element={<AdminRoute><Profile /></AdminRoute>} />
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />

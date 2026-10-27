@@ -27,6 +27,7 @@ SENSITIVE_KEYS = {
     "jira.api_token",        # Jira API token / PAT / şifre (Basic ya da Bearer)
     "jenkins.api_token",     # Jenkins API token ya da şifre (Basic auth)
     "ai.api_key",            # Kurum içi AI servisinin API anahtarı
+    "ai.wiki_token",         # Kullanım Kılavuzu'nun okunduğu kurum wiki'sinin token'ı / şifresi
 }
 
 DEFAULTS: dict[str, dict] = {
@@ -291,8 +292,15 @@ DEFAULTS: dict[str, dict] = {
             "Onay bekleyen değişiklik talepleri neler?",
             "Süresi dolmuş domainleri listele",
         ],
+        # Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence) yazılır; AI "nasıl yapılır" sorularını
+        # oradan cevaplar, sol menüdeki Kullanım Kılavuzu bu linki açar (bkz. app/services/wiki.py).
+        "wiki_url": "",               # kılavuzun ana sayfasının linki (altındaki sayfalar da okunur)
+        "wiki_auth_mode": "bearer",   # bearer (Data Center kişisel erişim token'ı) | basic (kullanıcı + token)
+        "wiki_username": "",          # basic'te kullanıcı adı (Cloud'da hesap e-postası)
+        "wiki_token": "",             # token ya da şifre (gizli — Fernet ile şifrelenir)
+        "wiki_refresh_minutes": 15,   # wiki'deki değişiklik en geç bu sürede AI'a yansır
         "proxy_url": "",
-        "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev)
+        "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev) — AI servisi ve wiki
         "timeout_seconds": 60,
     },
 }

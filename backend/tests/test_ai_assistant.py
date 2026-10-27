@@ -1,5 +1,5 @@
 """AI asistanı (v3.9.15, v3.9.16): ayarlar, soru-cevap, araçların kapsamı (tam erişim / soranın
-yetkisi), veri tabloları aracı ve Kullanım Kılavuzu aracı.
+yetkisi), veri tabloları aracı ve kurum wiki'sindeki Kullanım Kılavuzu aracı.
 
 Gerçek AI servisi yerine ai_assistant._post sahte cevaplarla değiştirilir."""
 
@@ -165,10 +165,10 @@ def test_scoped_mode_respects_user_scope(client, auth_headers, ai_on, monkeypatc
     assert detail == {"hata": "Domain bulunamadı"}
     found = json.loads(fake.bodies[2]["messages"][-1]["content"])
     assert [d["domain"] for d in found["domainler"]] == ["ai-own.firma.local"]
-    # Kayıt geçmişi ve tablo okuma araçları viewer'a hiç sunulmaz; kılavuz herkese açık
+    # Kayıt geçmişi ve tablo okuma araçları viewer'a hiç sunulmaz
     names = [t["function"]["name"] for t in fake.bodies[0]["tools"]]
     assert "kayit_gecmisi" not in names and "veri_sorgula" not in names
-    assert "sertifika_ara" in names and "kilavuz_ara" in names
+    assert "sertifika_ara" in names
     assert "yetkili olduğu" in fake.bodies[0]["messages"][0]["content"]
     admin_names = [t["function"]["name"] for t in ai_assistant.tool_specs(
         type("U", (), {"role": "admin"})(), {"full_access": False})]
@@ -257,7 +257,7 @@ def test_full_access_viewer_sees_other_teams_and_history(client, auth_headers, a
     assert not [x for x in rows if x["islem"] in ("login", "login_failed", "ai_ask")
                 or x["nesne"] in ("users", "app_settings")]
     names = [t["function"]["name"] for t in fake.bodies[0]["tools"]]
-    assert {"kayit_gecmisi", "veri_tablolari", "veri_sorgula", "kilavuz_ara"} <= set(names)
+    assert {"kayit_gecmisi", "veri_tablolari", "veri_sorgula"} <= set(names)
     assert "tüm uygulama verisini" in fake.bodies[0]["messages"][0]["content"]
     # Audit'e yine gerçek kullanıcı yazılır
     audit = client.get("/api/audit?action=ai_ask", headers=auth_headers).json()["items"]
@@ -326,19 +326,40 @@ def test_data_tools_hidden_for_team_roles_in_scoped_mode(client, auth_headers, a
     assert _last_tool_result(fake, 1) == {"hata": "Bu araç bu kullanıcıya kapalı"}
 
 
-def test_wiki_tool_answers_how_to(client, auth_headers, ai_on, monkeypatch):
+def test_wiki_tool_answers_how_to_from_company_wiki(client, auth_headers, ai_on, wiki_on, monkeypatch):
     fake = FakeAi([_tool("kilavuz_ara", {"metin": "yeni domain nasıl eklenir"}),
-                   _tool("kilavuz_oku", {"adres": "degisiklik-talepleri"}, "c2"),
-                   _text("[Domain ekleme](/wiki/domain-ekleme)")])
+                   _tool("kilavuz_oku", {"adres": "Değişiklik talepleri"}, "c2"),
+                   _text("[Domain ekleme](https://wiki.firma.local/confluence/display/JUMBO/Domain+ekleme)")])
     monkeypatch.setattr(ai_assistant, "_post", fake)
-    r = client.post("/api/ai/chat", headers=auth_headers,
+    hdr = _user_in(client, auth_headers, "ai_wiki_viewer", _sy_team(client, auth_headers, "AiWikiTeam"))
+    r = client.post("/api/ai/chat", headers=hdr,
                     json={"messages": [{"role": "user", "content": "Yeni domain nasıl eklenir?"}]})
     assert r.status_code == 200, r.text
     hit = _last_tool_result(fake, 1)["en_uygun"]
-    assert hit["link"] == "/wiki/domain-ekleme" and "Yeni Domain" in hit["metin"]
+    assert hit["link"] == "https://wiki.firma.local/confluence/display/JUMBO/Domain+ekleme"
+    assert "1. Domainler ekranında Yeni Domain'e basın." in hit["metin"]
     page = _last_tool_result(fake, 2)
-    assert page["baslik"].startswith("Değişiklik talepleri") and "Kim onaylar?" in page["metin"]
-    assert "kilavuz_ara" in fake.bodies[0]["messages"][0]["content"]
+    assert page["baslik"] == "Değişiklik talepleri" and "Ekip Editörü | Onaylar" in page["metin"]
+    system = fake.bodies[0]["messages"][0]["content"]
+    assert "kilavuz_ara" in system and "kurumun wiki" in system
+    assert r.json()["tools_used"] == ["kilavuz_ara", "kilavuz_oku"]
+
+
+def test_wiki_tools_hidden_until_wiki_link_is_set(client, auth_headers, ai_on, monkeypatch):
+    fake = FakeAi([_text("bilmiyorum")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=auth_headers, json={"messages": [{"role": "user", "content": "nasıl?"}]})
+    names = [t["function"]["name"] for t in fake.bodies[0]["tools"]]
+    assert "kilavuz_ara" not in names and "kilavuz_oku" not in names
+    assert ai_assistant.NO_GUIDE_PROMPT in fake.bodies[0]["messages"][0]["content"]
+
+
+def test_wiki_down_is_reported_to_ai(client, auth_headers, ai_on, wiki_on, monkeypatch):
+    wiki_on.status = 503
+    fake = FakeAi([_tool("kilavuz_ara", {"metin": "domain"}), _text("wiki'ye ulaşılamıyor")])
+    monkeypatch.setattr(ai_assistant, "_post", fake)
+    client.post("/api/ai/chat", headers=auth_headers, json={"messages": [{"role": "user", "content": "x"}]})
+    assert _last_tool_result(fake, 1)["hata"].startswith("Kullanım Kılavuzu şu an okunamıyor: Wiki hata döndürdü")
 
 
 def test_policy_tool(client, auth_headers, ai_on, monkeypatch):
@@ -349,11 +370,12 @@ def test_policy_tool(client, auth_headers, ai_on, monkeypatch):
     assert {"degerlendirilen", "uyumlu", "uyumsuz", "ihlaller"} <= set(result)
 
 
-def test_fallback_without_tools_carries_wiki(client, auth_headers, ai_on, monkeypatch):
+def test_fallback_without_tools_carries_wiki(client, auth_headers, ai_on, wiki_on, monkeypatch):
     fake = FakeAi([ai_assistant._HttpError(400, "tools not supported"), _text("kılavuzdan cevap")])
     monkeypatch.setattr(ai_assistant, "_post", fake)
     client.post("/api/ai/chat", headers=auth_headers,
                 json={"messages": [{"role": "user", "content": "Domain nasıl eklenir?"}]})
     system = fake.bodies[1]["messages"][0]["content"]
-    assert "KULLANIM KILAVUZU" in system and "(/wiki/domain-ekleme)" in system
+    assert "KULLANIM KILAVUZU" in system
+    assert "### Domain ekleme (https://wiki.firma.local/confluence/display/JUMBO/Domain+ekleme)" in system
     assert len(system) < ai_assistant.WIKI_DIGEST_CHARS + 6000

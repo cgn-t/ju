@@ -27,7 +27,6 @@ from app.api import (
     summary,
     tags,
     users,
-    wiki,
 )
 from app.core.certtype import normalize_cert_type
 from app.core.config import get_settings
@@ -112,16 +111,6 @@ def ensure_tag_seed() -> None:
                 db.add(models.Tag(category=category, name=name, color=color))
         db.add(models.AppSetting(key="tags.seeded", category="tags", value="true"))
         db.commit()
-    finally:
-        db.close()
-
-
-def ensure_wiki_seed() -> None:
-    """Kullanım Kılavuzu'nun Jumbo'yla gelen sayfaları (bkz. app/services/wiki.py)."""
-    from app.services.wiki import ensure_wiki_seed as seed
-    db = SessionLocal()
-    try:
-        seed(db)
     finally:
         db.close()
 
@@ -624,7 +613,6 @@ def _prepare_database() -> None:
     ensure_rbac_seed()              # RBAC: ADMIN/VIEWER singleton + break-glass + tek-seferlik göç
     ensure_service_user()           # otomasyon kullanıcısı (+ ADMIN takım üyeliği)
     ensure_tag_seed()               # etiket kataloğu: tek-seferlik örnek etiketler (Ortam/Kritiklik)
-    ensure_wiki_seed()              # Kullanım Kılavuzu: Jumbo'yla gelen sayfalar (eksikler + el değmemişler)
 
 
 settings = get_settings()
@@ -685,7 +673,6 @@ app.include_router(jenkins.router)
 app.include_router(deployments.router)
 app.include_router(summary.router)
 app.include_router(ai.router)
-app.include_router(wiki.router)
 
 
 @app.exception_handler(IntegrityError)

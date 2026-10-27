@@ -7,7 +7,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, ButtonBase, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, FormControlLabel, Grid, IconButton, MenuItem, Paper, Stack, Switch, Table, TableBody,
+  Divider, FormControlLabel, Grid, IconButton, Link as MuiLink, MenuItem, Paper, Stack, Switch, Table, TableBody,
   TableCell, TableHead, TablePagination, TableRow, TextField, Tooltip, Typography,
 } from '@mui/material'
 import { Autocomplete } from '@mui/material'
@@ -1701,7 +1701,8 @@ function AiTab() {
     <Stack spacing={2}>
       <Alert severity="info">
         Kurum içi AI servisine bağlanır. Açıkken <b>her sayfanın sağ altında</b> AI simgesi görünür;
-        kullanıcılar Jumbo kayıtlarını ve uygulamanın nasıl kullanılacağını (Kullanım Kılavuzu) sorabilir.
+        kullanıcılar Jumbo kayıtlarını ve uygulamanın nasıl kullanılacağını (kurum wiki'sindeki Kullanım
+        Kılavuzu) sorabilir.
         AI <b>hiçbir kaydı değiştiremez</b>. Kişisel bilgiler (e-posta, telefon, fotoğraf, şifre, giriş kayıtları)
         ve sistem ayarları AI'a hiç verilmez. Her soru Audit Log'a “AI sorusu” olarak yazılır.
       </Alert>
@@ -1753,7 +1754,8 @@ function AiTab() {
       <AiSuggestionsEditor
         value={Array.isArray(form.suggestions) ? (form.suggestions as string[]) : []}
         onChange={(list) => setForm((f) => ({ ...f, suggestions: list }))} />
-      {bool('skip_cert_verify', 'TLS sertifikasını doğrulama (yalnız dev)')}
+      <AiGuideSection form={form} setForm={setForm} />
+      {bool('skip_cert_verify', 'TLS sertifikasını doğrulama (yalnız dev; AI servisi ve wiki için)')}
       <Stack direction="row" spacing={2}>
         <Button variant="contained" onClick={saveAndRefresh} disabled={save.isPending}>Kaydet</Button>
         <Button variant="outlined" onClick={() => test.mutate()} disabled={test.isPending}>
@@ -1761,6 +1763,79 @@ function AiTab() {
         </Button>
       </Stack>
     </Stack>
+  )
+}
+
+type WikiRefresh = { success: boolean; message: string; pages: { title: string; url: string; depth: number }[] }
+
+// Kullanım Kılavuzu kurumun kendi wiki'sinde (Confluence) yazılır; AI "nasıl yapılır" sorularını oradan
+// cevaplar, sol menüdeki Yardım > Kullanım Kılavuzu bu linki açar. "Wiki'yi Şimdi Oku" kaydedilmiş
+// ayarlarla okur ve bulunan sayfaları listeler.
+function AiGuideSection({ form, setForm }: {
+  form: Record<string, unknown>
+  setForm: React.Dispatch<React.SetStateAction<Record<string, unknown>>>
+}) {
+  const [result, setResult] = useState<WikiRefresh | null>(null)
+  const refresh = useMutation({
+    mutationFn: async () => (await api.post<WikiRefresh>('/ai/wiki/refresh')).data,
+    onSuccess: setResult,
+    onError: (e) => setResult({ success: false, message: apiErrorMessage(e), pages: [] }),
+  })
+  const basic = form.wiki_auth_mode === 'basic'
+  return (
+    <Box>
+      <Divider sx={{ mb: 1 }} />
+      <SectionLabel>Kullanım Kılavuzu (kurum wiki'si)</SectionLabel>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        AI “nasıl yapılır” sorularını kurum wiki'sindeki Jumbo kılavuzundan cevaplar ve ilgili wiki sayfasının
+        linkini verir. Jumbo yalnız aşağıdaki sayfayı ve altındaki sayfaları okur, wiki'de hiçbir şeyi değiştirmez.
+        Link girildiğinde sol menüde <b>Yardım › Kullanım Kılavuzu</b> görünür ve bu sayfayı açar.
+      </Typography>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="wiki_url" label="Kılavuzun Ana Sayfası (link)"
+              width={{ xs: 12, sm: 12 }}
+              helper="Confluence sayfa linki, ör. https://wiki.firma.local/display/JUMBO/Jumbo+Kullanım+Kılavuzu" />
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <TextField select fullWidth size="small" label="Giriş Şekli"
+                     value={String(form.wiki_auth_mode ?? 'bearer')}
+                     onChange={(e) => setForm((f) => ({ ...f, wiki_auth_mode: e.target.value }))}>
+            <MenuItem value="bearer">Kişisel erişim token'ı</MenuItem>
+            <MenuItem value="basic">Kullanıcı adı + token/şifre</MenuItem>
+          </TextField>
+        </Grid>
+        {basic && (
+          <Text form={form} setForm={setForm} field="wiki_username" label="Kullanıcı Adı"
+                width={{ xs: 12, sm: 4 }} helper="Cloud'da hesabın e-postası" />
+        )}
+        <Text form={form} setForm={setForm} field="wiki_token" label={basic ? 'Token / Şifre' : 'Token'}
+              type="password" width={{ xs: 12, sm: basic ? 4 : 8 }}
+              helper="Şifreli saklanır. Kılavuz sayfasını okuma yetkisi yeterli." />
+        <Text form={form} setForm={setForm} field="wiki_refresh_minutes" label="Yenileme Aralığı (dk)"
+              type="number" width={{ xs: 6, sm: 4 }} helper="Wiki'deki değişiklik en geç bu sürede AI'a yansır" />
+        <Grid size={{ xs: 6, sm: 8 }} sx={{ display: 'flex', alignItems: 'flex-start' }}>
+          <Button variant="outlined" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
+            {refresh.isPending ? 'Okunuyor…' : "Wiki'yi Şimdi Oku"}
+          </Button>
+          <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5, mt: 0.5 }}>
+            Kaydedilmiş ayarlarla okur; önce Kaydet'e basın.
+          </Typography>
+        </Grid>
+      </Grid>
+      {result && (
+        <Alert severity={result.success ? 'success' : 'warning'} sx={{ mt: 2 }}>
+          <b>{result.message}</b>
+          {result.pages.length > 0 && (
+            <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2, maxHeight: 220, overflow: 'auto' }}>
+              {result.pages.map((p) => (
+                <Box component="li" key={p.url} sx={{ ml: p.depth * 2, fontSize: 13 }}>
+                  <MuiLink href={p.url} target="_blank" rel="noreferrer">{p.title}</MuiLink>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Alert>
+      )}
+    </Box>
   )
 }
 

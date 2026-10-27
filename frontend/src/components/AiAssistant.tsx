@@ -8,21 +8,21 @@ import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SendIcon from '@mui/icons-material/Send'
 import {
-  Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Menu, MenuItem, Stack,
+  Box, ButtonBase, CircularProgress, Drawer, Fab, IconButton, Link as MuiLink, Menu, MenuItem, Stack,
   TextField, ThemeProvider, Tooltip, Typography, createTheme, useMediaQuery, type Theme,
 } from '@mui/material'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Fragment, useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useMutation } from '@tanstack/react-query'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
-import { inlineMd } from './Markdown'
+import { useAiStatus } from '../hooks/useAiStatus'
 import { BRAND_DARK, BRAND_DARKER, BRAND_GRADIENT } from '../theme'
 
 // AI asistanı: Ayarlar > AI Asistanı açıkken her sayfanın sağ altında simge. Sohbet bu sekmede
 // (sessionStorage) tutulur; AI yalnız OKUR. Neyi görebileceğine sunucu karar verir (Ayarlar'daki
-// tam erişim; kişisel bilgiler hiçbir zaman verilmez). "Nasıl yapılır" sorularını kılavuzdan cevaplar.
+// tam erişim; kişisel bilgiler hiçbir zaman verilmez). "Nasıl yapılır" sorularını kurum wiki'sindeki
+// Kullanım Kılavuzu'ndan cevaplar.
 type ChatMessage = { role: 'user' | 'assistant'; content: string; error?: boolean; sources?: string[] }
-type AiStatus = { enabled: boolean; name: string; suggestions?: string[] }
 type AiAnswer = { answer: string; tools_used: string[]; tool_mode: boolean }
 
 const STORE_KEY = 'jumbo.ai.chat'
@@ -63,6 +63,32 @@ function readStored(): ChatMessage[] {
   }
 }
 
+// Satır içi: **kalın**, `kod` ve [metin](/yol) bağlantıları (iç yollar sayfayı açar, wiki gibi dış
+// adresler yeni sekmede).
+function inline(text: string): ReactNode[] {
+  const out: ReactNode[] = []
+  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|`([^`]+)`/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    const key = `${m.index}`
+    if (m[1]) {
+      const href = m[2]
+      out.push(href.startsWith('/')
+        ? <MuiLink key={key} component={Link} to={href}>{m[1]}</MuiLink>
+        : <MuiLink key={key} href={href} target="_blank" rel="noreferrer">{m[1]}</MuiLink>)
+    } else if (m[3]) {
+      out.push(<b key={key}>{m[3]}</b>)
+    } else {
+      out.push(<Box key={key} component="code" sx={{ fontSize: 12.5, bgcolor: 'action.hover', px: 0.5, borderRadius: 0.5 }}>{m[4]}</Box>)
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 // Basit Markdown: başlık (#), madde (- / *), numaralı adım (1.) ve paragraflar.
 export function AiText({ text }: { text: string }) {
   return (
@@ -71,7 +97,7 @@ export function AiText({ text }: { text: string }) {
         const bullet = line.match(/^\s*([-*•]|\d+[.)])\s+(.*)$/)
         const heading = line.match(/^#{1,4}\s+(.*)$/)
         if (!line.trim()) return <Box key={i} sx={{ height: 6 }} />
-        if (heading) return <Typography key={i} sx={{ fontWeight: 700, fontSize: 14, mt: 0.5 }}>{inlineMd(heading[1])}</Typography>
+        if (heading) return <Typography key={i} sx={{ fontWeight: 700, fontSize: 14, mt: 0.5 }}>{inline(heading[1])}</Typography>
         if (bullet) {
           return (
             <Box key={i} sx={{ display: 'flex', gap: 0.75, pl: 0.5 }}>
@@ -79,11 +105,11 @@ export function AiText({ text }: { text: string }) {
                                           fontWeight: /\d/.test(bullet[1]) ? 700 : undefined }}>
                 {/\d/.test(bullet[1]) ? bullet[1].replace(')', '.') : '•'}
               </Box>
-              <Box sx={{ minWidth: 0 }}>{inlineMd(bullet[2])}</Box>
+              <Box sx={{ minWidth: 0 }}>{inline(bullet[2])}</Box>
             </Box>
           )
         }
-        return <Fragment key={i}><Box>{inlineMd(line)}</Box></Fragment>
+        return <Fragment key={i}><Box>{inline(line)}</Box></Fragment>
       })}
     </>
   )
@@ -98,11 +124,7 @@ type Props = {
 
 export default function AiAssistant({ navWidth = 0, onDock }: Props) {
   const location = useLocation()
-  const { data: status } = useQuery<AiStatus>({
-    queryKey: ['ai-status'],
-    queryFn: async () => (await api.get('/ai/status')).data,
-    staleTime: 5 * 60_000,
-  })
+  const { data: status } = useAiStatus()
   const [open, setOpen] = useState(false)
   const [wide, setWide] = useState(readBig)
   const [messages, setMessages] = useState<ChatMessage[]>(readStored)

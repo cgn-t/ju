@@ -57,7 +57,7 @@ TABLE_LABELS = {
     "discovered_certificates": "Keşfedilen sertifika", "notifications": "Bildirim",
     "deployment_flows": "Dağıtım akışı", "deployment_run": "Dağıtım çalıştırması",
     "deployment_run_step": "Dağıtım adımı", "jenkins_job": "Jenkins işi", "jobs": "Zamanlanmış iş",
-    "mail_queue": "Mail kuyruğu", "ai": "AI asistanı", "wiki_pages": "Kılavuz sayfası",
+    "mail_queue": "Mail kuyruğu", "ai": "AI asistanı",
 }
 
 FIELD_LABELS = {
@@ -83,7 +83,6 @@ FIELD_LABELS = {
     # Kullanıcı / ekip / etiket
     "username": "Kullanıcı adı", "full_name": "Ad soyad", "email": "E-posta", "role": "Rol",
     "auth_source": "Kimlik kaynağı", "password": "Şifre", "type": "Tür", "category": "Kategori",
-    "title": "Başlık", "body": "İçerik", "sort_order": "Sıra",
     "color": "Renk",
     # Keşif / akış
     "value": "Değer", "ports": "Portlar", "enabled": "Etkin", "kind": "Tür", "description": "Açıklama",

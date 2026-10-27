@@ -45,3 +45,35 @@ def auth_headers(client):
 @pytest.fixture(scope="session")
 def fixtures_dir():
     return FIXTURES
+
+
+@pytest.fixture()
+def confluence(monkeypatch):
+    """Sahte kurum wiki'si (Confluence). Kılavuz önbelleği testten önce ve sonra temizlenir."""
+    import httpx
+
+    from app.services import wiki
+    from tests.fake_confluence import FakeConfluence
+
+    fake = FakeConfluence()
+    monkeypatch.setattr(wiki, "_client", lambda cfg: httpx.Client(
+        headers=wiki._headers(cfg), transport=httpx.MockTransport(fake)))
+    wiki.reset_cache()
+    yield fake
+    wiki.reset_cache()
+
+
+@pytest.fixture()
+def wiki_on(client, auth_headers, confluence, monkeypatch):
+    """Ayarlar > AI Asistanı'nda kılavuz linki ve token'ı girilmiş (token şifreli saklanır)."""
+    from cryptography.fernet import Fernet
+
+    from app.core.config import get_settings
+    from tests.fake_confluence import ROOT_LINK
+
+    monkeypatch.setattr(get_settings(), "fernet_key", Fernet.generate_key().decode())
+    r = client.put("/api/settings/ai", headers=auth_headers, json={
+        "wiki_url": ROOT_LINK, "wiki_auth_mode": "bearer", "wiki_token": "tok", "wiki_refresh_minutes": 15})
+    assert r.status_code == 200, r.text
+    yield confluence
+    client.put("/api/settings/ai", headers=auth_headers, json={"wiki_url": "", "wiki_token": ""})

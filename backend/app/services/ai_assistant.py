@@ -10,7 +10,7 @@ Kapsam (Ayarlar > AI Asistanı > full_access):
     hiç yoktur (bkz. ai_data.py).
   - Kapalı: araçlar mevcut API uçlarını soran kullanıcıyla çağırır; ekranda göremeyeceği bir kaydı
     AI üzerinden de göremez.
-"Nasıl yapılır" soruları Kullanım Kılavuzu'ndan (wiki_pages) cevaplanır.
+"Nasıl yapılır" soruları kurumun wiki'sindeki Kullanım Kılavuzu'ndan cevaplanır (bkz. wiki.py).
 Servis tool calling desteklemiyorsa (ya da ayarlarda kapatıldıysa) araçsız sohbet yapılır; bu
 durumda kılavuzun metni sistem mesajına eklenir.
 """
@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.security import page_visible
 from app.core.textmatch import fold
 from app.core.timeutil import ISTANBUL
-from app.db.models import User, WikiPage
+from app.db.models import User
 from app.services import ai_data, wiki
 from app.services.settings_service import get_category
 
@@ -41,6 +41,11 @@ MAX_QUESTION_CHARS = 4000
 ROLE_NAMES = {"admin": "Yönetici", "editor": "Ekip Editörü", "viewer": "Ekip İzleyici",
               "allviewer": "Genel İzleyici"}
 WIKI_DIGEST_CHARS = 20_000   # araçsız modda sistem mesajına eklenen kılavuz metni üst sınırı
+GUIDE_PROMPT = ("Jumbo'nun nasıl kullanılacağı sorulursa (bir iş nerede, nasıl yapılır, bir düğme ya da durum ne "
+                "demek, kim onaylar) önce kilavuz_ara ile kurumun wiki'sindeki Kullanım Kılavuzu'na bak ve "
+                "cevabı oradaki bilgiye dayandır.")
+NO_GUIDE_PROMPT = ("Jumbo için bir kullanım kılavuzu tanımlı değil. Bir işin Jumbo'da nasıl yapılacağı "
+                   "sorulursa ekran adlarını tahmin etme; emin değilsen bilmediğini söyle.")
 
 
 class AiError(Exception):
@@ -344,23 +349,31 @@ def tool_policy(db: Session, user: User, metin: str | None = None, kural: str | 
             "bulunan": len(rows), "ihlaller": rows[:MAX_LIST_ITEMS]}
 
 
+def _guide(db: Session) -> list:
+    try:
+        return wiki.pages(db)
+    except wiki.WikiError as exc:
+        raise HTTPException(status_code=503, detail=f"Kullanım Kılavuzu şu an okunamıyor: {exc}")
+
+
 def tool_wiki_search(db: Session, user: User, metin: str | None = None) -> dict:
-    hits = wiki.search(db, metin, limit=4)
+    guide = _guide(db)
+    hits = wiki.search(guide, metin, limit=4)
     if not hits:
         return {"sonuc": "Kılavuzda bu konuda sayfa bulunamadı",
-                "sayfalar": [{"baslik": p.title, "link": f"/wiki/{p.slug}"} for p in wiki.ordered(db)]}
+                "sayfalar": [{"baslik": p.title, "link": p.url} for p in guide[:MAX_LIST_ITEMS]]}
     # En iyi eşleşmenin metni doğrudan döner; çoğu soruda ikinci bir çağrı gerekmez.
     best = hits[0][0]
-    return {"en_uygun": {"baslik": best.title, "link": f"/wiki/{best.slug}", "metin": best.body[:6000]},
-            "diger_sayfalar": [{"baslik": p.title, "adres": p.slug, "link": f"/wiki/{p.slug}", "ozet": ex}
+    return {"en_uygun": {"baslik": best.title, "link": best.url, "metin": best.text[:6000]},
+            "diger_sayfalar": [{"baslik": p.title, "adres": p.id, "link": p.url, "ozet": ex}
                                for p, ex in hits[1:]]}
 
 
 def tool_wiki_read(db: Session, user: User, adres: str) -> dict:
-    page = db.query(WikiPage).filter(WikiPage.slug == str(adres).strip().removeprefix("/wiki/")).first()
+    page = wiki.find(_guide(db), adres)
     if page is None:
         return {"hata": "Kılavuz sayfası bulunamadı"}
-    return {"baslik": page.title, "kategori": page.category, "link": f"/wiki/{page.slug}", "metin": page.body}
+    return {"baslik": page.title, "link": page.url, "metin": page.text}
 
 
 def tool_tables(db: Session, user: User, tablo: str | None = None) -> dict:
@@ -426,13 +439,14 @@ TOOLS = {
             "kural": {"type": "string", "enum": ["untrusted_issuer", "weak_key", "weak_signature", "excessive_validity"]},
         }}),
     "kilavuz_ara": (tool_wiki_search, {
-        "description": "Kullanım Kılavuzu'nda arar: Jumbo'da bir işin nasıl/nerede yapılacağı, ekranlar, "
-                       "düğmeler, roller, kurallar. En uygun sayfanın tam metnini ve diğer eşleşmeleri döndürür.",
+        "description": "Kurumun wiki'sindeki Jumbo Kullanım Kılavuzu'nda arar: bir işin nasıl/nerede "
+                       "yapılacağı, ekranlar, düğmeler, roller, kurallar. En uygun sayfanın tam metnini ve "
+                       "diğer eşleşmeleri döndürür.",
         "properties": {"metin": {"type": "string", "description": "Konu, ör. 'domain ekleme', 'değişiklik talebi onay'"}},
         "required": ["metin"]}),
     "kilavuz_oku": (tool_wiki_read, {
         "description": "Kullanım Kılavuzu'ndan bir sayfanın tam metni.",
-        "properties": {"adres": {"type": "string", "description": "Sayfa adresi (kilavuz_ara'nın verdiği 'adres')"}},
+        "properties": {"adres": {"type": "string", "description": "Sayfa adresi (kilavuz_ara'nın verdiği 'adres') ya da başlığı"}},
         "required": ["adres"]}),
     "veri_tablolari": (tool_tables, {
         "description": "Jumbo veritabanındaki okunabilir tablolar; tablo adı verilirse o tablonun alanları. "
@@ -462,7 +476,10 @@ TOOLS = {
 
 def _available(name: str, user: User, cfg: dict) -> bool:
     """Aracı bu kullanıcıya sunalım mı? Tam erişim kapalıyken ekrandaki yetki geçerlidir:
-    Audit Log yalnız yönetici; tablo okuma yalnız her şeyi gören roller (ekip kapsamı uygulanamaz)."""
+    Audit Log yalnız yönetici; tablo okuma yalnız her şeyi gören roller (ekip kapsamı uygulanamaz).
+    Kılavuz araçları yalnız Ayarlar'da kurum wiki'si tanımlıysa sunulur."""
+    if name in ("kilavuz_ara", "kilavuz_oku"):
+        return wiki.is_configured(cfg)
     if full_access(cfg):
         return True
     if name == "kayit_gecmisi":
@@ -516,11 +533,16 @@ def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None,
 # ---------------------------------------------------------------- sohbet
 def _wiki_digest(db: Session) -> str:
     """Araçsız mod: kılavuz metni (bütçe kadar) sistem mesajına eklenir."""
+    try:
+        guide = wiki.pages(db)
+    except wiki.WikiError as exc:
+        logger.warning("Kılavuz araçsız mod için okunamadı: %s", exc)
+        return ""
     parts, used = [], 0
-    for p in wiki.ordered(db):
-        chunk = f"### {p.title} (/wiki/{p.slug})\n{p.body}\n"
+    for p in guide:
+        chunk = f"### {p.title} ({p.url})\n{p.text}\n"
         if used + len(chunk) > WIKI_DIGEST_CHARS:
-            parts.append(f"### {p.title} (/wiki/{p.slug}) — metin sığmadı, kullanıcıyı bu sayfaya yönlendir\n")
+            parts.append(f"### {p.title} ({p.url}) — metin sığmadı, kullanıcıyı bu sayfaya yönlendir\n")
             continue
         parts.append(chunk)
         used += len(chunk)
@@ -551,22 +573,23 @@ def system_prompt(cfg: dict, user: User, page: str | None, with_tools: bool,
             "Araç 'hata' dönerse nedenini kullanıcıya aynen söyle.",
             "Önce hazır araçları dene (sertifika_ara, domain_ara, degisiklik_talepleri …). Yetmezse "
             "veri_tablolari ile tabloları ve alanları öğren, veri_sorgula ile oku ya da say.",
-            "Jumbo'nun nasıl kullanılacağı sorulursa (bir iş nerede, nasıl yapılır, bir düğme ya da durum ne "
-            "demek, kim onaylar) önce kilavuz_ara ile Kullanım Kılavuzu'na bak ve cevabı oradaki bilgiye "
-            "dayandır. Cevabın sonunda kılavuz sayfasının bağlantısını ver, ör. "
-            "[Domain ekleme](/wiki/domain-ekleme). Kılavuzda yoksa tahmin yürütme, bulunmadığını söyle.",
+            (GUIDE_PROMPT + " Cevabın sonunda kılavuz sayfasının bağlantısını aracın verdiği 'link' ile ver, "
+             "ör. [Domain ekleme](https://wiki.firma.local/display/JUMBO/Domain+ekleme). Kılavuzda yoksa "
+             "tahmin yürütme, bulunmadığını söyle."
+             if wiki.is_configured(cfg) else NO_GUIDE_PROMPT),
             "Kayıtlardan söz ederken aracın verdiği 'link' ile Markdown bağlantısı ver, ör. "
             "[web.firma.com](/domains?domain=12).",
             "Araçlardaki saatler Türkiye saatidir.",
         ]
     else:
         lines.append("Jumbo kayıtlarına erişimin yok; kayıtlarla ilgili sorularda kullanıcıyı ilgili ekrana yönlendir.")
-        if db is not None:
-            digest = _wiki_digest(db)
-            if digest:
-                lines.append("Jumbo'nun nasıl kullanılacağı sorulursa yalnız aşağıdaki Kullanım Kılavuzu'na "
-                             "dayan ve ilgili sayfanın bağlantısını ver, ör. [Domain ekleme](/wiki/domain-ekleme).\n"
-                             "--- KULLANIM KILAVUZU ---\n" + digest + "--- KILAVUZ SONU ---")
+        digest = _wiki_digest(db) if db is not None and wiki.is_configured(cfg) else ""
+        if digest:
+            lines.append("Jumbo'nun nasıl kullanılacağı sorulursa yalnız aşağıdaki Kullanım Kılavuzu'na "
+                         "dayan ve ilgili sayfanın bağlantısını ver; bağlantı her başlığın yanındaki adrestir.\n"
+                         "--- KULLANIM KILAVUZU ---\n" + digest + "--- KILAVUZ SONU ---")
+        else:
+            lines.append(NO_GUIDE_PROMPT)
     if page:
         lines.append(f"Kullanıcı şu an bu ekranda: {page[:200]}")
     if cfg.get("extra_instructions"):
