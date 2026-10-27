@@ -27,8 +27,8 @@ type AiAnswer = { answer: string; tools_used: string[]; tool_mode: boolean }
 
 const STORE_KEY = 'jumbo.ai.chat'
 const BIG_KEY = 'jumbo.ai.big'
-const PANEL_W = 480          // normal genişlik
-const PANEL_W_WIDE = 760     // "Genişlet"
+const PANEL_W = 576          // normal genişlik (v3.9.22: %20 büyütüldü)
+const PANEL_W_WIDE = 912     // "Genişlet"
 
 // Cevabın altında "Baktığı yerler": AI'ın kullandığı araç → ekran adı
 const SOURCE_LABELS: Record<string, string> = {
