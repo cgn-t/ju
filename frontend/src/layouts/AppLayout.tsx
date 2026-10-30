@@ -3,6 +3,7 @@ import AppsIcon from '@mui/icons-material/Apps'
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import FactCheckIcon from '@mui/icons-material/FactCheck'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import GroupsIcon from '@mui/icons-material/Groups'
@@ -65,6 +66,7 @@ const NAV: NavEntry[] = [
     { to: '/deployments', label: 'Dağıtım' },
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
     { to: '/system-health', label: 'Sistem Sağlığı' },
+    { to: '/regression', label: 'Regresyon Testi' },
   ] },
 ]
 
@@ -72,14 +74,15 @@ const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/certificates': VerifiedUserIcon, '/domains': LanguageIcon, '/applications': AppsIcon,
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
-  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/guide': MenuBookIcon,
+  '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/regression': FactCheckIcon, '/guide': MenuBookIcon,
 }
 
-// Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı yalnız admin.
+// Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı ve Regresyon Testi yalnız admin.
 const ROLE_PATHS: Record<string, string[]> = {
   '/overview': ['admin', 'allviewer'],
   '/my-team': ['editor', 'viewer'],
   '/system-health': ['admin'],
+  '/regression': ['admin'],
 }
 const NAV_W = 248
 const NAV_W_COMPACT = 68

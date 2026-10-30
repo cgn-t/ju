@@ -397,6 +397,16 @@ def tool_query(db: Session, user: User, tablo: str, filtreler: list | None = Non
         return {"hata": str(exc)}
 
 
+def tool_regression_runs(db: Session, user: User) -> dict:
+    from app.services import regression
+    return regression.ai_runs(db)
+
+
+def tool_regression_run(db: Session, user: User, kosu: str | None = None) -> dict:
+    from app.services import regression
+    return regression.ai_run_report(db, kosu)
+
+
 TOOLS = {
     "sertifika_ara": (tool_search_certificates, {
         "description": "SSL sertifikalarını arar/süzer. Bitişe kalan güne göre en yakından sıralı döner. "
@@ -477,13 +487,34 @@ TOOLS = {
             "grupla": {"type": "array", "items": {"type": "string"}, "description": "Sayım için gruplanacak alanlar (en fazla 3)"},
             "adet": {"type": "integer", "description": f"En fazla satır (varsayılan {ai_data.DEFAULT_ROWS}, üst sınır {ai_data.MAX_ROWS})"},
         }, "required": ["tablo"]}),
+    "regresyon_testleri": (tool_regression_runs, {
+        "description": "Yönetici: Regresyon Testi sayfasında başlatılan son testler ve Geçti/Kaldı/Atlandı sayıları.",
+        "properties": {}}),
+    "regresyon_sonucu": (tool_regression_run, {
+        "description": "Yönetici: bir regresyon testinin sonucu (verilmezse en sonuncusu): bölüm bazında sayılar, "
+                       "kalan senaryolar ve notları, otomatik kontrollerdeki sorunlar, bir önceki testle fark.",
+        "properties": {"kosu": {"type": "string", "description": "Test numarası, ör. R20261030-201500-ab12"}}}),
 }
+
+REGRESSION_TOOLS = ("regresyon_testleri", "regresyon_sonucu")
+REGRESSION_PROMPT = (
+    "Kullanıcı şu an Jumbo'nun Regresyon Testi sayfasında, sürüm öncesi test yapıyor. "
+    "Bir senaryonun adımı sorulursa Kullanım Kılavuzu'na da bakarak adım adım, kısa anlat; hangi ekranda "
+    "hangi düğmeye basılacağını söyle. Sonucu doğrulaman istenirse ilgili kayıtları araçlarla bul "
+    "(sertifika, domain, değişiklik talebi, Audit Log, mail geçmişi) ve beklenen sonuçla madde madde "
+    "karşılaştır; göremediğin şeyi (ekran görünümü, gelen mail kutusu) kullanıcının kontrol etmesini iste. "
+    "'Kaldı' denen bir senaryoda kayıtlara bakıp olası nedenleri sırala, hangisinin hata hangisinin "
+    "ayar/veri sorunu olabileceğini ayır. Özet istenirse regresyon_sonucu aracını kullan. "
+    "Testler gerçek veriyi bozmamalı: veri değiştiren adımlarda yalnız test kayıtlarının kullanılmasını hatırlat.")
 
 
 def _available(name: str, user: User, cfg: dict) -> bool:
     """Aracı bu kullanıcıya sunalım mı? Tam erişim kapalıyken ekrandaki yetki geçerlidir:
     Audit Log yalnız yönetici; tablo okuma yalnız her şeyi gören roller (ekip kapsamı uygulanamaz).
-    Kılavuz araçları yalnız Ayarlar'da kurum wiki'si tanımlıysa sunulur."""
+    Kılavuz araçları yalnız Ayarlar'da kurum wiki'si tanımlıysa sunulur. Regresyon araçları her
+    durumda yalnız yöneticiye (Regresyon Testi sayfası gibi)."""
+    if name in REGRESSION_TOOLS:
+        return user.role == "admin"
     if name in ("kilavuz_ara", "kilavuz_oku"):
         return wiki.is_configured(cfg)
     if full_access(cfg):
@@ -517,6 +548,7 @@ def run_tool(db: Session, user: User, name: str, raw_args: str | dict | None,
         return json.dumps({"hata": f"Bilinmeyen araç: {name}"}, ensure_ascii=False)
     if not _available(name, user, cfg):
         msg = ("Kayıt geçmişini yalnız yöneticiler görebilir" if name == "kayit_gecmisi"
+               else "Regresyon testlerini yalnız yöneticiler görebilir" if name in REGRESSION_TOOLS
                else "Bu araç bu kullanıcıya kapalı")
         return json.dumps({"hata": msg}, ensure_ascii=False)
     try:
@@ -598,6 +630,8 @@ def system_prompt(cfg: dict, user: User, page: str | None, with_tools: bool,
             lines.append(NO_GUIDE_PROMPT)
     if page:
         lines.append(f"Kullanıcı şu an bu ekranda: {page[:200]}")
+        if page.startswith("/regression") and user.role == "admin":
+            lines.append(REGRESSION_PROMPT)
     if cfg.get("extra_instructions"):
         lines.append(str(cfg["extra_instructions"])[:4000])
     return "\n".join(lines)

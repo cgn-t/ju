@@ -1,0 +1,1636 @@
+{
+ "sections": [
+  {
+   "key": "import",
+   "title": "Sertifika yükleme ve domainden çekme",
+   "note": "Test paketindeki dosyalar ve test siteleriyle yapılır. Yüklenen test sertifikalarını iş bitince pasife alın.",
+   "scenarios": [
+    {
+     "id": "IMP-A1",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Tek leaf PEM, Windows satır sonu (CRLF)",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A2",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Fullchain PEM ters sırada (kök, ara, leaf) + içinde özel anahtar",
+     "expected": "3 sertifika eklenir, leaf araya bağlanır, anahtar yok sayılır"
+    },
+    {
+     "id": "IMP-A3",
+     "sub": "Dosyadan içe aktarma",
+     "title": "UTF-8 BOM'lu PEM (Notepad)",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A4",
+     "sub": "Dosyadan içe aktarma",
+     "title": "UTF-16 kaydedilmiş PEM",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A5",
+     "sub": "Dosyadan içe aktarma",
+     "title": "DER .cer",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A6",
+     "sub": "Dosyadan içe aktarma",
+     "title": "P7B (PEM ve DER)",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A7",
+     "sub": "Dosyadan içe aktarma",
+     "title": "PFX, doğru parola, zincirli",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A8",
+     "sub": "Dosyadan içe aktarma",
+     "title": "PFX, yanlış parola",
+     "expected": "\"Parola hatalı\" mesajı"
+    },
+    {
+     "id": "IMP-A9",
+     "sub": "Dosyadan içe aktarma",
+     "title": "PFX, parola girilmeden",
+     "expected": "\"Parola gerekli\" mesajı"
+    },
+    {
+     "id": "IMP-A10",
+     "sub": "Dosyadan içe aktarma",
+     "title": "PFX, boş parolalı (Windows dışa aktarımı)",
+     "expected": "Parolasız eklenir"
+    },
+    {
+     "id": "IMP-A11",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Eski şifreli PFX (RC2/3DES, `-legacy`)",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A12",
+     "sub": "Dosyadan içe aktarma",
+     "title": "\"BEGIN TRUSTED CERTIFICATE\" PEM",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A13",
+     "sub": "Dosyadan içe aktarma",
+     "title": "`openssl x509 -text` çıktısı (açıklama + PEM)",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-A14",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Başlıksız base64",
+     "expected": "Eklenir ya da anlaşılır hata"
+    },
+    {
+     "id": "IMP-A15",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Yalnız özel anahtar dosyası",
+     "expected": "Anlaşılır hata"
+    },
+    {
+     "id": "IMP-A16",
+     "sub": "Dosyadan içe aktarma",
+     "title": "İlgisiz dosya (docx)",
+     "expected": "Anlaşılır hata"
+    },
+    {
+     "id": "IMP-A17",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Aynı dosya ikinci kez",
+     "expected": "\"Zaten kayıtlı\", kopya yok"
+    },
+    {
+     "id": "IMP-A18",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Dosya seçicide .p7b/.p7c görünmesi",
+     "expected": "Görünür"
+    },
+    {
+     "id": "IMP-A19",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Leaf, ara, kök ayrı dosyalarla bu sırada yüklenir",
+     "expected": "Bağlar kendiliğinden kurulur"
+    },
+    {
+     "id": "IMP-A20",
+     "sub": "Dosyadan içe aktarma",
+     "title": "AKI'siz leaf, yayıncısı envanterde",
+     "expected": "Yayıncıya bağlanır"
+    },
+    {
+     "id": "IMP-A21",
+     "sub": "Dosyadan içe aktarma",
+     "title": "Aynı CA, aynı seri no, farklı sertifika",
+     "expected": "Anlaşılır ret"
+    },
+    {
+     "id": "IMP-A22",
+     "sub": "Dosyadan içe aktarma",
+     "title": "CN'siz, adı yalnız SAN'da olan EC sertifika",
+     "expected": "Ad SAN'dan gelir, EC/secp256r1 görünür"
+    },
+    {
+     "id": "IMP-A23",
+     "sub": "Dosyadan içe aktarma",
+     "title": "SHA1 imzalı kendinden imzalı dosya",
+     "expected": "Eklenir"
+    },
+    {
+     "id": "IMP-B1",
+     "sub": "Manuel ekleme",
+     "title": "PEM alanına leaf+ara+kök yapıştırılır",
+     "expected": "Hepsi eklenir ya da uyarı verilir"
+    },
+    {
+     "id": "IMP-C1",
+     "sub": "Domainden çekme",
+     "title": "Normal zincir (leaf + ara)",
+     "expected": "Çekilir, leaf ve zincir server bağlanır"
+    },
+    {
+     "id": "IMP-C2",
+     "sub": "Domainden çekme",
+     "title": "Yalnız leaf sunan sunucu",
+     "expected": "Leaf çekilir"
+    },
+    {
+     "id": "IMP-C3",
+     "sub": "Domainden çekme",
+     "title": "İstemci sertifikası isteyen sunucu, TLS 1.3",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C4",
+     "sub": "Domainden çekme",
+     "title": "İstemci sertifikası isteyen sunucu, TLS 1.2",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C5",
+     "sub": "Domainden çekme",
+     "title": "Yalnız TLS 1.0 konuşan sunucu",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C6",
+     "sub": "Domainden çekme",
+     "title": "RSA-1024 anahtarlı sertifika",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C7",
+     "sub": "Domainden çekme",
+     "title": "SHA1 imzalı kendinden imzalı",
+     "expected": "Çekilir, leaf sayılır"
+    },
+    {
+     "id": "IMP-C8",
+     "sub": "Domainden çekme",
+     "title": "Cihaz tipi kendinden imzalı, CA işaretli sertifika",
+     "expected": "Leaf olarak bağlanır, \"server bağlandı\" mesajı"
+    },
+    {
+     "id": "IMP-C9",
+     "sub": "Domainden çekme",
+     "title": "TLS olmayan (HTTP) port",
+     "expected": "Anlaşılır hata"
+    },
+    {
+     "id": "IMP-C10",
+     "sub": "Domainden çekme",
+     "title": "`https://adres:port`",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C11",
+     "sub": "Domainden çekme",
+     "title": "`adres:port/yol`",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C12",
+     "sub": "Domainden çekme",
+     "title": "Baş/son boşluk, büyük harf, `(not)` eki",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C13",
+     "sub": "Domainden çekme",
+     "title": "IPv6 `[::1]:443`",
+     "expected": "Çekilir"
+    },
+    {
+     "id": "IMP-C14",
+     "sub": "Domainden çekme",
+     "title": "Domain formundan çekmede değişiklik talebi oluşması",
+     "expected": "Mesajda belirtilir"
+    },
+    {
+     "id": "IMP-C15",
+     "sub": "Domainden çekme",
+     "title": "Çekilen sertifikanın \"Oluşturan\" alanı",
+     "expected": "Domainin SY ekibi"
+    },
+    {
+     "id": "IMP-D1",
+     "sub": "Pasif sertifika kuralı",
+     "title": "Pasif sertifika sunucuda sunuluyor, \"Zinciri içe aktar\"",
+     "expected": "Bağlanmaz, uyarı verir"
+    },
+    {
+     "id": "IMP-D2",
+     "sub": "Pasif sertifika kuralı",
+     "title": "Aynı durum, günlük canlı doğrulama",
+     "expected": "Ekleme önerisi üretilmez"
+    },
+    {
+     "id": "IMP-D3",
+     "sub": "Pasif sertifika kuralı",
+     "title": "Domain detayından pasif sertifikayı elle server bağlama",
+     "expected": "Reddedilir"
+    },
+    {
+     "id": "IMP-D4",
+     "sub": "Pasif sertifika kuralı",
+     "title": "Pasif sertifika sunucuda sunuluyor, \"Şimdi Doğrula\"",
+     "expected": "Durum EŞLEŞMİYOR, notta \"PASİF olan sertifika sunuluyor\""
+    },
+    {
+     "id": "IMP-D5",
+     "sub": "Pasif sertifika kuralı",
+     "title": "Ekleme önerisi beklerken sertifika pasife alınır, öneri onaylanır",
+     "expected": "Öneri iptal olur, bağlanmaz"
+    },
+    {
+     "id": "IMP-F1",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "`www.mynet.com`",
+     "expected": "www.mynet.com sertifikası çekilir, bağlanır, canlı kontrol uyumlu"
+    },
+    {
+     "id": "IMP-F2",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "`mynet.com` (www'suz)",
+     "expected": "mynet.com sertifikası çekilir, www'nunki değil"
+    },
+    {
+     "id": "IMP-F3",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "`WWW.MYNET.COM`, `https://www.mynet.com/haber`, `www.mynet.com:443`, boşluklu, `(not)` ekli",
+     "expected": "www.mynet.com sertifikası çekilir"
+    },
+    {
+     "id": "IMP-F4",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Sunucuda sertifikası olmayan ad (`eski.mynet.com`), sunucu başka sitenin sertifikasını verir",
+     "expected": "Formda kırmızı uyarı, aktarma kutusu işaretsiz gelir; \"Zinciri içe aktar\" reddedilir, envantere hiçbir şey eklenmez; canlı kontrol EŞLEŞMİYOR, ekleme önerisi üretilmez"
+    },
+    {
+     "id": "IMP-F5",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "F4'te kullanıcı kutuyu bilerek işaretler / detayda \"Yine de aktar\"",
+     "expected": "Bağlanır, işlem kayda geçer, canlı kontrol notunda uyarı kalır"
+    },
+    {
+     "id": "IMP-F6",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Wildcard sertifika (`*.mynet.com`)",
+     "expected": "`www.mynet.com` kapsanır; `mynet.com` ve `a.b.mynet.com` kapsanmaz"
+    },
+    {
+     "id": "IMP-F7",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Adres IP olarak yazılmış (`10.1.2.3:8443`)",
+     "expected": "Ad kontrolü yapılmaz (sunucuya ad gitmez, iç sistemlerde sertifika genelde IP içermez)"
+    },
+    {
+     "id": "IMP-F8",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Sunucuda aynı ad için RSA ve ECDSA iki sertifika",
+     "expected": "Uygulama her seferinde aynı (ECDSA) sertifikayı çeker; envanterde yalnız RSA varsa EŞLEŞMİYOR görünür (yanlış sertifika değil, ikinci geçerli sertifika)"
+    },
+    {
+     "id": "IMP-F9",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Gerçek siteler (Akbank, Garanti BBVA, İş Bankası, Google, mynet)",
+     "expected": "`gercek-site-testi.py` her adreste \"DOĞRU\" der"
+    },
+    {
+     "id": "IMP-F10",
+     "sub": "Adres ile sertifika adının uyumu",
+     "title": "Gerçek site: `wrong.host.badssl.com` (sunucu `*.badssl.com` verir, tarayıcı reddeder)",
+     "expected": "Uyarı verilir, onaysız bağlanmaz"
+    },
+    {
+     "id": "IMP-E1",
+     "sub": "Ekran testleri",
+     "title": "Domain detayı → \"Canlıdaki Sertifikayı İçe Aktar\" (sunucuda pasif leaf)",
+     "expected": "Pasif leaf bağlanmaz; turuncu uyarı \"Sunucuda pasif sertifika sunuluyor…\"; canlı durum EŞLEŞMİYOR"
+    },
+    {
+     "id": "IMP-E2",
+     "sub": "Ekran testleri",
+     "title": "Domain detayı → Sertifika Bağla listesinde pasif sertifika aranır",
+     "expected": "Listede yok"
+    },
+    {
+     "id": "IMP-E3",
+     "sub": "Ekran testleri",
+     "title": "Yeni Domain, yalnız TLS 1.0 site",
+     "expected": "Zincir gelir (L + I, \"Yeni\")"
+    },
+    {
+     "id": "IMP-E4",
+     "sub": "Ekran testleri",
+     "title": "Yeni Domain, istemci sertifikası zorunlu TLS 1.2 site",
+     "expected": "Zincir gelir"
+    },
+    {
+     "id": "IMP-E5",
+     "sub": "Ekran testleri",
+     "title": "Yeni Domain, openssl ile üretilmiş kendinden imzalı site",
+     "expected": "\"L\" (leaf) görünür"
+    },
+    {
+     "id": "IMP-E6",
+     "sub": "Ekran testleri",
+     "title": "Domain detayı → Server olarak kendinden imzalı sertifikayı bağla",
+     "expected": "Listede çıkar, \"Sertifika bağlandı\""
+    },
+    {
+     "id": "IMP-E7",
+     "sub": "Ekran testleri",
+     "title": "Yeni Ekle → Manuel Ekle, PEM'e leaf + ara + kök",
+     "expected": "Mesaj \"zincirdeki 2 sertifika da kaydedildi\"; listede kök → ara → leaf ağacı"
+    },
+    {
+     "id": "IMP-E8",
+     "sub": "Ekran testleri",
+     "title": "Domain Düzenle → Zinciri Getir → Kaydet (yenilenmiş sertifika)",
+     "expected": "Mesajda \"1 değişiklik talebi oluşturuldu (SY onayı bekliyor)\"; Değişiklik Talepleri'nde öneri"
+    },
+    {
+     "id": "IMP-E9",
+     "sub": "Ekran testleri",
+     "title": "Parolalı PFX, parola yok / yanlış / doğru",
+     "expected": "\"parola korumalı\" / \"parolası hatalı\" / önizleme"
+    },
+    {
+     "id": "IMP-E10",
+     "sub": "Ekran testleri",
+     "title": "Yeni Domain, adres `https://…` ile",
+     "expected": "Zincir gelir"
+    },
+    {
+     "id": "IMP-E11",
+     "sub": "Ekran testleri",
+     "title": "CN'siz sertifika önizlemesi",
+     "expected": "CN sütununda SAN adı"
+    },
+    {
+     "id": "IMP-E12",
+     "sub": "Ekran testleri",
+     "title": "Notepad \"Unicode\" kaydedilmiş PEM",
+     "expected": "Önizlemede görünür"
+    },
+    {
+     "id": "IMP-G1",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "`00-kok-ve-ara-sertifika.pem` boş envantere önizleme",
+     "expected": "Ara sertifikanın Üst Sertifika sütunu \"Jumbo Test Kök SM (bu dosyada)\"; \"bulunamadı\" yazmaz. Kökün üstü boş"
+    },
+    {
+     "id": "IMP-G2",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Yeni Domain, adı DNS'te olmayan adres (`bu-adres-yok.jumbo-test-olmayan.com`)",
+     "expected": "\"Zincir çekilemedi: 'bu-adres-yok…' adresi DNS'te bulunamadı. Adres yanlış yazılmış olabilir ya da bu adres yalnız iç ağdan çözülüyor olabilir. (Teknik ayrıntı: …) — domain yine de kaydedilebilir.\""
+    },
+    {
+     "id": "IMP-G3",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Yeni Domain, kapalı port (`localhost:9449`)",
+     "expected": "\"localhost:9449 bağlantıyı reddetti. Bu portta çalışan bir servis olmayabilir. (Teknik ayrıntı: …)\""
+    },
+    {
+     "id": "IMP-G4",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Eski sertifikası trust store'da olan yenisinin önizlemesi (`24-trusted-yenisi.pem`, eskisi Ödeme API trust store'unda)",
+     "expected": "Kutu \"Yenileme tespit edildi — değişiklik talebi önerisi\", \"Eskinin bağlı olduğu uygulamalar: Ödeme API (trust store)\", işaretli \"değişiklik talebi oluştur\". İçe Aktar → \"1 sertifika eklendi — 1 değişiklik talebi oluşturuldu (SY onayı bekliyor)\"; talep \"trust store'a ekle — eski kalır\""
+    },
+    {
+     "id": "IMP-G5",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "G4'te işaret kaldırılır",
+     "expected": "Yalnız \"1 sertifika eklendi\", talep açılmaz. Sonra detaydan elle talep açılabilir"
+    },
+    {
+     "id": "IMP-G6",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Eskisi hiçbir yere bağlı değilken yenisinin önizlemesi",
+     "expected": "Kutu \"Yenileme tespit edildi — bilgi\", işaret kutusu yok"
+    },
+    {
+     "id": "IMP-G7",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Talep zaten açıkken elle \"Değişiklik Talebi Oluştur\"",
+     "expected": "\"Yeni talep oluşmadı — bu bağlantılar için zaten açık talep var…\""
+    },
+    {
+     "id": "IMP-G8",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Aynı CN + aynı CA'lı birden çok eski sertifika (test paketinde tüm `localhost` sertifikaları; `25-sunucu-yenisi.pem`)",
+     "expected": "v3.8.12: önizleme tüm eski sertifikaları bitiş, SKI ve bağlantılarıyla listeler, hiçbiri seçili gelmez. Talep yalnız seçilen eski için açılır (9446 seçilince: 9446 domaini + Ödeme API Trusted bağlantısı, 2 talep). Seçilmezse onay penceresi \"Açılmayacak — eski sertifika seçilmedi\", yalnız \"1 sertifika eklendi\". v3.8.9–v3.8.11: kutu yalnız bitişi en geç olanı (9441) kapsıyordu"
+    },
+    {
+     "id": "IMP-G9",
+     "sub": "Önizleme, bağlantı hatası ve anasayfa",
+     "title": "Anasayfa",
+     "expected": "Kartlar: Toplam Domain, Süresi Dolmuş Domain, Geçerli Domain, Toplam Sertifika (yalnız aktif), Süresi Dolmuş Sertifika (aktif ve süresi geçmiş, domaine bağlı olmasa da). Pasife alınan sertifika iki sayıdan da düşer"
+    }
+   ]
+  },
+  {
+   "key": "canli",
+   "title": "Canlı doğrulama ve değişiklik talepleri",
+   "note": "Yalnız test domainleriyle yapın; gerçek domainlerde açılan talepleri onaylamayın.",
+   "scenarios": [
+    {
+     "id": "CNL-C1",
+     "sub": "",
+     "title": "YENİ leaf: sunucuya yenilenmiş sertifika kuruldu",
+     "expected": "Domain \"EŞLEŞMİYOR\". Yeni sertifika envantere \"canlı\" kaynağıyla eklenir. Değişiklik Talepleri'nde eski → yeni öneri, \"Canlıda görüldü\" işaretli. Onaydan önce domaindeki bağ değişmez. Onaydan sonra yeni bağlanır, eski pasif olur, tekrar doğrulamada \"uyumlu\"."
+    },
+    {
+     "id": "CNL-C2",
+     "sub": "",
+     "title": "EKSİK: domaine iki leaf bağlı, sunucu yalnız birini sunuyor",
+     "expected": "Domain \"Eşleşiyor\". Sunulmayan için KALDIR önerisi. Onayda bağ kalkar; sertifika silinmez, aktif kalır."
+    },
+    {
+     "id": "CNL-C3",
+     "sub": "",
+     "title": "EKSİK ZİNCİR: envanterde ara sertifika bağlı, sunucu ara sertifikayı göndermiyor",
+     "expected": "Sarı \"Ara sertifika sunucuda eksik\" ve hangi ara sertifikanın eksik olduğunu söyleyen not. Öneri açılmaz. Sunucu ara sertifikayı da gönderince \"Eşleşiyor\". Leaf de farklıysa kırmızı EŞLEŞMİYOR öncelikli, zincir notu ayrıca görünür. Yayıncı envanterde yoksa uyarı verilmez."
+    },
+    {
+     "id": "CNL-C4",
+     "sub": "",
+     "title": "FAZLA: domaine yalnız leaf bağlı, sunucu bir de envanterde olmayan ara sertifika sunuyor",
+     "expected": "Ara sertifika envantere eklenir, EKLE önerisi. Onayda bağlanır, \"uyumlu\"."
+    },
+    {
+     "id": "CNL-C5",
+     "sub": "",
+     "title": "FAZLA, sıfırdan: domaine hiçbir şey bağlı değil, sunucu zincir sunuyor",
+     "expected": "Domain \"Server sertifikası bağlanmamış\". Leaf ve ara için ayrı ayrı EKLE önerisi."
+    },
+    {
+     "id": "CNL-C6",
+     "sub": "",
+     "title": "Ret: devir reddedilip tekrar doğrulanıyor; sonra sunucuya bir yenisi daha kuruluyor",
+     "expected": "Ret kalıcı, aynı öneri geri gelmez. Yeni sertifika için ayrı öneri açılır."
+    },
+    {
+     "id": "CNL-C7",
+     "sub": "",
+     "title": "Sunucu, envanterde pasif olan eski sertifikayı sunmaya geri döndü",
+     "expected": "\"EŞLEŞMİYOR\", sebep: \"Sunucuda envanterde PASİF olan sertifika sunuluyor…\". Öneri yok."
+    },
+    {
+     "id": "CNL-C8",
+     "sub": "",
+     "title": "Aynı sertifika iki domainde, yalnız biri yenilendi",
+     "expected": "Öneri yalnız yenilenen domain için. Diğer domain değişmez ve \"Eşleşiyor\" kalır. Eski sertifika ikinci domain de devredilene kadar aktif kalır, sonra pasif olur."
+    },
+    {
+     "id": "CNL-C9",
+     "sub": "",
+     "title": "Domaine mTLS ile bağımlı uygulama var, domain devri onaylandı",
+     "expected": "Onaydan sonra uygulamanın istemci sertifikası için ayrı öneri açılır. Eski sertifika o da onaylanınca pasif olur."
+    },
+    {
+     "id": "CNL-C10",
+     "sub": "",
+     "title": "YENİ ara sertifika: leaf aynı, ara sertifika yenilendi",
+     "expected": "Yalnız ara seviye \"eşleşmiyor\", leaf ve kök \"eşleşiyor\". Yalnız ara için değişiklik talebi. Onayda \"Eşleşiyor\"."
+    },
+    {
+     "id": "CNL-C11",
+     "sub": "",
+     "title": "Sunucu adresi kapsamayan başka bir sitenin sertifikasını veriyor",
+     "expected": "\"EŞLEŞMİYOR\" ve adres uyarısı. Öneri yok, sertifika envantere eklenmez."
+    },
+    {
+     "id": "CNL-C12",
+     "sub": "",
+     "title": "Eski sertifika başka bir domainde trusted olarak bağlı, değişiklik onaylandı",
+     "expected": "Eski sertifika otomatik pasife alınmaz. Admin elle \"Pasife Al\" ile pasife alabilir; yalnız server bağı engeller (sahip onayladı, 2026-10-17)."
+    },
+    {
+     "id": "CNL-C13",
+     "sub": "",
+     "title": "SÜRESİ DOLMUŞ: sunucu, domaine bağlı sertifikanın aynısını sunuyor ama süresi dolmuş",
+     "expected": "Kırmızı \"SÜRESİ DOLMUŞ — sunucu süresi dolmuş sertifikayı sunuyor\"; Not \"Sunucu envanterdeki sertifikanın aynısını sunuyor ama süresi dolmuş: <ad> — yeni sertifika sunucuya kurulmalı\". \"Canlıdaki Sertifikayı İçe Aktar\" kutusu görünmez. Sunulan sertifika gerçekten farklıysa yine \"EŞLEŞMİYOR\"."
+    },
+    {
+     "id": "CNL-C14",
+     "sub": "",
+     "title": "Değişiklik Talepleri'nde EKLE veya KALDIR talebi \"İncele\" ile açılıyor",
+     "expected": "Sertifika kartı ve \"Neden bu talep?\" altında \"Sertifika Detayı\" tablosu: Subject, SAN, Issuer, SKI, AKI, SHA-256 parmak izi, Serial, Başlangıç, Bitiş, Anahtar (ör. RSA 2048), İmza algoritması. Sütun başlığı \"EKLENECEK SERTİFİKA\" ya da \"KALDIRILACAK SERTİFİKA\". \"Diğer bağlantıları\" sertifikanın başka domain bağlarını listeler (talebin kendi domaini hariç), yoksa \"Başka domaine bağlı değil.\" Yenileme (eski → yeni) ekranı değişmez. Ekranlar: 01-ekle-talebi.png, 02-kaldir-talebi.png, 03-yenileme-degismedi.png. Otomatik: `frontend/src/components/ProposalReviewDrawer.test.tsx`"
+    },
+    {
+     "id": "CNL-C15",
+     "sub": "",
+     "title": "ÇAPRAZ İMZALI KÖK: sunucu, tarayıcıların güvendiği bir kökün başka CA imzalı kopyasını ve onun üstündeki eski zinciri de gönderiyor (www.akbank.de: uç → CA EV R36 → Root R46 kopyası → USERTrust kopyası → AAA)",
+     "expected": "\"Yeni Domain\" canlı zincirde 5 sertifika da görünür. Root R46 \"I\" kalır ama yanında \"Çapraz imzalı kök\" etiketi; USERTrust ve AAA \"Ek zincir\". Altta mavi not: tarayıcılar zinciri R46 kökünde bitirir, altındaki 2 sertifika eski cihazlar için. İçe aktarma ve canlı doğrulama değişmez (sunucunun gönderdiği 5 sertifika bağlanır). Şirket içi CA'larda etiket çıkmaz. Ekranlar: 01-capraz-imzali-kok.png, 02-capraz-imzali-kok-aciklama.png. Otomatik: `tests/test_capraz_imzali_kok.py`"
+    },
+    {
+     "id": "CNL-C16",
+     "sub": "",
+     "title": "KAYITTAKİ TARİH YANLIŞ: sunucu, domaine bağlı sertifikanın aynısını (parmak izi aynı) sunuyor, ama envanter kaydındaki bitiş tarihi farklı (eski uygulamadan kalan kayıt, ör. UAT'de *.akbank.com kaydında 04.06.2022, gerçeği 23.12.2032)",
+     "expected": "Durum sertifikanın kendi tarihine göre: süresi dolmamışsa \"Eşleşiyor\", \"SÜRESİ DOLMUŞ\" çıkmaz. Altta \"Tarih farkı: Kayıttaki tarih sertifikanın kendisinden farklı: <ad> (kayıtta bitiş …, sertifikada …) — tarih güncelleme talebi SY onayında\". Değişiklik Talepleri'nde mavi \"TARİH\" satırı (bitiş eski → yeni), Tip \"tarih güncelleme\". İncele: \"Tarih Güncelleme İncelemesi\", Başlangıç/Bitiş için KAYITTA ve SERTİFİKADA sütunları. Onayda yalnız tarihler sertifikadan düzeltilir (bağlantılar değişmez, pasife alma yok), Audit Log \"Tarih güncellendi (talep)\". Tekrar doğrulamada not kalkar. Sertifika başına tek talep; reddedilirse yeniden açılmaz, not \"talebi reddedilmişti\" der. Hatırlatma mailinde \"Tarih güncelleme: <ad>\", Kayıttaki/Sertifikadaki Bitiş satırları. Ekranlar: tarih-guncelleme/ 01–06. Otomatik: `tests/test_live_check_date_fix.py`"
+    },
+    {
+     "id": "CNL-C17",
+     "sub": "",
+     "title": "EK KONTROL — DNS KAYDI: adres DNS'te var / yok",
+     "expected": "Canlı Doğrulama → Ek kontroller → \"DNS kaydı\": IP'ler ve varsa CNAME listelenir, yeşil \"Kayıt var\". Kayıt yoksa durum \"Erişilemedi\" ve DNS kartı kırmızı \"Kayıt yok\". IP adresi yazılmış domainde \"DNS kontrolü yapılmaz\""
+    },
+    {
+     "id": "CNL-C18",
+     "sub": "",
+     "title": "EK KONTROL — ÇOKLU IP: ad birden çok IP gösteriyor, biri eski sertifikayı sunuyor",
+     "expected": "Durum kırmızı \"EŞLEŞMİYOR — IP'lerden biri farklı sertifika sunuyor\"; \"Not\" satırında hangi IP'nin hangi sertifikayı sunduğu yazar; IP listesinde o IP \"FARKLI\". Farklı sertifika domaine zaten bağlıysa (ör. yenileme talebi bekliyor) \"Farklı ama domaine bağlı\", durum yeşil kalır. Bağlanılamayan IP \"Bağlanılamadı\" olur, durumu bozmaz. Tek IP'de kart \"karşılaştırılacak başka sunucu yok\" der. İçe aktarma kutusu çıkmaz, talep açılmaz"
+    },
+    {
+     "id": "CNL-C19",
+     "sub": "",
+     "title": "EK KONTROL — CAA: kayıt yok / CA izinli / CA izinli değil",
+     "expected": "\"Kayıt yok\" (gri): her CA verebilir. \"CA izinli\" (yeşil): issuer CAA'da (DigiCert, Sectigo/Comodo, GlobalSign… marka adları eşleşir). \"CA izinli değil\" (sarı): yenilemede sertifika alınamayabilir uyarısı; durum değişmez. Wildcard sertifikada issuewild kaydı kullanılır. Kayıt üst alanda (ör. akbank.com) ise o alan adı gösterilir"
+    },
+    {
+     "id": "CNL-C20",
+     "sub": "",
+     "title": "EK KONTROL — OCSP STAPLING: açık / kapalı / eski yanıt / OCSP adresi yok",
+     "expected": "\"Açık\" (yeşil) + GOOD/REVOKED; \"Kapalı\" (gri, zorunlu değil); \"Yanıt eski\" (sarı, sunucu yanıtı yenilemiyor); sertifikada OCSP adresi yoksa (iç CA) \"Uygulanamaz\". Durum değişmez"
+    },
+    {
+     "id": "CNL-C21",
+     "sub": "",
+     "title": "Ek kontroller toplu (gece) taramada da çalışır, envantere ve taleplere dokunmaz",
+     "expected": "Gece taramasından sonra domainlerin Canlı Doğrulama sekmesinde Ek kontroller dolu; Değişiklik Talepleri'nde yeni talep türü yok"
+    }
+   ]
+  },
+  {
+   "key": "mail",
+   "title": "Mail gönderimi",
+   "note": "Test mailleri kendi adresinize ya da test ekibinin adresine gönderilmelidir.",
+   "scenarios": [
+    {
+     "id": "MAIL-A1",
+     "sub": "",
+     "title": "\"Test Maili Gönder\" düğmesine kendi adresinizle basın",
+     "expected": "Yeşil bildirim çıkar ve \"[JUMBO] SMTP test maili\" gelir"
+    },
+    {
+     "id": "MAIL-A2",
+     "sub": "",
+     "title": "Aynı testi var olmayan bir adresle yapın",
+     "expected": "Kırmızı bildirimde sunucunun hata mesajı görünür"
+    },
+    {
+     "id": "MAIL-A3",
+     "sub": "",
+     "title": "Bağlantı Güvenliği'ni sırayla STARTTLS (587), SSL (465) ve Yok olarak seçip test maili gönderin",
+     "expected": "Sunucunun desteklediği seçenekte mail gelir, desteklemediğinde anlaşılır bir hata çıkar ve 15 saniye beklenmez"
+    },
+    {
+     "id": "MAIL-A4",
+     "sub": "",
+     "title": "Yanlış şifreyle test maili gönderin",
+     "expected": "Kimlik doğrulama hatası görünür"
+    },
+    {
+     "id": "MAIL-A5",
+     "sub": "",
+     "title": "Bir ekibe \"a@firma; b@firma\" adreslerini girip kaydedin",
+     "expected": "Kayıt \"a@firma, b@firma\" olarak görünür"
+    },
+    {
+     "id": "MAIL-A6",
+     "sub": "",
+     "title": "Ekip e-postasına \"a@firma b@firma\" (boşlukla) ya da \"abc\" yazın",
+     "expected": "Kaydedilmez ve hata mesajı çıkar"
+    },
+    {
+     "id": "MAIL-A7",
+     "sub": "",
+     "title": "İki adresli bir ekipte adreslerden biri geçersiz olsun ve \"Şimdi Gönder\"e basın",
+     "expected": "Geçerli adrese mail gider, yedek adrese \"[YEDEK]\" notu gelir, Mail Gönderim Geçmişi'nde reddedilen adres \"başarısız\" görünür"
+    },
+    {
+     "id": "MAIL-A8",
+     "sub": "",
+     "title": "A7'deki başarısız kayıtta adresi düzeltip \"Yeniden dene\"ye basın",
+     "expected": "Mail gider"
+    },
+    {
+     "id": "MAIL-A9",
+     "sub": "",
+     "title": "Hatırlatma Saati'ni değiştirip kaydedin, uygulamayı yeniden başlatmayın",
+     "expected": "Hatırlatma yeni saatte gider"
+    },
+    {
+     "id": "MAIL-A10",
+     "sub": "",
+     "title": "\"Günlük Süresi Geçmiş Hatırlatması\" açıkken ertesi sabah 08:05'i bekleyin",
+     "expected": "Süresi dolmuş ama aktif sertifikaların sahiplerine mail gider; içerik \"Süresi Geçenleri Şimdi Gönder\" ile aynıdır"
+    },
+    {
+     "id": "MAIL-A11",
+     "sub": "",
+     "title": "Aynı anahtar kapalıyken bekleyin",
+     "expected": "Sabah mail gitmez, düğmeyle yine gönderilebilir"
+    },
+    {
+     "id": "MAIL-A12",
+     "sub": "",
+     "title": "Kuyruk açıkken değişiklik talebi hatırlatmasının zamanlanmış saatini bekleyin",
+     "expected": "Hatırlatma kuyruğa düşer ve gönderilir"
+    },
+    {
+     "id": "MAIL-A13",
+     "sub": "",
+     "title": "Bir uygulamaya mTLS bağımlılığı ekleyin; hedef domainin sertifikası 30 gün içinde dolsun, \"Şimdi Gönder\"e basın",
+     "expected": "Uygulamanın SY ekibine mail gider"
+    },
+    {
+     "id": "MAIL-A14",
+     "sub": "",
+     "title": "Bir uygulamanın trust store'una süresi yaklaşan bir sertifika ekleyip \"Şimdi Gönder\"e basın",
+     "expected": "Uygulamanın SY ekibine mail gider"
+    },
+    {
+     "id": "MAIL-A15",
+     "sub": "",
+     "title": "A13 ve A14'ü süresi dolmuş sertifikayla ve \"Süresi Geçenleri Şimdi Gönder\" ile tekrarlayın",
+     "expected": "Uygulamanın SY ekibine \"SÜRESİ GEÇMİŞ\" maili gider"
+    },
+    {
+     "id": "MAIL-A16",
+     "sub": "",
+     "title": "mTLS hedefinin sertifikasını \"Değişiklik Talebi Oluştur\" ile yenileyin ve iki öneriyi onaylayın",
+     "expected": "Bağımlılık yeni sertifikaya geçer, eski sertifika için uyarı kesilir"
+    },
+    {
+     "id": "MAIL-A17",
+     "sub": "",
+     "title": "Uygulamanın \"Bağlı Domain\" sertifikası dolmak üzereyken \"Şimdi Gönder\"e basın",
+     "expected": "Domain sahibine ve uygulamanın SY ekibine mail gider"
+    },
+    {
+     "id": "MAIL-A18",
+     "sub": "",
+     "title": "Hedef domainde sertifika yokken mTLS bağımlılığı ekleyin, sonra domaine sertifika bağlayın",
+     "expected": "Bağımlılıkta sertifika görünür; süre yaklaşınca uygulama sahibi uyarılır"
+    },
+    {
+     "id": "MAIL-A19",
+     "sub": "",
+     "title": "Hiçbir ekibe/e-postaya bağlı olmayan, süresi yaklaşan bir sertifika için \"Şimdi Gönder\"",
+     "expected": "Mail yedek adrese \"tanımlı bir alıcı bulunamadı\" nedeniyle gider"
+    },
+    {
+     "id": "MAIL-A20",
+     "sub": "",
+     "title": "Domainde \"Bildirim Gün Sayısı\" 60 iken 45 gün kala",
+     "expected": "Domain sahibi ve o domaine bağlı/mTLS/trusted uygulama sahipleri uyarılır"
+    },
+    {
+     "id": "MAIL-A21",
+     "sub": "",
+     "title": "Trust store'daki sertifikanın süresi dolsun, \"Süresi Geçenleri Şimdi Gönder\"",
+     "expected": "Trusted uygulama sahibine mail GİTMEZ (yalnız süre dolana kadar uyarılır)"
+    }
+   ]
+  },
+  {
+   "key": "kritik",
+   "title": "Türkçe karakter, giriş, yetki ve zamanlanmış işler",
+   "note": "Farklı rollerdeki test kullanıcılarıyla yapılır.",
+   "scenarios": [
+    {
+     "id": "KRT-A1",
+     "sub": "",
+     "title": "Domain detayında \"Domainden çek\" deyin; adres uyumsuz uyarısı çıkınca \"yine de ekle\"yi seçin",
+     "expected": "Sertifika eklenir, hata çıkmaz"
+    },
+    {
+     "id": "KRT-A2",
+     "sub": "",
+     "title": "Adında \"i\" olan bir AD kullanıcısıyla önce küçük harfle, sonra BÜYÜK harfle giriş yapın",
+     "expected": "İkisinde de aynı rol ve ekran görünür, Kullanıcılar'da kopya oluşmaz"
+    },
+    {
+     "id": "KRT-A3",
+     "sub": "",
+     "title": "Var olan bir domaini aynı yazımla ve büyük harfle yeniden ekleyin",
+     "expected": "Eklenmez, \"Bu domain zaten kayıtlı\" uyarısı çıkar"
+    },
+    {
+     "id": "KRT-A4",
+     "sub": "",
+     "title": "Domain aramasında `ILETISIM`, `iletisim`, `İletişim` yazın",
+     "expected": "Üçünde de doğru domain bulunur; tablo sütun filtresinde `internet` yazınca \"İnternet Şubesi\" bulunur"
+    },
+    {
+     "id": "KRT-A5",
+     "sub": "",
+     "title": "Ekip adı, kişi adı, sertifika adı ve notta ğüşıöçİ kullanın, kaydedip yeniden açın",
+     "expected": "Karakterler bozulmaz"
+    },
+    {
+     "id": "KRT-A6",
+     "sub": "",
+     "title": "Türkçe karakterli ekip ve domain adlarıyla Excel'den domain yükleyin",
+     "expected": "Ekipler doğru eşleşir, karakterler bozulmaz"
+    },
+    {
+     "id": "KRT-A7",
+     "sub": "",
+     "title": "İşlem Geçmişi'ni CSV olarak indirip Excel'de açın",
+     "expected": "Türkçe karakterler doğru görünür"
+    },
+    {
+     "id": "KRT-A8",
+     "sub": "",
+     "title": "İki farklı ekibin editörüyle girin",
+     "expected": "Her biri yalnız kendi domainlerini, uygulamalarını ve önerilerini görür"
+    },
+    {
+     "id": "KRT-A9",
+     "sub": "",
+     "title": "Bir ekibin editörüyle başka ekibin önerisini onaylamayı, domainini düzenlemeyi ve uygulamasını silmeyi deneyin",
+     "expected": "Hepsi reddedilir"
+    },
+    {
+     "id": "KRT-A10",
+     "sub": "",
+     "title": "İzleyici rolüyle herhangi bir değişiklik yapmayı deneyin",
+     "expected": "Reddedilir"
+    },
+    {
+     "id": "KRT-A11",
+     "sub": "",
+     "title": "Rol atanmamış kullanıcıyla girin",
+     "expected": "Hiçbir veri görünmez"
+    },
+    {
+     "id": "KRT-A12",
+     "sub": "",
+     "title": "Sertifika Haritası'nı ekip editörüyle açın",
+     "expected": "Tüm ekiplerin domainleri görünür"
+    },
+    {
+     "id": "KRT-A13",
+     "sub": "",
+     "title": "Ayarlar'da canlı doğrulama saatini değiştirin, yeniden başlatmadan bekleyin",
+     "expected": "Yeni saatte çalışır; 0 girilirse gece yarısı çalışır"
+    },
+    {
+     "id": "KRT-A14",
+     "sub": "",
+     "title": "Ertesi sabah mail geçmişine bakın",
+     "expected": "08:00 süre uyarısı ve 08:05 süresi geçmiş mailleri birer kez gitmiş olur"
+    },
+    {
+     "id": "KRT-A15",
+     "sub": "",
+     "title": "Vault ayarında \"Bağlantıyı Test Et\" ve ardından \"Vault'tan senkronize et\"",
+     "expected": "Test, PKI olmasa da başarılı der ve KV kayıt sayısını gösterir; yanlış token'da \"token geçersiz\" der. Senkron yeni sertifikaları ekler, ikinci senkron hiçbir şey değiştirmez"
+    },
+    {
+     "id": "KRT-A16",
+     "sub": "",
+     "title": "Bir ekibin editörüyle, yalnız başka ekibin domainine bağlı (ya da başka ekibin oluşturduğu) bir sertifikanın adını, türünü veya notunu değiştirmeyi deneyin",
+     "expected": "\"Bu sertifika başka bir ekibe ait\" uyarısı çıkar, değişmez. Kendi ekibine bağlı, kendi ekibinin oluşturduğu ya da hiçbir ekibe ait olmayan sertifika değiştirilebilir. Admin hepsini değiştirebilir"
+    },
+    {
+     "id": "KRT-A17",
+     "sub": "",
+     "title": "İptal kontrolü açıkken iptal edilmiş bir sertifikayı \"İptal durumunu denetle\" ile kontrol edin (ya da gece taramasını bekleyin)",
+     "expected": "Sertifikanın sahiplerine (domain, uygulama, trust store, oluşturan ekip; kimse yoksa yedek adres) \"[JUMBO] İPTAL EDİLMİŞ sertifika\" maili gider. Mail geçmişinde türü \"İptal edildi\" görünür. Aynı sertifika tekrar denetlenince yeni mail gitmez"
+    }
+   ]
+  },
+  {
+   "key": "ekran",
+   "title": "Ekranlar, profil ve AI asistanı",
+   "note": "Açık ve koyu temada, mümkünse telefonda da bakın.",
+   "scenarios": [
+    {
+     "id": "EKR-E1",
+     "sub": "",
+     "title": "Sol menüdeki ok düğmesiyle menüyü daralt, sayfayı yenile",
+     "expected": "Menü daraltılmış kalır (tarayıcıda hatırlanır); simgenin üstüne gelince sayfa adı görünür"
+    },
+    {
+     "id": "EKR-E2",
+     "sub": "",
+     "title": "Telefonda (dar ekran) sol üstteki menü düğmesine bas",
+     "expected": "Aynı menü soldan açılır"
+    },
+    {
+     "id": "EKR-E3",
+     "sub": "",
+     "title": "Domainler sayfasında domain adına tıkla",
+     "expected": "Sekmeli pencere açılır: Özet / Sertifikalar / Kurum İçi Bilgiler / Canlı Doğrulama"
+    },
+    {
+     "id": "EKR-E4",
+     "sub": "",
+     "title": "Domain Özet sekmesi",
+     "expected": "Ömür kartı (halka, uyarı tarihi, zaman çizelgesi); Durum, Sertifika, Sahiplik, Yapılandırma grupları; Kimlik listesi"
+    },
+    {
+     "id": "EKR-E5",
+     "sub": "",
+     "title": "Bildirim Gün Sayısı 45 olan domain",
+     "expected": "Ömür kartında \"Uyarı mailleri … tarihinde başlayacak\" tarihi bitişten 45 gün öncedir; boş olan domainde 30 gün"
+    },
+    {
+     "id": "EKR-E6",
+     "sub": "",
+     "title": "Kimlik listesinde kopyala düğmesi",
+     "expected": "Değer panoya kopyalanır, \"Kopyalandı\" bildirimi çıkar"
+    },
+    {
+     "id": "EKR-E7",
+     "sub": "",
+     "title": "Sertifikalar sekmesinde Intermediate satırına tıkla, tekrar tıkla",
+     "expected": "Ayrıntı (Issuer, ValidFrom–ValidTo, Serial Number, SKI) açılır, sonra kapanır"
+    },
+    {
+     "id": "EKR-E8",
+     "sub": "",
+     "title": "Zincir satırında \"Sertifika detayını aç\"",
+     "expected": "Sertifika penceresi domain penceresinin üstünde açılır"
+    },
+    {
+     "id": "EKR-E9",
+     "sub": "",
+     "title": "Başlıktaki \"Şimdi Doğrula\"",
+     "expected": "Canlı Doğrulama sekmesine geçer ve kontrolü başlatır; sonuç kartı güncellenir"
+    },
+    {
+     "id": "EKR-E10",
+     "sub": "",
+     "title": "SSL Sertifikaları sayfasında sertifika adına tıkla",
+     "expected": "Sekmeli pencere açılır: Özet / Zincir / Bağlantılar / Teknik Detay / İptal Durumu / Kurumsal"
+    },
+    {
+     "id": "EKR-E11",
+     "sub": "",
+     "title": "OCSP/CRL adresli bir sertifikanın Teknik Detay ve İptal Durumu sekmeleri",
+     "expected": "OCSP, CRL Distribution Points, CA Issuers adresleri görünür ve kopyalanır"
+    },
+    {
+     "id": "EKR-E12",
+     "sub": "",
+     "title": "OV politikalı bir sertifika",
+     "expected": "Validation Type \"OV\"; Key Usage, Basic Constraints, SCT sayısı ve SPKI Pin dolu"
+    },
+    {
+     "id": "EKR-E13",
+     "sub": "",
+     "title": "PEM'i olmayan eski kayıt",
+     "expected": "Ek bilgi kutucukları \"—\" gösterir, pencere hata vermez"
+    },
+    {
+     "id": "EKR-E14",
+     "sub": "",
+     "title": "Süresi dolmuş sertifika",
+     "expected": "Başlık kırmızı tonlu, halka \"gün geçti\" der, durum \"Süresi dolmuş — sertifika yenilenmeli\""
+    },
+    {
+     "id": "EKR-E15",
+     "sub": "",
+     "title": "Kurumsal sekmesinde Düzenle → Kaydet",
+     "expected": "Onay penceresi çıkar, \"Onaylıyorum\" ile kaydedilir"
+    },
+    {
+     "id": "EKR-E16",
+     "sub": "",
+     "title": "Koyu temaya geç (sağ üst kullanıcı menüsü)",
+     "expected": "Pencereler okunaklı; kutucuk, sekme ve durum renkleri koyu zemine uygun"
+    },
+    {
+     "id": "EKR-E17",
+     "sub": "",
+     "title": "Telefonda domain penceresi",
+     "expected": "Tam ekran açılır; sekmeler yana kayar; ömür kartındaki tarih etiketleri üst üste binmez"
+    },
+    {
+     "id": "EKR-E18",
+     "sub": "",
+     "title": "Teknik terimler",
+     "expected": "Ekranlarda Leaf / Intermediate / Root, Subject, Issuer, Serial Number, ValidFrom / ValidTo İngilizce; mail metinleri Türkçe kalır"
+    },
+    {
+     "id": "EKR-E19",
+     "sub": "",
+     "title": "Domainler sayfasını aç (2.000 domain)",
+     "expected": "Hızlı açılır; altta \"1–50 / 2000 domain\" ve sayfa düğmeleri; üst kartlar tüm domainleri sayar"
+    },
+    {
+     "id": "EKR-E20",
+     "sub": "",
+     "title": "\"Sayfa başına\" 100 seç, 2. sayfaya geç, sayfayı yenile",
+     "expected": "Aynı sayfa ve boyut açılır (adreste ?p=2&n=100)"
+    },
+    {
+     "id": "EKR-E21",
+     "sub": "",
+     "title": "Arama kutusuna \"İLETİŞİM\" yaz",
+     "expected": "Türkçe I/İ farkı gözetilmeden eşleşenler gelir; 1. sayfaya dönülür"
+    },
+    {
+     "id": "EKR-E22",
+     "sub": "",
+     "title": "\"Süresi dolmuş\" sekmesine tıkla",
+     "expected": "Durum filtresi uygulanır; liste yalnız süresi dolmuşları gösterir (sekmelerdeki sayılar aramayla eşleşen tüm domainleri sayar)"
+    },
+    {
+     "id": "EKR-E23",
+     "sub": "",
+     "title": "Server Sertifika başlığına tıkla, tekrar tıkla",
+     "expected": "Kalan güne göre artan, sonra azalan sıralanır; sertifikasızlar hep en sonda"
+    },
+    {
+     "id": "EKR-E24",
+     "sub": "",
+     "title": "Huni (kolon) filtresi: Server Sertifika = Sertifikasız",
+     "expected": "Yalnız sertifikasız domainler; menüdeki sayılar doğru"
+    },
+    {
+     "id": "EKR-E25",
+     "sub": "",
+     "title": "Excel menüsü > Listeyi indir (filtre açıkken)",
+     "expected": "Yalnız görünen sayfa değil, filtreye uyan TÜM domainler dosyada"
+    },
+    {
+     "id": "EKR-E26",
+     "sub": "",
+     "title": "SSL Sertifikaları sayfası",
+     "expected": "Zincir ağacı sayfalı gelir; \"Tümünü Kapat\" yalnız kökleri, kökü açınca altı görünür; Root/Intermediate satırında domain sayısı doğru"
+    },
+    {
+     "id": "EKR-E27",
+     "sub": "",
+     "title": "SSL Sertifikaları kart görünümü, 2. sayfa",
+     "expected": "Sayfanın ortasında başlayan zincir \"(önceki sayfadan devam)\" yazar; özet (sertifika ve domain sayısı) tüm zinciri sayar"
+    },
+    {
+     "id": "EKR-E28",
+     "sub": "",
+     "title": "Uygulamalar ve Keşif sayfaları",
+     "expected": "Sayfalı; arama ve filtreler sunucudan gelir; Keşif kartları tüm bulguları sayar"
+    },
+    {
+     "id": "EKR-E29",
+     "sub": "",
+     "title": "Domain penceresi > Düzenle",
+     "expected": "Kurum İçi Bilgiler sekmesi düzenleme kutularına döner; Kaydet onay penceresi açar; kaydedince pencere ve liste güncellenir"
+    },
+    {
+     "id": "EKR-E30",
+     "sub": "",
+     "title": "Editör kendi ekibinin domain penceresi",
+     "expected": "Düzenle görünür; SY Takımı kilitli (\"Sahipliği yalnız admin değiştirebilir\")"
+    },
+    {
+     "id": "EKR-E31",
+     "sub": "",
+     "title": "Sertifika penceresi > Kurumsal > Düzenle",
+     "expected": "Ad, Satın Alım, Oluşturan Ekip, Ortam, Type, Üst sertifika, Internal, Notlar değişir; tarih ve seri no değişmez"
+    },
+    {
+     "id": "EKR-E32",
+     "sub": "",
+     "title": "Editör başka ekibin sertifikasını açar",
+     "expected": "Düzenle düğmesi yok; \"Bu sertifika başka bir ekibe ait\" notu"
+    },
+    {
+     "id": "EKR-E33",
+     "sub": "",
+     "title": "Domain penceresinde \"Onaya git\"",
+     "expected": "Değişiklik Talepleri o domaine filtreli açılır (\"Domain: …\" çipi)"
+    },
+    {
+     "id": "EKR-E34",
+     "sub": "",
+     "title": "Değişiklik Talepleri sekmeleri (Bekleyen / Uygulanan / Reddedilen / İptal / Tümü)",
+     "expected": "Sekmede sayılar doğru; kapalı talepte karar düğmesi yerine durum ve karar veren görünür"
+    },
+    {
+     "id": "EKR-E35",
+     "sub": "",
+     "title": "Tür = Tarih güncelleme, Kaynak = Canlı doğrulama, \"Yalnız karar verebileceklerim\"",
+     "expected": "Liste filtreye göre daralır; filtreler adreste durur, bağlantı paylaşılınca aynı görünüm açılır"
+    },
+    {
+     "id": "EKR-E36",
+     "sub": "",
+     "title": "Filtre çipinin ✕'i ve \"Filtreleri temizle\"",
+     "expected": "İlgili filtre (ya da hepsi) kalkar"
+    },
+    {
+     "id": "EKR-E37",
+     "sub": "",
+     "title": "Menüdeki Değişiklik Talepleri ve Keşif sayıları",
+     "expected": "Eskisi gibi; artık tüm listeyi çekmeden hafif sayaçtan gelir"
+    },
+    {
+     "id": "EKR-E38",
+     "sub": "",
+     "title": "Domainler: satıra tıkla; satır sonundaki ⋯ menüsü",
+     "expected": "Satır tıklanınca domain penceresi açılır; ⋯ menüsünde Detayı aç / Düzenle / Sil (Düzenle ve Sil yalnız editör ve admin)"
+    },
+    {
+     "id": "EKR-E39",
+     "sub": "",
+     "title": "Domainler: Excel menüsü",
+     "expected": "Listeyi indir herkes görür; Boş şablon indir ve Excel'den yükle yalnız editör ve admin"
+    },
+    {
+     "id": "EKR-E40",
+     "sub": "",
+     "title": "Domainler: kolon filtresi uygula",
+     "expected": "Tablo üstünde \"Filtre: …\" çipi çıkar; ✕ ile kalkar"
+    },
+    {
+     "id": "EKR-E41",
+     "sub": "",
+     "title": "Domain penceresi > Düzenle, bir alanı değiştir",
+     "expected": "Alanlar 5 başlıkta (Kimlik, Sahiplik ve iletişim, Sertifika yenilemede yapılacaklar, Bildirim, Notlar); değişen alan mavi çerçeveli; alttaki sabit çubukta \"1 alan değişti\" ve \"Kaydet (1)\""
+    },
+    {
+     "id": "EKR-E42",
+     "sub": "",
+     "title": "Sertifika penceresi > Düzenle",
+     "expected": "Alanlar Kimlik / Zincir / Kurumsal bilgiler / Notlar başlıklarında; Ad boşsa Kaydet pasif; Kaydet/Vazgeç alttaki sabit çubukta"
+    },
+    {
+     "id": "EKR-E43",
+     "sub": "",
+     "title": "Değişiklik Talepleri satırları",
+     "expected": "Her satırda tür etiketi (Sertifika değişimi / Tarih güncelleme / Sunucuya eklenen / Sunucudan kalkan / Trust store'a ekleme), \"Eski → Yeni\" ya da ne değişeceği tek cümleyle; İncele · Reddet · Onayla aynı hizada; satıra tıklayınca inceleme açılır"
+    },
+    {
+     "id": "EKR-E44",
+     "sub": "",
+     "title": "SSL Sertifikaları: ⋯ menüsü (admin)",
+     "expected": "Pasife Al / Aktifleştir ve Sil (kalıcı) menüde; editör yalnız göz (detay) düğmesini görür"
+    },
+    {
+     "id": "EKR-E45",
+     "sub": "",
+     "title": "Koyu tema",
+     "expected": "Tablo başlıkları, sekmeler, kalan gün etiketleri ve formlar okunaklı"
+    },
+    {
+     "id": "EKR-E46",
+     "sub": "",
+     "title": "Editör kendi ekibinin sertifikasında Düzenle",
+     "expected": "Ad, Type, Üst sertifika ve Internal kilitli (\"Sertifikadan okunur; yalnız admin değiştirebilir\"); Ortam, Satın Alım, Oluşturan Ekip, Notlar değişir ve kaydedilir. Sunucu da aynı kuralı uygular (editör bu 4 alanı değiştirmeye çalışırsa 403). Admin hepsini değiştirir"
+    },
+    {
+     "id": "EKR-E47",
+     "sub": "",
+     "title": "Kullanıcı bilgisi",
+     "expected": "Sağ üstte değil, sol menünün altında (ad + rol). Tıklayınca menü yukarı açılır: e-posta, Koyu tema, Ayarlar/Etiketler, Çıkış Yap. Menü daraltılınca yalnız baş harf görünür (üzerine gelince ad · rol). Menüyü daralt/genişlet düğmesi en üstte, logonun yanında (daraltılmışta logonun altında); kullanıcı en altta kalır. Masaüstünde üst çubuk yok; mobilde üstte yalnız menü düğmesi + JUMBO"
+    },
+    {
+     "id": "EKR-E48",
+     "sub": "",
+     "title": "Uyum sayfası, çok sertifikalı envanter",
+     "expected": "Sayfa hızlı açılır; tablo sayfalı (25/50/100/200). Üstte kural sekmeleri sayılı (Tüm ihlaller, Aşırı Ömür…), arama (ad veya Issuer), Önem filtresi, sıralama. Filtreler adres çubuğunda kalır. Satıra tıklayınca sertifika detayı açılır. Menüdeki Uyum rozeti doğru sayıyı gösterir"
+    },
+    {
+     "id": "EKR-E49",
+     "sub": "",
+     "title": "Profilim, LDAP kullanıcısı",
+     "expected": "Sol alttaki kullanıcı menüsünde \"Profilim\". Üstte fotoğraf (AD'de varsa) veya baş harfler, ad, unvan · departman, e-posta; Jumbo rolü, \"LDAP hesabı\", AD hesap durumu. Altında yalnız Organizasyon (Ekip (AD), unvan, departman, bölüm, şirket, ofis, şehir, sicil) ve İletişim ve Hesap kutuları. Hesap tarihleri, Jumbo Hesabı, AD Grupları, Tüm LDAP Bilgileri ve bağlı çalışanlar YOK (sahibi 2026-10-23 istedi; LDAP'tan yalnız bu alanlar okunur, sayfa hızlı açılır)"
+    },
+    {
+     "id": "EKR-E50",
+     "sub": "",
+     "title": "Profilim: Bağlı Olduğu Yöneticiler",
+     "expected": "AD'deki manager alanından yukarı doğru tüm yönetici zinciri (en üstte en üst yönetici, en altta kişinin kendisi, her birinin unvanı/departmanı/e-postası). Kayıtta manager yoksa \"yönetici bilgisi yok\". Altında dizindeki yeri (OU yolu). Kişinin bağlı çalışanları varsa sağda \"Doğrudan Bağlı Çalışanlar\""
+    },
+    {
+     "id": "EKR-E51",
+     "sub": "",
+     "title": "Profilim hızı",
+     "expected": "Sayfa ~1 sn içinde açılır; LDAP'tan tüm nitelikler değil yalnız ekrandaki alanlar + yönetici zinciri okunur. Dizinde olmayan bir alan (ör. OpenLDAP'ta thumbnailPhoto) hata vermez. \"LDAP'tan yeniden oku\" bilgileri tazeler"
+    },
+    {
+     "id": "EKR-E52",
+     "sub": "",
+     "title": "Profilim: yerel hesap (ör. admin)",
+     "expected": "\"Bu hesap Jumbo'nun yerel hesabı; LDAP'ta karşılığı yok.\" bilgisi ve yalnız Jumbo Hesabı kutusu; yeniden oku düğmesi yok. LDAP kapalıysa/sunucuya ulaşılamazsa/kişi bulunamazsa sarı uyarıda nedeni yazar, sayfa çökmez"
+    },
+    {
+     "id": "EKR-E53",
+     "sub": "",
+     "title": "Yönetici başka kullanıcının LDAP bilgileri",
+     "expected": "Ayarlar > Kullanıcılar'da LDAP kullanıcısının detayında \"LDAP bilgilerini gör\" → aynı sayfa \"Kullanıcı Profili\" başlığıyla o kişi için açılır. Yönetici olmayan bu adrese girerse kendi Profilim'ine döner; sunucu da 403 verir"
+    },
+    {
+     "id": "EKR-E54",
+     "sub": "",
+     "title": "Ekip adını değiştir: Ayarlar > Ekipler'de SY ekibi BBB → SY-BBB",
+     "expected": "Oluşturan Ekip'i BBB olan sertifikalar SY-BBB olur; ekip üyesi bu sertifikaları düzenleyebilir, sahiplik maili ekibe gider. Domain/uygulama/talep ekipte kalır. Başka bir ekibin adı (harf farkı gözetmeden) veya boş ad verilirse 'bu adda bir ekip zaten var'/'boş olamaz' uyarısı, kayıt yapılmaz. Audit'te kaç sertifikanın güncellendiği yazar. Audit/Mail Geçmişi'nin eski kayıtları eski adla kalır"
+    },
+    {
+     "id": "EKR-E55",
+     "sub": "",
+     "title": "Sol menü kullanıcı kutusu, LDAP kullanıcısı",
+     "expected": "AD'de fotoğraf varsa avatar fotoğraf; ad soyad; altında Ayarlar > LDAP 'Ekip grubu OU'su' (varsayılan ScrumGroup) altındaki grubun adı (ör. SY-BBB; birden çoksa virgülle). Profilim'de 'Ekip (AD)' kutusu. Ekip grubu yoksa/yerel hesapta eskisi gibi rol (Yönetici, SY Ekip…) yazar. Menü daraltılınca üzerine gelince 'ad · SY-BBB'"
+    },
+    {
+     "id": "EKR-E56",
+     "sub": "",
+     "title": "LDAP Sorguları: Ayarlar > Kimlik & Erişim > LDAP Sorguları (yalnız yönetici)",
+     "expected": "Kullanıcı adı + Sorgula → ad, hesap, unvan, giriş yapınca geleceği Scrum ekibi (Ekip grubu OU'su altındaki grup, ör. SY-BBB; yoksa turuncu \"Ekip grubu yok\"), Jumbo'daki rolü ve Jumbo ekipleri (hesap yoksa \"Jumbo'da hesabı yok\"), e-posta, DN. Bulunmayan kişi sarı uyarı. Ekip kutusu dizindeki tüm Scrum ekiplerini listeler; ekip + Üyeleri Getir → doğrudan üyeler tablosu (ad, hesap, e-posta, unvan, Jumbo'da), kaç kişinin Jumbo hesabı olmadığı, Excel. Ekip çipine tıklayınca üyeler, üye satırına tıklayınca kişi sorgusu açılır. Hiçbir şey değiştirilmez; LDAP kapalıysa \"LDAP Ayarlar'da etkin değil\""
+    },
+    {
+     "id": "EKR-E57",
+     "sub": "",
+     "title": "Sertifika Haritası yeni görünüm",
+     "expected": "Her kutu türüne göre renkli sol şerit + ikon, üstte tür (Root/Intermediate/Leaf/Domain/Uygulama), ad, sağda kalan gün rozeti (yeşil > 30 gün, turuncu ≤ 30 gün, kırmızı \"Doldu\"). Üstte Domain / ≤ 30 gün / Doldu sayıları. Altta tek satır lejant (türler, Zincir / Server / Trusted çizgileri; Trusted kesikli). Açık ve koyu temada okunur. Harita tüm ekiplerin domainlerini gösterebilir (Takım: Tüm ekipler); varsayılan kullanıcının kendi ekibi"
+    },
+    {
+     "id": "EKR-E58",
+     "sub": "",
+     "title": "Haritada bir Intermediate'in üzerine gel",
+     "expected": "Fare kutuda kısa bir an (≈0,2 sn) durunca: üstte koyu bilgi baloncuğu (tür, tam ad, ValidTo ve kalan gün; Domain'de yalnız tür ve ad) açılır; üstündeki Root, altındaki Leaf'ler ve onların domainleri ile aradaki çizgiler öne çıkar (kalın, ok uçlu); diğer her şey sönükleşir. Fare çekilince kısa bir an sonra hepsi normale döner"
+    },
+    {
+     "id": "EKR-E59",
+     "sub": "",
+     "title": "Haritada bir Leaf'in üzerine gel",
+     "expected": "Yalnız kendi Intermediate → Root zinciri ve kendi domainleri yanar; aynı Intermediate altındaki diğer (kardeş) Leaf'ler sönük kalır"
+    },
+    {
+     "id": "EKR-E60",
+     "sub": "",
+     "title": "Haritada bir Domain'in / bir çizginin üzerine gel",
+     "expected": "Domain: ona bağlı Leaf ve o Leaf'in zinciri yanar. Çizgi: yalnız iki ucu yanar"
+    },
+    {
+     "id": "EKR-E61",
+     "sub": "",
+     "title": "Haritada bir kutuya tıkla",
+     "expected": "Başlıkta yalnız tür yazar (eski \"Domain · Seçili\" yazısı yok). Seçim sabitlenir (fare çekilse de vurgulu kalır); sağ üstte bilgi kartı: tür, ad, ValidTo, kalan/geçen gün, Üst zincir / Alt sertifika / Server domain / Trusted domain sayıları, Zincir listesi (Root → ... → bu), \"Detayı aç\" ve \"Yalnız bunu göster\". Boş alana tıklamak, kartın X'i veya Esc seçimi kaldırır"
+    },
+    {
+     "id": "EKR-E62",
+     "sub": "",
+     "title": "Bilgi kartında \"Yalnız bunu göster\"",
+     "expected": "Harita yalnız o kutunun zincirine ve altındakilere iner (başka ekiplerin ilgisiz sertifikaları gelmez); üstte \"Yalnızca: <ad>\" çipi, X ile tüm harita geri gelir"
+    },
+    {
+     "id": "EKR-E63",
+     "sub": "",
+     "title": "Haritada çift tıkla / Ara kutusu",
+     "expected": "Çift tık: sertifika veya domain detay penceresi açılır (Uygulama kutusunda detay yok). Ara kutusundan seçilen kutu seçilir, harita ona yaklaşır"
+    },
+    {
+     "id": "EKR-E64",
+     "sub": "",
+     "title": "İlişkiler görünümünde üzerine gel",
+     "expected": "Uygulama/domain'in üzerine gelince bağlı olduğu ve ona bağlananlar yanar; çizgi etiketi (Trusted sertifika adı) yalnız vurgulanan çizgide görünür, diğer zamanlarda kalabalık etmez"
+    },
+    {
+     "id": "EKR-E65",
+     "sub": "",
+     "title": "Admin veya Genel İzleyici ile gir, sol menüde \"Genel Durum\"",
+     "expected": "Menünün en üstünde görünür. Editör ve Ekip İzleyici menüde görmez; adresi elle yazarsa Anasayfa'ya döner"
+    },
+    {
+     "id": "EKR-E66",
+     "sub": "",
+     "title": "Genel Durum üst kutular",
+     "expected": "Süresi dolmuş (kaç ekipte), N gün içinde bitecek (en yakını), onay bekleyen talep (en eskisi kaç gündür), canlıda EŞLEŞMİYOR, eksik bilgili kayıt. N = Ayarlar > Genel \"yakında bitiyor\" gün sayısı (varsayılan 30). Toplamlar Anasayfa ile aynı (ekibi olmayan sertifikalar dahil)"
+    },
+    {
+     "id": "EKR-E67",
+     "sub": "",
+     "title": "Genel Durum ekip tablosu",
+     "expected": "Her SY ekibi bir satır; Acil (süresi dolmuş ya da EŞLEŞMİYOR var) üstte, sonra Dikkat (yakında biten, bekleyen talep, uyum ihlali, ekip maili yok), sonra İyi. Hiç kaydı olmayan ekip görünmez. Başlıkların ipucunda açıklama, Eksik sütununun ipucunda ayrıntı. \"Excel'e indir\" aynı tabloyu .xlsx verir"
+    },
+    {
+     "id": "EKR-E68",
+     "sub": "",
+     "title": "Ekip satırına tıkla",
+     "expected": "Ekip özeti açılır: ekip maili, kişi ve uygulama sayısı, 6 kutu, süresi dolmuş/yakında biten sertifikalar (son uyarı maili tarihi, açık talep), onay bekleyen talepler, dikkat isteyen kayıtlar (EŞLEŞMİYOR, sertifikasız domain, uyum ihlali, PEM yok). Satıra tıklayınca sertifika/domain penceresi açılır"
+    },
+    {
+     "id": "EKR-E69",
+     "sub": "",
+     "title": "Editör veya Ekip İzleyici ile gir, sol menüde \"Ekibim\"",
+     "expected": "Menünün en üstünde. Sayfada ekibin 5 kutusu, \"Ekibimden beklenenler\" (yalnız kendi ekibinin sayıları, tıklanınca ekip özetine), \"Yenileme takvimi (90 gün)\" ay ay sertifika adlarıyla. Birden çok ekibe üyeyse başlık \"Ekiplerim\" ve ekip tablosu da çıkar. Anasayfa eski sade halinde (bu bölüm yok). Admin/Genel İzleyici menüde Ekibim görmez, adresi yazarsa Genel Durum açılır; Anasayfa sağ üstte \"Genel Durum\" düğmesi var"
+    },
+    {
+     "id": "EKR-E70",
+     "sub": "",
+     "title": "Editör başka ekibin özet adresini (/teams/<id>) açar",
+     "expected": "\"Bu ekibin özetini yalnız ekip üyeleri ve yöneticiler görür\" mesajı"
+    },
+    {
+     "id": "EKR-E71",
+     "sub": "",
+     "title": "Sertifika penceresi > Mailler",
+     "expected": "Bu sertifika için gönderilen ve gönderilemeyen mailler, en yeni önce: tarih (İstanbul), kime ve paydaş, tür, kalan gün, durum. Gönderilemeyen mailin sunucu hata ayrıntısı yalnız admine ipucunda görünür"
+    },
+    {
+     "id": "EKR-E72",
+     "sub": "",
+     "title": "Sertifika penceresi > Etkilenenler",
+     "expected": "Bağlı domainler (ekibiyle), uygulamalar (Bağlı Domain / Bu domaine bağlanıyor / Trusted bağlantı / Trust store) ve uyarı maili alacaklar: mail motorunun kendi listesi, her biri için uyarı başlangıç tarihi. Alıcısı yoksa yedek adres gösterilir; mail kapalıysa uyarı yazısı"
+    },
+    {
+     "id": "EKR-E73",
+     "sub": "",
+     "title": "Admin, İşlemler > Sistem Sağlığı",
+     "expected": "Otomatik işler: son çalışma, sonuç, özet, sonraki çalışma; kapalı işler \"Kapalı\". Mail gönderimi (7 gün): gönderildi, gönderilemedi, reddedilen adres, yedek adrese giden, kuyrukta. Eksik bilgili kayıtlar ve bağlantılar (SMTP, kuyruk, yedek adres, LDAP, sürüm). Bağlantılar burada test edilmez"
+    },
+    {
+     "id": "EKR-E74",
+     "sub": "",
+     "title": "Editör / Genel İzleyici Sistem Sağlığı adresini açar",
+     "expected": "Anasayfa'ya döner (sunucu da 403 verir)"
+    },
+    {
+     "id": "EKR-E75",
+     "sub": "",
+     "title": "Çok kayıtlı haritada (Tüm ekipler, uzak görünüm) fareyi kutuların üzerinden hızla gezdir",
+     "expected": "Harita sönüp yanmaz, titremez; vurgulama ve baloncuk yalnız farenin durduğu kutuda açılır. Uzak görünümde kutular küçük olsa da baloncuktaki ad okunur"
+    },
+    {
+     "id": "EKR-E76",
+     "sub": "",
+     "title": "Admin, Ayarlar > Sistem > AI Asistanı: adres, model, anahtar gir, Kaydet, \"Bağlantıyı Test Et\"",
+     "expected": "Test, AI'ın kısa cevabını gösterir. Anahtar kaydedince ******** görünür. Yanlış anahtarda \"anahtarı kabul etmedi\", yanlış adreste \"adres bulunamadı\" mesajı"
+    },
+    {
+     "id": "EKR-E77",
+     "sub": "",
+     "title": "AI Asistanı kapalıyken herhangi bir sayfa",
+     "expected": "Sağ altta AI simgesi yok"
+    },
+    {
+     "id": "EKR-E78",
+     "sub": "",
+     "title": "AI açıkken sağ alttaki simgeye tıkla, öneri sorusuna tıkla",
+     "expected": "Panel açılır, soru gider, \"Düşünüyor…\" sonra cevap. Cevaptaki sertifika/domain adına tıklayınca o kaydın penceresi açılır, panel açık kalır. \"Yeni sohbet\" sohbeti temizler; sayfa değişse de sohbet sekme kapanana dek kalır"
+    },
+    {
+     "id": "EKR-E79",
+     "sub": "",
+     "title": "Ayarlar > AI Asistanı > \"Herkes tüm uygulama verisini sorabilsin\" KAPALI; Ekip İzleyici / Editör AI'a başka ekibin domainini ya da \"kim ne değiştirdi\" sorar",
+     "expected": "Yalnız kendi ekibinin domainleri gelir; kayıt geçmişi için \"yalnız yöneticiler görebilir\" cevabı"
+    },
+    {
+     "id": "EKR-E80",
+     "sub": "",
+     "title": "Admin \"X domaininde kim ne değiştirdi?\" sorar",
+     "expected": "Audit Log'daki değişiklikler (zaman, kişi, eski → yeni) listelenir"
+    },
+    {
+     "id": "EKR-E81",
+     "sub": "",
+     "title": "Her soru sonrası Audit Log",
+     "expected": "\"AI sorusu\" satırı: soran kişi ve soru metni (Sistem kategorisi)"
+    },
+    {
+     "id": "EKR-E82",
+     "sub": "",
+     "title": "Kişi başı günlük sınırı 1 yap, iki soru sor",
+     "expected": "İkinci soruda \"Bugünkü soru sınırına ulaştınız\""
+    },
+    {
+     "id": "EKR-E83",
+     "sub": "",
+     "title": "Servis tool calling desteklemiyor (ya da \"AI Jumbo verisini okuyabilsin\" kapalı)",
+     "expected": "AI yine cevap verir ama yalnız genel bilgiyle; kayıt soruları için ekrana yönlendirir"
+    },
+    {
+     "id": "EKR-E84",
+     "sub": "",
+     "title": "AI simgesine tıkla; başlıktaki \"Genişlet\" / \"Daralt\" düğmeleri",
+     "expected": "Sohbet, değişiklik talebi penceresi gibi sağdan tam boy açılır, sayfayı karartmaz. Ekran yetiyorsa sayfa sola kayar (yan yana çalışılır), yetmiyorsa panel sayfanın üstüne açılır. Genişlet 480 → 760 px; seçim hatırlanır. Esc ya da X kapatır; açıkken sağ alttaki simge gizlenir. Telefonda tam ekran"
+    },
+    {
+     "id": "EKR-E85",
+     "sub": "",
+     "title": "AI simgesi, panel başlığı, soru balonları",
+     "expected": "Sol menüyle aynı koyu kırmızı (açık ve koyu temada)"
+    },
+    {
+     "id": "EKR-E86",
+     "sub": "",
+     "title": "Admin, Ayarlar > AI Asistanı > Hazır Sorular: soru ekle, düzelt, sırasını değiştir, çıkar, Kaydet",
+     "expected": "Panel yeniden açılınca öneriler yeni listeyle ve bu sırayla gelir. Hepsi çıkarılırsa öneri görünmez. Boş ve tekrar eden sorular gösterilmez, en fazla 20"
+    },
+    {
+     "id": "EKR-E87",
+     "sub": "",
+     "title": "Sohbet başladıktan sonra yazı alanının solundaki ampul düğmesi",
+     "expected": "Hazır sorular menüsü açılır, birine tıklayınca o soru sorulur. Hazır soru yoksa düğme görünmez"
+    },
+    {
+     "id": "EKR-E88",
+     "sub": "",
+     "title": "Panelde soru sor",
+     "expected": "Başlığın altında \"Bu sayfa\" satırı yok, yalnız asistanın adı ve düğmeler. Her cevabın altında \"Baktığı yerler: …\" (AI hangi ekranların verisine baktıysa) ve Kopyala düğmesi. Cevaptaki kayda tıklayınca kayıt penceresi panelin üstünde açılır, kapanınca sohbet yerinde durur"
+    },
+    {
+     "id": "EKR-E89",
+     "sub": "",
+     "title": "\"Herkes tüm uygulama verisini sorabilsin\" AÇIK (varsayılan); Ekip İzleyici AI'a \"Hangi ekipte kaç domain var?\" ya da başka ekibin domainini sorar",
+     "expected": "Tüm ekiplerin kayıtlarıyla cevap gelir; \"Baktığı yerler: Jumbo veritabanı\". Ekrandaki listeler yine yalnız kendi ekibini gösterir"
+    },
+    {
+     "id": "EKR-E90",
+     "sub": "",
+     "title": "Herhangi bir kullanıcı AI'a bir kişinin e-postasını, telefonunu, son giriş zamanını ya da başkalarının AI sorularını sorar",
+     "expected": "AI bunlara erişimi olmadığını söyler. Yönetici olmayanlar giriş kayıtlarını, kullanıcı ve ayar değişikliklerini de göremez"
+    },
+    {
+     "id": "EKR-E91",
+     "sub": "",
+     "title": "AI'a \"Yeni domain nasıl eklenir?\" gibi kullanım sorusu (kurum wiki'si tanımlı)",
+     "expected": "Adımlar kurum wiki'sindeki Jumbo kılavuzundan gelir, sonunda wiki sayfasının linki; \"Baktığı yerler: Kullanım Kılavuzu\". Linke tıklayınca wiki sayfası yeni sekmede açılır"
+    },
+    {
+     "id": "EKR-E92",
+     "sub": "",
+     "title": "Ayarlar > AI Asistanı > Kullanım Kılavuzu (kurum wiki'si): ana sayfa linki, giriş şekli, token, Kaydet, \"Wiki'yi Şimdi Oku\"",
+     "expected": "\"N sayfa okundu\" ve ana sayfa ile altındaki bütün sayfaların ağaç halinde listesi (başlıklar wiki'ye link). Wiki'nin başka alanlarındaki sayfalar listede yok. Desteklenen linkler: …/pages/viewpage.action?pageId=…, …/display/ALAN/Sayfa+Adı, …/display/ALAN, Cloud …/wiki/spaces/ALAN/pages/…"
+    },
+    {
+     "id": "EKR-E93",
+     "sub": "",
+     "title": "Wiki bağlantı hataları: yanlış token, yetkisiz hesap, olmayan sayfa, giriş sayfasına yönlendiren adres, kısa link (…/x/…), ulaşılamayan adres",
+     "expected": "Sırasıyla anlaşılır uyarı: \"token'ı kabul etmedi (HTTP 401)\", \"okuma yetkisi yok (HTTP 403)\", \"bulunamadı (HTTP 404)\", \"JSON değil / giriş sayfasına mı gidiyor\", \"Kısa link desteklenmiyor\", \"Wiki'ye bağlanılamadı\". Her deneme Audit Log'a \"wiki: başarılı/başarısız\" yazılır"
+    },
+    {
+     "id": "EKR-E94",
+     "sub": "",
+     "title": "Wiki'de kılavuz metnini değiştir",
+     "expected": "AI en geç \"Yenileme Aralığı\" (varsayılan 15 dk) sonra yeni metni kullanır; \"Wiki'yi Şimdi Oku\" ile hemen (birden çok pod varsa hepsi bir sonraki soruda yeniden okur). Wiki geçici olarak kapalıysa AI son okunan metinle cevap vermeye devam eder"
+    },
+    {
+     "id": "EKR-E95",
+     "sub": "",
+     "title": "Sol menü: kılavuz linki girilmemişken ve girildikten sonra (her rol)",
+     "expected": "Link yokken \"Yardım\" grubu görünmez. Link girilince Yardım > Kullanım Kılavuzu görünür (yanında yeni sekme simgesi) ve wiki'deki ana sayfayı yeni sekmede açar. AI kapalı olsa da görünür"
+    },
+    {
+     "id": "EKR-E96",
+     "sub": "",
+     "title": "AI servisi tool calling desteklemiyor; \"Domain nasıl eklenir?\" (kurum wiki'si tanımlı)",
+     "expected": "AI kayıtlara bakamaz ama wiki'deki kılavuz metniyle (en fazla 20.000 karakter) cevap verir ve wiki linkini verir. Kılavuz tanımlı değilse ekran adlarını tahmin etmez, bilmediğini söyler"
+    },
+    {
+     "id": "EKR-E97",
+     "sub": "",
+     "title": "Kılavuz Azure DevOps Server (TFS) wiki'sinde: Ayarlar > AI Asistanı > Kullanım Kılavuzu'na wiki sayfasının tarayıcıdaki linki (…/_wiki/wikis/Proje.wiki/12/Sayfa ya da …?pagePath=…) ve Wiki (Read) yetkili kişisel erişim token'ı (PAT); Kaydet, \"Wiki'yi Şimdi Oku\"; sonra AI'a \"Yeni domain nasıl eklenir?\"",
+     "expected": "Azure linki girilince \"Giriş Şekli\" seçimi kalkar, token alanının adı \"Kişisel Erişim Token'ı (PAT)\" olur. \"N sayfa okundu\", ana sayfa ve altındaki bütün sayfalar wiki'deki sırayla listelenir. AI cevabının sonundaki link TFS wiki sayfasını yeni sekmede açar; sol menüdeki Yardım > Kullanım Kılavuzu da. Linkte proje adı yoksa ya da sayfa wiki'de yoksa anlaşılır uyarı; yanlış ya da süresi dolmuş PAT \"HTTP 401\". Eski TFS sürümleri (REST 5.0/4.1) de okunur. Ekran: ai-asistani/kurum-wiki/azure-01…03"
+    },
+    {
+     "id": "EKR-E98",
+     "sub": "",
+     "title": "Ayarlar > AI Asistanı: API adresi ve model boşken alttaki \"AI Bağlantısını Test Et\"",
+     "expected": "\"AI servisi tanımlı değil: API adresi ve model adı girilmeli (önce kaydedin). Wiki bağlantısını denemek için Kullanım Kılavuzu bölümündeki \"Wiki'yi Şimdi Oku\"yu kullanın.\" Wiki, AI tanımlanmadan da girilip okunabilir. Ekran: ai-asistani/kurum-wiki/azure-04"
+    },
+    {
+     "id": "EKR-E99",
+     "sub": "",
+     "title": "Sol menüde Analiz, İşlemler ve Yardım başlıklarına tıkla; sayfayı yenile; menüyü daralt",
+     "expected": "Başlık tıklanınca altındaki sayfalar kapanır/açılır (ok işareti döner). Kapalı başlıkta içerideki uyarı sayısı (ör. Uyum 2) başlığın yanında görünür. Seçim sayfa yenilense de kalır (tarayıcıya özel). Daraltılmış menüde bütün simgeler görünür. Ekran: menu-acilir-kapanir/"
+    },
+    {
+     "id": "EKR-E100",
+     "sub": "",
+     "title": "Ayarlar > AI Asistanı: Anahtar Gönderimi \"api-key başlığı\", Ek HTTP Başlıkları \"x-cluster: test-v2\", \"API adresini olduğu gibi kullan\" açık, TLS doğrulama kapalı (curl -k); Kaydet, \"AI Bağlantısını Test Et\"",
+     "expected": "İstek tam olarak girilen adrese gider (sonuna /chat/completions eklenmez), api-key ve x-cluster başlıklarıyla; \"AI servisi cevap verdi\". Başlık kapalıyken adres …/chat/completions ile bitmiyorsa sonuna eklenir."
+    },
+    {
+     "id": "EKR-E101",
+     "sub": "",
+     "title": "Geniş ekranda (ör. 1440px) sağ alttaki AI simgesine tıkla",
+     "expected": "Panel sayfanın üstüne açılır, arkadaki sayfa daralmaz/kaymaz (eskiden geniş ekranda sayfa sola itiliyordu). Esc ya da X kapatır."
+    },
+    {
+     "id": "EKR-E102",
+     "sub": "",
+     "title": "AI panelini aç, sonra \"Genişlet\" ile büyüt",
+     "expected": "Normal genişlik 576px (eski 480), Genişlet 912px (eski 760); %20 daha geniş. Dar ekranda tam genişlik."
+    },
+    {
+     "id": "EKR-E103",
+     "sub": "",
+     "title": "AI panelini aç",
+     "expected": "Panel değişiklik talebi penceresiyle aynı genişlikte açılır (880px). \"Genişlet\" 1200px yapar (ekrandan büyükse ekran kadar). Karşılama metni ve hazır sorular panelin tamamını kullanır. Dar ekranda tam genişlik."
+    },
+    {
+     "id": "EKR-E104",
+     "sub": "",
+     "title": "Sağ alttaki Jumbo AI düğmesine bak, paneli aç ve bir soru sor",
+     "expected": "Düğme artık daire değil: Jumbo fili + başının üstünde altın ışıltı (açık ve koyu temada net görünür, üstüne gelince hafif büyür). Panel başlığında ve her cevabın yanında aynı simge. Klavyeyle (Tab) düğmeye gelince çerçeve görünür, Enter paneli açar. 02-panel-*.png"
+    },
+    {
+     "id": "EKR-E105",
+     "sub": "",
+     "title": "Jumbo AI düğmesini sürükleyip sola ve ortaya doğru çek, bırak; sonra başka sayfaya geç; sonra en üste sürükle",
+     "expected": "Sürüklerken panel açılmaz. Düğme hep sağ kenarda kalır, yalnız yukarı-aşağı hareket eder ve bırakıldığı yükseklikte durur; ekranın üstünden/altından taşmaz (24px boşluk). Yükseklik tarayıcıda hatırlanır, başka sayfada da aynı yerde. Kısa tıklama paneli açar. Sağ tık menüsü: \"Jumbo AI'ı aç\", \"Varsayılan yere taşı (sağ alt)\". Ekran: ai-asistani/simge/07–11"
+    },
+    {
+     "id": "EKR-E106",
+     "sub": "",
+     "title": "Jumbo AI düğmesine açık ve koyu temada, bir tablonun üstündeyken bak",
+     "expected": "Fil + ışıltı simgesi bordo çerçeveli, yarı saydam bir dairenin içinde; altındaki tablo hafif görünür ama düğme net seçilir. Koyu temada çerçeve açık kırmızı. Sürükleme, tıklama ve sağ tık menüsü E105'teki gibi çalışır."
+    },
+    {
+     "id": "EKR-E107",
+     "sub": "",
+     "title": "Admin olarak sol menü > İşlemler > Regresyon Testi; editör ya da izleyiciyle aynı menüye ve /regression adresine bak",
+     "expected": "Admin sayfayı görür. Diğer roller menüde görmez, adrese gidince anasayfaya döner; API 403 verir"
+    },
+    {
+     "id": "EKR-E108",
+     "sub": "",
+     "title": "Regresyon Testi > Otomatik kontroller > Kontrolleri Çalıştır",
+     "expected": "Altyapı, Bağlantılar, Zamanlanmış işler, Veri tutarlılığı, Yetkiler ve Sayfalar grupları Tamam/Uyarı/Hata/Kapalı ile dolar. Hiçbir kayıt değişmez, mail gitmez (Mail Gönderim Geçmişi'nde yeni satır yok). Audit Log'da \"Regresyon otomatik kontrol\" satırı"
+    },
+    {
+     "id": "EKR-E109",
+     "sub": "",
+     "title": "Elle test > Yeni Test Başlat, birkaç senaryoyu Geçti/Kaldı/Atlandı işaretle, Kaldı satırına not yaz, sayfayı yenile",
+     "expected": "İşaretler ve not kalır; sayaçlar ve ilerleme çubuğu güncellenir. Seçili işaretine tekrar basınca işaret kalkar. Başka bir admin aynı teste devam edebilir"
+    },
+    {
+     "id": "EKR-E110",
+     "sub": "",
+     "title": "Arama kutusu ve Bekliyor/Geçti/Kaldı/Atlandı sekmeleri",
+     "expected": "Yalnız eşleşen senaryolar ve onları içeren bölümler görünür; I/İ farkı aramayı bozmaz"
+    },
+    {
+     "id": "EKR-E111",
+     "sub": "",
+     "title": "Excel'e İndir (elle test ve otomatik kontroller)",
+     "expected": ".xlsx iner: bölüm, no, adım, beklenen, sonuç, not, işaretleyen, zaman; Türkçe karakterler doğru"
+    },
+    {
+     "id": "EKR-E112",
+     "sub": "",
+     "title": "AI açıkken senaryonun ✦ menüsü: Adımı anlat / Sonucu kayıtlardan doğrula / Neden kaldı?; uyarılı otomatik kontrolde ✦",
+     "expected": "AI paneli açılır, yeni sohbette senaryo no, adım ve beklenenle soru gider; AI cevap verir. AI kapalıyken ✦ düğmeleri görünmez"
+    },
+    {
+     "id": "EKR-E113",
+     "sub": "",
+     "title": "AI ile Özetle",
+     "expected": "AI testin sayılarını, kalan senaryoları notlarıyla, otomatik kontrol sorunlarını ve bir önceki testle farkı yazar; \"Baktığı yerler: Regresyon Testi\". Yönetici olmayan kullanıcı AI'a sorsa da regresyon sonuçlarını göremez"
+    },
+    {
+     "id": "EKR-E114",
+     "sub": "",
+     "title": "Testi Bitir, sonra bir senaryoyu işaretlemeyi dene",
+     "expected": "Onay penceresinde sayılar görünür. Bitirilen testte düğmeler pasif, \"Bu test bitirildi\" notu çıkar; Audit Log'da \"Regresyon testi bitti\""
+    }
+   ]
+  },
+  {
+   "key": "pod",
+   "title": "Birden fazla pod (yalnız çoklu kurulumda)",
+   "note": "Tek pod çalışıyorsa bu bölümü Atlandı olarak işaretleyin.",
+   "scenarios": [
+    {
+     "id": "POD-K1",
+     "sub": "",
+     "title": "DB kullanıcısıyla `sp_getapplock` deneme sorgusu (deploy/README.md)",
+     "expected": "Sonuç 0"
+    },
+    {
+     "id": "POD-K2",
+     "sub": "",
+     "title": "Pod loglarında \"Veritabanı iş kilidi (sp_getapplock) kullanılamadı\" araması",
+     "expected": "Satır yok"
+    },
+    {
+     "id": "POD-K3",
+     "sub": "",
+     "title": "Otomatik mailler açık, 08:00 geçtikten sonra Mail Geçmişi",
+     "expected": "Her alıcıya tek süre uyarısı maili (pod sayısı kadar değil)"
+    },
+    {
+     "id": "POD-K4",
+     "sub": "",
+     "title": "08:05 süresi geçmiş hatırlatması",
+     "expected": "Her alıcıya tek mail"
+    },
+    {
+     "id": "POD-K5",
+     "sub": "",
+     "title": "Gece canlı doğrulama sonrası Audit Log > Zamanlanmış iş",
+     "expected": "Tek \"Canlı doğrulama\" satırı; Değişiklik Talepleri'nde kopya talep yok"
+    },
+    {
+     "id": "POD-K6",
+     "sub": "",
+     "title": "Ayarlar > Canlı Doğrulama > \"Şimdi Çalıştır\", hemen ardından başka pod'a düşecek şekilde tekrar bas (sayfayı yenileyip)",
+     "expected": "İkinci basış \"zaten çalışıyor\" (409) uyarısı"
+    },
+    {
+     "id": "POD-K7",
+     "sub": "",
+     "title": "Canlı Doğrulama sekmesinde \"Son toplu çalıştırma\" satırı, sayfayı farklı pod'lardan açınca",
+     "expected": "Aynı bilgi + \"sunucu <pod adı>\""
+    },
+    {
+     "id": "POD-K8",
+     "sub": "",
+     "title": "Ayarlar'da gece saatini değiştir, 1 dk bekle",
+     "expected": "Sistem Sağlığı'nda tüm pod'larda yeni saat (sayfayı birkaç kez yenile)"
+    },
+    {
+     "id": "POD-K9",
+     "sub": "",
+     "title": "Otomatik süre uyarısını kapat",
+     "expected": "Sekmede \"Otomatik çalışma kapalı\" notu; 08:00'de mail yok"
+    },
+    {
+     "id": "POD-K10",
+     "sub": "",
+     "title": "Dış araç: `POST /api/notifications/expiry-run` + X-API-Key",
+     "expected": "202 \"started\"; `GET …/expiry-run/status` biter, sent sayısı görünür"
+    },
+    {
+     "id": "POD-K11",
+     "sub": "",
+     "title": "K10'dan sonra 3 saat içinde tekrar dış tetik (60 sn'den sonra)",
+     "expected": "Aynı kişilere ikinci mail yok (tekrar-önleme)"
+    },
+    {
+     "id": "POD-K12",
+     "sub": "",
+     "title": "Ayarlar > SMTP \"Şimdi Gönder\"",
+     "expected": "Bugünkü gibi hemen gönderir, sonucu gösterir"
+    },
+    {
+     "id": "POD-K13",
+     "sub": "",
+     "title": "İptal Durumu: \"İptal denetimi etkin\" açık, \"Her gece otomatik çalışsın\" kapalı",
+     "expected": "Gece denetim yok; `POST /api/certificates/revocation-run` + anahtar ile çalışır"
+    },
+    {
+     "id": "POD-K14",
+     "sub": "",
+     "title": "İptal denetimi kapalıyken dış tetik",
+     "expected": "409 \"İptal kontrolü Ayarlar'da kapalı\""
+    },
+    {
+     "id": "POD-K15",
+     "sub": "",
+     "title": "Ağ keşfi / CT: anahtarla `POST /api/discovery/scan` ve `/ct-scan`",
+     "expected": "Tarama başlar; yanlış anahtar 401"
+    },
+    {
+     "id": "POD-K16",
+     "sub": "",
+     "title": "Yeni sürüm kurulumunda 3 pod aynı anda açılsın",
+     "expected": "Hiçbir pod şema hatasıyla yeniden başlamaz"
+    },
+    {
+     "id": "POD-K17",
+     "sub": "",
+     "title": "Canlı doğrulama sürerken o pod'u sil",
+     "expected": "Durum \"yarıda kaldı\"; tekrar \"Şimdi Çalıştır\" çalışır (kilit takılı kalmaz)"
+    }
+   ]
+  }
+ ]
+}

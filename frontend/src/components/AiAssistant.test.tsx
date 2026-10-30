@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { renderPage } from '../test/render'
 import AiAssistant from './AiAssistant'
+import { askAi } from '../utils/aiAsk'
+import { act } from 'react'
 
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
@@ -27,6 +29,19 @@ describe('AiAssistant', () => {
     renderPage(<AiAssistant />)
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith('/ai/status'))
     expect(screen.queryByRole('button', { name: /sor$/ })).toBeNull()
+  })
+
+  it('askAi paneli açar ve soruyu yeni sohbette gönderir', async () => {
+    sessionStorage.setItem('jumbo.ai.chat', JSON.stringify([{ role: 'user', content: 'eski soru' }]))
+    apiGet.mockResolvedValue({ data: ON })
+    apiPost.mockResolvedValue({ data: { answer: 'Adım 1: Ayarlar > SMTP', tools_used: ['kilavuz_ara'], tool_mode: true } })
+    renderPage(<AiAssistant />, { url: '/regression' })
+    await screen.findByRole('button', { name: "Fil'a sor" })
+    act(() => askAi('Senaryo MAIL-A1 nasıl yapılır?'))
+    expect(await screen.findByText('Adım 1: Ayarlar > SMTP')).toBeTruthy()
+    expect(screen.queryByText('eski soru')).toBeNull()
+    expect(apiPost).toHaveBeenCalledWith('/ai/chat', {
+      messages: [{ role: 'user', content: 'Senaryo MAIL-A1 nasıl yapılır?' }], page: '/regression' })
   })
 
   it('soruyu gönderir, cevaptaki kayıt bağlantısını gösterir', async () => {
