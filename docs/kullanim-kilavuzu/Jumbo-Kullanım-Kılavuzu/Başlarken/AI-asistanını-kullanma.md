@@ -1,4 +1,6 @@
-Her sayfanın sağ altındaki AI simgesine tıklayınca sağdan bir sohbet paneli açılır. Panel açıkken sayfayı kullanmaya devam edebilirsiniz.
+Her sayfanın sağ kenarındaki **Jumbo AI** düğmesine (bordo çerçeveli dairede fil simgesi) tıklayınca sağdan bir sohbet paneli açılır. Panel sayfanın üstünde açılır; sayfanın görünen kısmını kullanmaya devam edebilirsiniz.
+
+Düğmeyi sağ kenarda yukarı ya da aşağı sürükleyebilirsiniz; yeri bu tarayıcıda hatırlanır. Düğmeye sağ tıklayıp **Varsayılan yere taşı (sağ alt)** ile eski yerine döndürebilirsiniz. Yönetici Ayarlar'da AI'a başka bir ad verdiyse düğmede o ad görünür.
 
 ## Neler sorabilirsiniz?
 - **Kayıtlar**: "Önümüzdeki 30 günde süresi dolacak sertifikalar hangileri?", "web.ornek.com hangi uygulamalarda kullanılıyor?", "BBB ekibinin bekleyen değişiklik talepleri neler?"
@@ -16,6 +18,7 @@ Her sayfanın sağ altındaki AI simgesine tıklayınca sağdan bir sohbet panel
 ## Panel düğmeleri
 - **Yeni sohbet**: konuşmayı temizler.
 - **Genişlet / Daralt**: paneli büyütür ya da küçültür.
+- **Kopyala**: cevabın altındaki simge, cevabı panoya kopyalar.
 - **Hazır sorular**: boş sohbette kart olarak görünür; sohbet sürerken yazma alanındaki ampul simgesinden açılır.
 - **Kapat** ya da Esc: paneli kapatır. Sohbet aynı tarayıcı sekmesinde saklanır.
 - Enter soruyu gönderir, Shift+Enter yeni satır açar.

@@ -1,6 +1,6 @@
-# Jumbo Kullanım Kılavuzu (taslak)
+# Jumbo Kullanım Kılavuzu
 
-Bu metin, kurum wiki'sindeki Jumbo kılavuzuna başlangıç olarak hazırlandı. Her "##" başlık wiki'de ana sayfanın altında ayrı bir alt sayfa olabilir; Jumbo AI ana sayfayı ve altındaki bütün sayfaları okur. Ekrandaki düğme, sekme ve menü adları Jumbo v3.9.16 ile birebir aynıdır; metni kurumun kurallarına göre değiştirebilirsiniz.
+Bu metin, kurum wiki'sindeki Jumbo kılavuzuna başlangıç olarak hazırlandı. Her "##" başlık wiki'de ana sayfanın altında ayrı bir alt sayfa olabilir; Jumbo AI ana sayfayı ve altındaki bütün sayfaları okur. Ekrandaki düğme, sekme ve menü adları Jumbo v3.9.27 ile birebir aynıdır; metni kurumun kurallarına göre değiştirebilirsiniz.
 
 # Başlarken
 
@@ -20,21 +20,23 @@ Jumbo, bankadaki SSL sertifikalarının ve bu sertifikaları kullanan domainleri
 - **Genel Durum** (Yönetici ve Genel İzleyici) ya da **Ekibim** (Ekip Editörü ve Ekip İzleyici).
 - **SSL Sertifikaları**, **Domainler**, **Uygulamalar**: envanter ekranları.
 - **Analiz**: Sertifika Haritası, Uyum, Keşif.
-- **İşlemler**: Değişiklik Talepleri, Dağıtım, Tüm Çalıştırmalar, Sistem Sağlığı.
-- **Yardım > Kullanım Kılavuzu**: bu kılavuzu yeni sekmede açar.
+- **İşlemler**: Değişiklik Talepleri, Dağıtım, Tüm Çalıştırmalar, Sistem Sağlığı (yönetici), Regresyon Testi (yönetici).
+- **Yardım > Kullanım Kılavuzu**: bu kılavuzu yeni sekmede açar. Yalnız yönetici Ayarlar > AI Asistanı'nda wiki adresini girdiyse görünür.
+
+Analiz, İşlemler ve Yardım başlıklarına tıklayınca o grup kapanır ya da açılır; seçiminiz bu tarayıcıda hatırlanır.
 
 Sol alttaki adınıza tıklayınca Profilim, Ayarlar (yöneticide) ya da Etiketler, koyu tema ve Çıkış Yap seçenekleri açılır.
 
 Bazı menüler rolünüze ya da yöneticinin Ayarlar > Erişim'deki seçimine göre görünmeyebilir. Ayrıntı için *Roller ve yetkiler* sayfasına bakın.
 
-> Sağ alttaki AI simgesine tıklayıp Jumbo'daki kayıtları ya da bir işin nasıl yapılacağını sorabilirsiniz. Bkz. *AI asistanını kullanma*.
+> Sağ kenardaki **Jumbo AI** düğmesine (fil simgesi) tıklayıp Jumbo'daki kayıtları ya da bir işin nasıl yapılacağını sorabilirsiniz. Bkz. *AI asistanını kullanma*.
 
 ## Roller ve yetkiler
 
 Jumbo'da herkesin bir rolü vardır. Rolü yönetici Ayarlar > Kullanıcılar ekranında verir. LDAP ile giriş yapanlarda rol, AD grubundan da gelebilir.
 
 ### Roller
-- **Yönetici**: her şeyi görür ve düzenler. Sertifikayı pasife alma, silme, Zincir Kontrolü ve Ayarlar yalnız yöneticidedir.
+- **Yönetici**: her şeyi görür ve düzenler. Sertifikayı pasife alma, silme, Zincir Kontrolü, Sistem Sağlığı, Regresyon Testi ve Ayarlar yalnız yöneticidedir.
 - **Ekip Editörü**: üyesi olduğu SY ekiplerinin domainlerini, sertifikalarını ve uygulamalarını görür ve düzenler. Ekibinin değişiklik taleplerini onaylayabilir.
 - **Ekip İzleyici**: üyesi olduğu SY ekiplerinin kayıtlarını görür, değiştiremez.
 - **Genel İzleyici**: her şeyi görür, hiçbir şeyi değiştiremez.
@@ -53,7 +55,9 @@ AI asistanı, Jumbo'daki uygulama verisinin tamamını rolünüzden bağımsız 
 
 ## AI asistanını kullanma
 
-Her sayfanın sağ altındaki AI simgesine tıklayınca sağdan bir sohbet paneli açılır. Panel açıkken sayfayı kullanmaya devam edebilirsiniz.
+Her sayfanın sağ kenarındaki **Jumbo AI** düğmesine (bordo çerçeveli dairede fil simgesi) tıklayınca sağdan bir sohbet paneli açılır. Panel sayfanın üstünde açılır; sayfanın görünen kısmını kullanmaya devam edebilirsiniz.
+
+Düğmeyi sağ kenarda yukarı ya da aşağı sürükleyebilirsiniz; yeri bu tarayıcıda hatırlanır. Düğmeye sağ tıklayıp **Varsayılan yere taşı (sağ alt)** ile eski yerine döndürebilirsiniz. Yönetici Ayarlar'da AI'a başka bir ad verdiyse düğmede o ad görünür.
 
 ### Neler sorabilirsiniz?
 - **Kayıtlar**: "Önümüzdeki 30 günde süresi dolacak sertifikalar hangileri?", "web.ornek.com hangi uygulamalarda kullanılıyor?", "BBB ekibinin bekleyen değişiklik talepleri neler?"
@@ -71,6 +75,7 @@ Her sayfanın sağ altındaki AI simgesine tıklayınca sağdan bir sohbet panel
 ### Panel düğmeleri
 - **Yeni sohbet**: konuşmayı temizler.
 - **Genişlet / Daralt**: paneli büyütür ya da küçültür.
+- **Kopyala**: cevabın altındaki simge, cevabı panoya kopyalar.
 - **Hazır sorular**: boş sohbette kart olarak görünür; sohbet sürerken yazma alanındaki ampul simgesinden açılır.
 - **Kapat** ya da Esc: paneli kapatır. Sohbet aynı tarayıcı sekmesinde saklanır.
 - Enter soruyu gönderir, Shift+Enter yeni satır açar.
@@ -180,7 +185,7 @@ Domain eklemek için Yönetici ya da Ekip Editörü olmanız gerekir.
 ### Excel ile toplu yükleme
 1. **Excel** menüsünden **Boş şablon indir**'e basın. İlk satır örnektir; silip kendi verinizi girin.
 2. Doldurduğunuz dosyayı **Excel** > **Excel'den yükle** ile yükleyin.
-3. Jumbo'da tanımlı olmayan bir SY ekibi adı yazılan satır atlanır ve ekranda uyarı kalır; ekip Jumbo'da kendiliğinden açılmaz. Ekip adında büyük/küçük harf farkı sorun değildir.
+3. Jumbo'da zaten kayıtlı olan domainler atlanır. Jumbo'da tanımlı olmayan bir SY ya da UG ekibi adı yazılan satır da atlanır ve ekranda uyarı kalır; ekip Jumbo'da kendiliğinden açılmaz. Ekip adında büyük/küçük harf farkı sorun değildir.
 
 Aynı menüdeki **Listeyi indir**, filtrelenmiş domain listesini indirir.
 
@@ -384,7 +389,7 @@ Jenkins bağlantısı yönetici tarafından Ayarlar > Jenkins'te tanımlanır. S
 
 Ayarlar'a sol alttaki adınıza tıklayıp **Ayarlar** ile ulaşılır. Yönetici olmayanlar burada yalnız **Etiketler**'i görür.
 
-### Kullanıcılar ve ekipler
+### Kimlik & Erişim
 - **Kullanıcılar**: hesaplar ve roller. Bkz. *Roller ve yetkiler*.
 - **Ekipler**: SY ve UG ekipleri ve ekip mail adresleri. Ekip adı değişince sertifikaların Oluşturan Ekip alanı da güncellenir.
 - **Ekip Üyelikleri**: kullanıcının hangi SY ekiplerini göreceği.
@@ -392,17 +397,18 @@ Ayarlar'a sol alttaki adınıza tıklayıp **Ayarlar** ile ulaşılır. Yönetic
 - **LDAP / Active Directory** ve **LDAP Sorguları**: kurumsal girişin ayarları ve dizinden canlı sorgular.
 
 ### Bildirimler
-- **E-posta (SMTP)**: sunucu, uyarı süresi, yedek adres, **Test Maili Gönder**.
+- **E-posta (SMTP)**: sunucu, uyarı süresi, yedek adres, bekleyen talep hatırlatması, **Test Maili Gönder**.
 - **Mail Gönderim Geçmişi**: gönderilen ve teslim edilemeyen mailler.
-- Slack, Microsoft Teams, Webhook, ServiceNow, Jira, Zoom, Jabber kanalları.
+- Slack, Microsoft Teams, Webhook, ServiceNow, Jira, Zoom, Jabber / XMPP kanalları.
 
-### Denetim ve tarama
+### Keşif & Uyum
 - **Keşif**, **CT (crt.sh)**, **Uyum**, **İptal (OCSP/CRL)**, **Canlı Doğrulama**: kurallar ve gece çalışma saatleri.
 
 ### Sistem
 - **Etiketler**: uygulama etiketi kataloğu.
+- **Vault (Hazırlık)**: Vault PKI bağlantısı için hazırlık (henüz kullanımda değil).
 - **Jenkins**: Dağıtım ekranının Jenkins bağlantısı.
-- **AI Asistanı**: kurum içi AI servisinin adresi, modeli, anahtarı, hazır sorular, günlük soru sınırı AI'ın tüm veriyi görüp görmeyeceği ve Kullanım Kılavuzu'nun okunduğu wiki sayfası.
+- **AI Asistanı**: kurum içi AI servisinin adresi, modeli, anahtarı, gerekiyorsa **Ek HTTP Başlıkları** ve **API adresini olduğu gibi kullan**, hazır sorular, günlük soru sınırı, AI'ın tüm veriyi görüp görmeyeceği ve Kullanım Kılavuzu'nun okunduğu wiki sayfası. **AI Bağlantısını Test Et** bağlantıyı dener; wiki'de sayfa değişince **Wiki'yi Şimdi Oku**'ya basın.
 - **Audit Log**: kim, neyi, ne zaman değiştirdi (eski → yeni). Her kolon filtrelenir, CSV olarak indirilebilir.
 
 Ayar değişiklikleri yeniden başlatma gerektirmeden uygulanır ve Audit Log'a yazılır. Şifre ve anahtarlar şifreli saklanır.
