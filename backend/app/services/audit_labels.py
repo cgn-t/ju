@@ -34,6 +34,8 @@ ACTION_LABELS = {
     "cancel": "İptal", "ct-scan": "CT izleme", "mail_retry": "Mail yeniden kuyruğa",
     "name_mismatch_ok": "Adres uyumsuzluğu onayı", "chain_repair": "Zincir düzeltme",
     "ai_ask": "AI sorusu",
+    "regression_start": "Regresyon testi başladı", "regression_mark": "Regresyon senaryosu",
+    "regression_end": "Regresyon testi bitti", "regression_auto": "Regresyon otomatik kontrol",
 }
 
 # İşlem rengi (UI çip) — kategori renginden bağımsız, işlemin doğasına göre
@@ -57,7 +59,7 @@ TABLE_LABELS = {
     "discovered_certificates": "Keşfedilen sertifika", "notifications": "Bildirim",
     "deployment_flows": "Dağıtım akışı", "deployment_run": "Dağıtım çalıştırması",
     "deployment_run_step": "Dağıtım adımı", "jenkins_job": "Jenkins işi", "jobs": "Zamanlanmış iş",
-    "mail_queue": "Mail kuyruğu", "ai": "AI asistanı",
+    "mail_queue": "Mail kuyruğu", "ai": "AI asistanı", "regression": "Regresyon testi",
 }
 
 FIELD_LABELS = {
@@ -196,6 +198,16 @@ def summarize(action: str, details) -> str:
         return details.get("question") or ""
     if action == "test":
         return f"{details.get('target', '')}: {'başarılı' if details.get('success') else 'BAŞARISIZ'}"
+    if action == "regression_start":
+        return f"{details.get('title') or ''} (v{details.get('version') or '?'})"
+    if action == "regression_mark":
+        res = {"pass": "Geçti", "fail": "Kaldı", "skip": "Atlandı"}.get(details.get("result"), "işaret kaldırıldı")
+        return f"{details.get('scenario') or ''}: {res}" + (f" — {details['note']}" if details.get("note") else "")
+    if action in ("regression_end", "regression_auto"):
+        c = details.get("counts") or {}
+        labels = {"pass": "geçti", "fail": "kaldı", "skip": "atlandı", "pending": "bekliyor",
+                  "ok": "yeşil", "warn": "sarı"}
+        return ", ".join(f"{v} {labels.get(k, k)}" for k, v in c.items() if v and k != "total")
     if action in ("propose", "approve", "propose_reject", "propose_cancel", "supersede_apply"):
         s = f"{details.get('old_name') or '?'} → {details.get('new_name') or '?'}"
         if details.get("domains"):

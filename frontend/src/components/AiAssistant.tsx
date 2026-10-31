@@ -15,6 +15,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import { useAiStatus } from '../hooks/useAiStatus'
+import { AI_ASK_EVENT } from '../utils/aiAsk'
 import AiLauncher from './AiLauncher'
 import JumboAiIcon from './JumboAiIcon'
 import { BRAND_DARK } from '../theme'
@@ -37,6 +38,7 @@ const SOURCE_LABELS: Record<string, string> = {
   domain_ara: 'Domainler', domain_detay: 'Domainler', degisiklik_talepleri: 'Değişiklik Talepleri',
   genel_durum: 'Anasayfa', kayit_gecmisi: 'Audit Log', uyum_ihlalleri: 'Uyum',
   kilavuz_ara: 'Kullanım Kılavuzu', kilavuz_oku: 'Kullanım Kılavuzu',
+  regresyon_testleri: 'Regresyon Testi', regresyon_sonucu: 'Regresyon Testi',
   veri_tablolari: 'Jumbo veritabanı', veri_sorgula: 'Jumbo veritabanı',
 }
 
@@ -159,6 +161,22 @@ export default function AiAssistant() {
     }]),
     onError: (e) => setMessages((ms) => [...ms, { role: 'assistant', content: apiErrorMessage(e), error: true }]),
   })
+
+  // Sayfalardaki "AI'a sor" düğmeleri (askAi): panel açılır, yeni sohbette soru hemen gönderilir.
+  const askRef = useRef(ask)
+  askRef.current = ask
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const q = String((e as CustomEvent<string>).detail ?? '').trim()
+      if (!q || askRef.current.isPending) return
+      const next = [{ role: 'user' as const, content: q }]
+      setMessages(next)
+      setOpen(true)
+      askRef.current.mutate(next)
+    }
+    window.addEventListener(AI_ASK_EVENT, onAsk)
+    return () => window.removeEventListener(AI_ASK_EVENT, onAsk)
+  }, [])
 
   if (!enabled) return null
   const name = status.name || 'Jumbo AI'

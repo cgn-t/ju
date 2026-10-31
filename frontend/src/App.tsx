@@ -21,6 +21,7 @@ import MyTeam from './pages/MyTeam'
 import Policy from './pages/Policy'
 import Profile from './pages/Profile'
 import Proposals from './pages/Proposals'
+import Regression from './pages/Regression'
 import Settings from './pages/Settings'
 import SystemHealth from './pages/SystemHealth'
 import TeamSummary from './pages/TeamSummary'
@@ -122,6 +123,7 @@ export default function App() {
                   <Route path="/my-team" element={<TeamUserRoute><MyTeam /></TeamUserRoute>} />
                   <Route path="/teams/:teamId" element={<TeamSummary />} />
                   <Route path="/system-health" element={<AdminOnly><SystemHealth /></AdminOnly>} />
+                  <Route path="/regression" element={<AdminOnly><Regression /></AdminOnly>} />
                   <Route path="/certificates" element={<Certificates />} />
                   <Route path="/domains" element={<Domains />} />
                   <Route path="/proposals" element={<PageAccessRoute page="proposals"><Proposals /></PageAccessRoute>} />

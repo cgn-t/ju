@@ -1,0 +1,14 @@
+Regresyon-Testi-sayfasını-kullanma
+Hazırlık-(test-paketi,-test-siteleri,-hesaplar)
+1-Sertifika-ekleme-ve-Excel-ile-domain-yükleme
+2-Domainden-sertifika-çekme-ve-adres-uyumsuzluğu
+3-Süre-dolumu-uyarı-mailleri-ve-mail-ayarları
+4-Uygulama-sahibi-uyarıları
+5-Canlı-doğrulama-ve-Değişiklik-Talepleri
+6-Giriş-ve-yetkiler
+7-Gerçek-internet-adresleri
+8-Uygulamalar,-dış-bağımlılıklar-ve-trusted-sertifikalar
+9-Sertifika-yönetimi
+10-Uyum-kuralları
+11-İptal-(OCSP-ve-CRL)-kontrolü
+Hata-sayılmayacak-davranışlar
