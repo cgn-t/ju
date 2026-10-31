@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Otomasyon (Ansible/pipeline) için editor rolünde servis kullanıcısı — boşsa oluşturulmaz
     automation_username: str = ""
     automation_password: str = ""
+    # Regresyon Testi > Test Hazırlığı (test sertifikaları, localhost'ta test siteleri, test verisi).
+    # YALNIZ test/preprod ortamında açın (REGRESSION_TOOLS=1); canlıda kapalı kalmalı.
+    regression_tools: bool = False
 
     @property
     def effective_database_url(self) -> str:

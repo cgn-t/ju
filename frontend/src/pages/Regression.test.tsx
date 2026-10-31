@@ -21,8 +21,15 @@ const CATALOG = { total: 2, version: '3.9.27', sections: [{ key: 'mail', title: 
 const RUN = { id: 'R1', title: 'v3.9.27 preprod', version: '3.9.27', started_by: 'admin', started_at: '2026-10-30T20:00:00Z',
   finished_at: null, finished_by: null, counts: { pass: 1, fail: 0, skip: 0, pending: 1, total: 2 } }
 
-function mockGet(ai = true) {
+const LAB_EMPTY = { enabled: true, host: 'localhost', pfx_password: 'Jumbo2026!',
+  certs: { generated_at: null, by: null, files: [] },
+  sites: { running: false, until: null, renewed: false, rows: [] },
+  data: { at: null, password: null, teams: [], users: [] } }
+
+function mockGet(ai = true, lab: object = { enabled: false }) {
   apiGet.mockImplementation(async (url: string) => {
+    if (url === '/regression/lab') return { data: lab }
+    if (url === '/regression/lab/cleanup') return { data: { certificates: 5, domains: 2, applications: 1, users: 4, teams: 3 } }
     if (url === '/regression/catalog') return { data: CATALOG }
     if (url === '/regression/runs') return { data: [RUN] }
     if (url === '/regression/runs/R1') return { data: { ...RUN, marks: { 'MAIL-A1': { result: 'pass', note: '', by: 'admin', at: '2026-10-30T20:01:00Z' } } } }
@@ -71,5 +78,41 @@ describe('Regression', () => {
     await screen.findByText('Test Maili Gönder')
     expect(screen.queryByRole('button', { name: /AI yardımı/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'AI ile Özetle' })).toBeNull()
+  })
+
+  it('Test Hazırlığı sekmesi yalnız ortamda açıkken görünür', async () => {
+    mockGet()
+    renderPage(<Regression />, { url: '/regression' })
+    await screen.findByText('Test Maili Gönder')
+    expect(screen.queryByRole('tab', { name: 'Test Hazırlığı' })).toBeNull()
+  })
+
+  it('Hepsini Hazırla tek istekle hazırlar; temizlik önce neyin silineceğini gösterir', async () => {
+    mockGet(true, LAB_EMPTY)
+    const ready = { ...LAB_EMPTY,
+      certs: { generated_at: '2026-10-31T20:41:00Z', by: 'admin', files: [{ name: '00-kok-ve-ara-sertifika.pem', what: 'Root', section: 'Bölüm 1' }] },
+      sites: { running: true, until: new Date(Date.now() + 3 * 3600e3).toISOString(), renewed: false,
+        rows: [{ port: 9441, address: 'localhost:9441', what: 'Doğru sertifika', days: 300, up: true }] },
+      data: { at: '', password: 'Test-x', teams: [{ name: 'Ödeme Sistemleri SY', exists: true, email: 'a@x', mail_key: 'A', created_here: true }],
+        users: [{ username: 'ismail.test', role: 'editor', team: 'Ödeme Sistemleri SY', exists: true, created_here: true }] } }
+    apiPost.mockImplementation(async (url: string) => {
+      if (url === '/regression/lab/all') return { data: ready }
+      if (url === '/regression/lab/cleanup') return { data: { certificates: 5, domains: 2, applications: 1, users: 4, teams: 3 } }
+      throw new Error(url)
+    })
+    renderPage(<Regression />, { url: '/regression' })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Test Hazırlığı' }))
+    await userEvent.type(screen.getByLabelText('A adresi (isteğe bağlı)'), 'a@x')
+    await userEvent.click(screen.getByRole('button', { name: 'Hepsini Hazırla (1–3)' }))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/regression/lab/all', { emails: { a: 'a@x', b: '', c: '' } }))
+    expect(await screen.findByText('localhost:9441')).toBeTruthy()
+    expect(screen.getByText('ismail.test')).toBeTruthy()
+    expect(screen.getAllByText(/Test ortamı hazır/).length).toBeGreaterThan(0)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Test Verisini Temizle' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('5')).toBeTruthy()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Temizle' }))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/regression/lab/cleanup'))
   })
 })

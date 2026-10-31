@@ -9,7 +9,7 @@ Domain eklemek için Yönetici ya da Ekip Editörü olmanız gerekir.
 ## Excel ile toplu yükleme
 1. **Excel** menüsünden **Boş şablon indir**'e basın. İlk satır örnektir; silip kendi verinizi girin.
 2. Doldurduğunuz dosyayı **Excel** > **Excel'den yükle** ile yükleyin.
-3. Jumbo'da tanımlı olmayan bir SY ekibi adı yazılan satır atlanır ve ekranda uyarı kalır; ekip Jumbo'da kendiliğinden açılmaz. Ekip adında büyük/küçük harf farkı sorun değildir.
+3. Jumbo'da zaten kayıtlı olan domainler atlanır. Jumbo'da tanımlı olmayan bir SY ya da UG ekibi adı yazılan satır da atlanır ve ekranda uyarı kalır; ekip Jumbo'da kendiliğinden açılmaz. Ekip adında büyük/küçük harf farkı sorun değildir.
 
 Aynı menüdeki **Listeyi indir**, filtrelenmiş domain listesini indirir.
 

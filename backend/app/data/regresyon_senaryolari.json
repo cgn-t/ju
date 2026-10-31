@@ -3,7 +3,7 @@
   {
    "key": "import",
    "title": "Sertifika yükleme ve domainden çekme",
-   "note": "Test paketindeki dosyalar ve test siteleriyle yapılır. Yüklenen test sertifikalarını iş bitince pasife alın.",
+   "note": "Test paketindeki dosyalar ve test siteleriyle yapılır; test ortamında ikisi de Test Hazırlığı sekmesinden hazırlanır. İş bitince Test Hazırlığı > Test Verisini Temizle ile temizleyin.",
    "scenarios": [
     {
      "id": "IMP-A1",
@@ -1532,6 +1532,54 @@
      "sub": "",
      "title": "Kurum wiki'sine Regresyon-Testi sayfaları aktarıldıktan sonra Ayarlar'da \"Wiki'yi Şimdi Oku\", sonra B2-8.6'da ✦ > Adımı anlat",
      "expected": "AI cevabı kılavuzun \"8 Uygulamalar, dış bağımlılıklar ve trusted sertifikalar\" sayfasına dayanır; \"Baktığı yerler\"de Kullanım Kılavuzu görünür"
+    },
+    {
+     "id": "EKR-E117",
+     "sub": "",
+     "title": "REGRESSION_TOOLS kapalı ortamda (canlı) Regresyon Testi sayfası",
+     "expected": "Yalnız \"Elle test\" ve \"Otomatik kontroller\" sekmeleri var; Test Hazırlığı sekmesi yok"
+    },
+    {
+     "id": "EKR-E118",
+     "sub": "",
+     "title": "REGRESSION_TOOLS=1 test ortamında Regresyon Testi > Test Hazırlığı > A/B/C adreslerini yaz, Hepsini Hazırla",
+     "expected": "1, 2, 3 adımlarında yeşil tik; 26 dosya listelenir; 8 site satırı \"Çalışıyor\"; 4 ekip adresleriyle, 4 test hesabı ve parola görünür; üstte \"4 sa … sonra kendiliğinden kapanır\""
+    },
+    {
+     "id": "EKR-E119",
+     "sub": "",
+     "title": "Test Hazırlığı > Tümünü İndir (zip) ve tek dosya indir",
+     "expected": "jumbo-test-dosyalari.zip içinde dosyalar/00…25 ve BILGI.txt; 10-trusted-20-gun-kala.pem bugünden 20 gün sonra dolar"
+    },
+    {
+     "id": "EKR-E120",
+     "sub": "",
+     "title": "Domainler > Yeni Domain localhost:9441, Canlıdaki Sertifikayı İçe Aktar, Şimdi Doğrula",
+     "expected": "Jumbo kendi test sitesine bağlanır; sonuç Eşleşiyor. localhost:9443 Ara sertifika sunucuda eksik, localhost:9446 SÜRESİ DOLMUŞ"
+    },
+    {
+     "id": "EKR-E121",
+     "sub": "",
+     "title": "Test Hazırlığı > 9444 anahtarını aç, localhost:9444 için Şimdi Doğrula",
+     "expected": "9444 kalan süre 395 gün olur; Canlı Doğrulama yeni sertifikayı görür ve Sertifika değişimi talebi açar"
+    },
+    {
+     "id": "EKR-E122",
+     "sub": "",
+     "title": "Test hesabı ismail.test ile ekrandaki parolayla giriş",
+     "expected": "Ekip Editörü olarak girer, yalnız Ödeme Sistemleri SY kayıtlarını görür; rolsuz.test hiçbir şey göremez"
+    },
+    {
+     "id": "EKR-E123",
+     "sub": "",
+     "title": "Test Hazırlığı > Durdur, sonra Başlat; ayrıca 4 saat bekle",
+     "expected": "Durdurunca siteler kapanır, Başlat ile yeniden açılır; 4 saat sonra siteler kendiliğinden kapanır, adım 2 yeniden \"Başlat\" gösterir"
+    },
+    {
+     "id": "EKR-E124",
+     "sub": "",
+     "title": "Test Hazırlığı > Test Verisini Temizle",
+     "expected": "Pencerede silinecek sertifika/domain/uygulama/hesap/ekip sayıları; Temizle sonrası test kayıtları gider, önceden var olan ekipler ve gerçek domainler kalır; Audit Log'da \"Regresyon test verisi temizlendi\""
     }
    ]
   },

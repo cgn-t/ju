@@ -1,5 +1,7 @@
 Regresyon testine başlamadan önce bir kez yapılır. Bütün bölümler (1–11) bu hazırlığı kullanır.
 
+> **En kolay yol:** Test Jumbo'sunda REGRESSION_TOOLS=1 açıksa Regresyon Testi sayfasındaki **Test Hazırlığı** sekmesi bu sayfadaki test paketini, test sitelerini, ekipleri ve test hesaplarını tek düğmeyle hazırlar (bkz. *Regresyon Testi sayfasını kullanma*). O zaman bu sayfada yalnız **Mail adresleri** ve **Ekipler ve ayarlar**'daki E-posta (SMTP) ayarlarını yapmanız yeterlidir; aşağıdaki Docker ve Python yolları gerekmez.
+
 Test canlıda değil, canlıya benzeyen bir **test Jumbo'sunda** yapılır (tercihen canlıdaki gibi MSSQL ve AD girişli). Boş ya da test verili bir veritabanı olabilir.
 
 ## Test paketi
