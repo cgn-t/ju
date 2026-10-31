@@ -12,11 +12,13 @@ Jumbo, bankadaki SSL sertifikalarının ve bu sertifikaları kullanan domainleri
 - **Genel Durum** (Yönetici ve Genel İzleyici) ya da **Ekibim** (Ekip Editörü ve Ekip İzleyici).
 - **SSL Sertifikaları**, **Domainler**, **Uygulamalar**: envanter ekranları.
 - **Analiz**: Sertifika Haritası, Uyum, Keşif.
-- **İşlemler**: Değişiklik Talepleri, Dağıtım, Tüm Çalıştırmalar, Sistem Sağlığı.
-- **Yardım > Kullanım Kılavuzu**: bu kılavuzu yeni sekmede açar.
+- **İşlemler**: Değişiklik Talepleri, Dağıtım, Tüm Çalıştırmalar, Sistem Sağlığı (yönetici), Regresyon Testi (yönetici).
+- **Yardım > Kullanım Kılavuzu**: bu kılavuzu yeni sekmede açar. Yalnız yönetici Ayarlar > AI Asistanı'nda wiki adresini girdiyse görünür.
+
+Analiz, İşlemler ve Yardım başlıklarına tıklayınca o grup kapanır ya da açılır; seçiminiz bu tarayıcıda hatırlanır.
 
 Sol alttaki adınıza tıklayınca Profilim, Ayarlar (yöneticide) ya da Etiketler, koyu tema ve Çıkış Yap seçenekleri açılır.
 
 Bazı menüler rolünüze ya da yöneticinin Ayarlar > Erişim'deki seçimine göre görünmeyebilir. Ayrıntı için *Roller ve yetkiler* sayfasına bakın.
 
-> Sağ alttaki AI simgesine tıklayıp Jumbo'daki kayıtları ya da bir işin nasıl yapılacağını sorabilirsiniz. Bkz. *AI asistanını kullanma*.
+> Sağ kenardaki **Jumbo AI** düğmesine (fil simgesi) tıklayıp Jumbo'daki kayıtları ya da bir işin nasıl yapılacağını sorabilirsiniz. Bkz. *AI asistanını kullanma*.

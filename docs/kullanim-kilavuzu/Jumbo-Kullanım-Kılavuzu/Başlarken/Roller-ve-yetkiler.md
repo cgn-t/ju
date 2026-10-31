@@ -1,7 +1,7 @@
 Jumbo'da herkesin bir rolü vardır. Rolü yönetici Ayarlar > Kullanıcılar ekranında verir. LDAP ile giriş yapanlarda rol, AD grubundan da gelebilir.
 
 ## Roller
-- **Yönetici**: her şeyi görür ve düzenler. Sertifikayı pasife alma, silme, Zincir Kontrolü ve Ayarlar yalnız yöneticidedir.
+- **Yönetici**: her şeyi görür ve düzenler. Sertifikayı pasife alma, silme, Zincir Kontrolü, Sistem Sağlığı, Regresyon Testi ve Ayarlar yalnız yöneticidedir.
 - **Ekip Editörü**: üyesi olduğu SY ekiplerinin domainlerini, sertifikalarını ve uygulamalarını görür ve düzenler. Ekibinin değişiklik taleplerini onaylayabilir.
 - **Ekip İzleyici**: üyesi olduğu SY ekiplerinin kayıtlarını görür, değiştiremez.
 - **Genel İzleyici**: her şeyi görür, hiçbir şeyi değiştiremez.
