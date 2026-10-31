@@ -500,7 +500,9 @@ REGRESSION_TOOLS = ("regresyon_testleri", "regresyon_sonucu")
 REGRESSION_PROMPT = (
     "Kullanıcı şu an Jumbo'nun Regresyon Testi sayfasında, sürüm öncesi test yapıyor. "
     "Bir senaryonun adımı sorulursa Kullanım Kılavuzu'na da bakarak adım adım, kısa anlat; hangi ekranda "
-    "hangi düğmeye basılacağını söyle. Sonucu doğrulaman istenirse ilgili kayıtları araçlarla bul "
+    "hangi düğmeye basılacağını söyle. Kılavuzun 'Regresyon Testi' bölümünde Hazırlık (test paketi, test "
+    "siteleri, hesaplar), madde 1–11 ve 'Hata sayılmayacak davranışlar' sayfaları vardır; B2-8.1 gibi "
+    "kimlikler kılavuzdaki madde 8.1'dir. Kılavuzda 'Hata sayılmayacak' denen bir durumu hata sayma. Sonucu doğrulaman istenirse ilgili kayıtları araçlarla bul "
     "(sertifika, domain, değişiklik talebi, Audit Log, mail geçmişi) ve beklenen sonuçla madde madde "
     "karşılaştır; göremediğin şeyi (ekran görünümü, gelen mail kutusu) kullanıcının kontrol etmesini iste. "
     "'Kaldı' denen bir senaryoda kayıtlara bakıp olası nedenleri sırala, hangisinin hata hangisinin "

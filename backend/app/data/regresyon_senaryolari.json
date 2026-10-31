@@ -68,7 +68,7 @@
     {
      "id": "IMP-A11",
      "sub": "Dosyadan içe aktarma",
-     "title": "Eski şifreli PFX (RC2/3DES, `-legacy`)",
+     "title": "Eski şifreli PFX (RC2/3DES, -legacy)",
      "expected": "Eklenir"
     },
     {
@@ -80,7 +80,7 @@
     {
      "id": "IMP-A13",
      "sub": "Dosyadan içe aktarma",
-     "title": "`openssl x509 -text` çıktısı (açıklama + PEM)",
+     "title": "openssl x509 -text çıktısı (açıklama + PEM)",
      "expected": "Eklenir"
     },
     {
@@ -206,25 +206,25 @@
     {
      "id": "IMP-C10",
      "sub": "Domainden çekme",
-     "title": "`https://adres:port`",
+     "title": "https://adres:port",
      "expected": "Çekilir"
     },
     {
      "id": "IMP-C11",
      "sub": "Domainden çekme",
-     "title": "`adres:port/yol`",
+     "title": "adres:port/yol",
      "expected": "Çekilir"
     },
     {
      "id": "IMP-C12",
      "sub": "Domainden çekme",
-     "title": "Baş/son boşluk, büyük harf, `(not)` eki",
+     "title": "Baş/son boşluk, büyük harf, (not) eki",
      "expected": "Çekilir"
     },
     {
      "id": "IMP-C13",
      "sub": "Domainden çekme",
-     "title": "IPv6 `[::1]:443`",
+     "title": "IPv6 [::1]:443",
      "expected": "Çekilir"
     },
     {
@@ -272,25 +272,25 @@
     {
      "id": "IMP-F1",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "`www.mynet.com`",
+     "title": "www.mynet.com",
      "expected": "www.mynet.com sertifikası çekilir, bağlanır, canlı kontrol uyumlu"
     },
     {
      "id": "IMP-F2",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "`mynet.com` (www'suz)",
+     "title": "mynet.com (www'suz)",
      "expected": "mynet.com sertifikası çekilir, www'nunki değil"
     },
     {
      "id": "IMP-F3",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "`WWW.MYNET.COM`, `https://www.mynet.com/haber`, `www.mynet.com:443`, boşluklu, `(not)` ekli",
+     "title": "WWW.MYNET.COM, https://www.mynet.com/haber, www.mynet.com:443, boşluklu, (not) ekli",
      "expected": "www.mynet.com sertifikası çekilir"
     },
     {
      "id": "IMP-F4",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "Sunucuda sertifikası olmayan ad (`eski.mynet.com`), sunucu başka sitenin sertifikasını verir",
+     "title": "Sunucuda sertifikası olmayan ad (eski.mynet.com), sunucu başka sitenin sertifikasını verir",
      "expected": "Formda kırmızı uyarı, aktarma kutusu işaretsiz gelir; \"Zinciri içe aktar\" reddedilir, envantere hiçbir şey eklenmez; canlı kontrol EŞLEŞMİYOR, ekleme önerisi üretilmez"
     },
     {
@@ -302,13 +302,13 @@
     {
      "id": "IMP-F6",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "Wildcard sertifika (`*.mynet.com`)",
-     "expected": "`www.mynet.com` kapsanır; `mynet.com` ve `a.b.mynet.com` kapsanmaz"
+     "title": "Wildcard sertifika (*.mynet.com)",
+     "expected": "www.mynet.com kapsanır; mynet.com ve a.b.mynet.com kapsanmaz"
     },
     {
      "id": "IMP-F7",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "Adres IP olarak yazılmış (`10.1.2.3:8443`)",
+     "title": "Adres IP olarak yazılmış (10.1.2.3:8443)",
      "expected": "Ad kontrolü yapılmaz (sunucuya ad gitmez, iç sistemlerde sertifika genelde IP içermez)"
     },
     {
@@ -321,12 +321,12 @@
      "id": "IMP-F9",
      "sub": "Adres ile sertifika adının uyumu",
      "title": "Gerçek siteler (Akbank, Garanti BBVA, İş Bankası, Google, mynet)",
-     "expected": "`gercek-site-testi.py` her adreste \"DOĞRU\" der"
+     "expected": "gercek-site-testi.py her adreste \"DOĞRU\" der"
     },
     {
      "id": "IMP-F10",
      "sub": "Adres ile sertifika adının uyumu",
-     "title": "Gerçek site: `wrong.host.badssl.com` (sunucu `*.badssl.com` verir, tarayıcı reddeder)",
+     "title": "Gerçek site: wrong.host.badssl.com (sunucu *.badssl.com verir, tarayıcı reddeder)",
      "expected": "Uyarı verilir, onaysız bağlanmaz"
     },
     {
@@ -386,7 +386,7 @@
     {
      "id": "IMP-E10",
      "sub": "Ekran testleri",
-     "title": "Yeni Domain, adres `https://…` ile",
+     "title": "Yeni Domain, adres https://… ile",
      "expected": "Zincir gelir"
     },
     {
@@ -404,25 +404,25 @@
     {
      "id": "IMP-G1",
      "sub": "Önizleme, bağlantı hatası ve anasayfa",
-     "title": "`00-kok-ve-ara-sertifika.pem` boş envantere önizleme",
+     "title": "00-kok-ve-ara-sertifika.pem boş envantere önizleme",
      "expected": "Ara sertifikanın Üst Sertifika sütunu \"Jumbo Test Kök SM (bu dosyada)\"; \"bulunamadı\" yazmaz. Kökün üstü boş"
     },
     {
      "id": "IMP-G2",
      "sub": "Önizleme, bağlantı hatası ve anasayfa",
-     "title": "Yeni Domain, adı DNS'te olmayan adres (`bu-adres-yok.jumbo-test-olmayan.com`)",
+     "title": "Yeni Domain, adı DNS'te olmayan adres (bu-adres-yok.jumbo-test-olmayan.com)",
      "expected": "\"Zincir çekilemedi: 'bu-adres-yok…' adresi DNS'te bulunamadı. Adres yanlış yazılmış olabilir ya da bu adres yalnız iç ağdan çözülüyor olabilir. (Teknik ayrıntı: …) — domain yine de kaydedilebilir.\""
     },
     {
      "id": "IMP-G3",
      "sub": "Önizleme, bağlantı hatası ve anasayfa",
-     "title": "Yeni Domain, kapalı port (`localhost:9449`)",
+     "title": "Yeni Domain, kapalı port (localhost:9449)",
      "expected": "\"localhost:9449 bağlantıyı reddetti. Bu portta çalışan bir servis olmayabilir. (Teknik ayrıntı: …)\""
     },
     {
      "id": "IMP-G4",
      "sub": "Önizleme, bağlantı hatası ve anasayfa",
-     "title": "Eski sertifikası trust store'da olan yenisinin önizlemesi (`24-trusted-yenisi.pem`, eskisi Ödeme API trust store'unda)",
+     "title": "Eski sertifikası trust store'da olan yenisinin önizlemesi (24-trusted-yenisi.pem, eskisi Ödeme API trust store'unda)",
      "expected": "Kutu \"Yenileme tespit edildi — değişiklik talebi önerisi\", \"Eskinin bağlı olduğu uygulamalar: Ödeme API (trust store)\", işaretli \"değişiklik talebi oluştur\". İçe Aktar → \"1 sertifika eklendi — 1 değişiklik talebi oluşturuldu (SY onayı bekliyor)\"; talep \"trust store'a ekle — eski kalır\""
     },
     {
@@ -446,7 +446,7 @@
     {
      "id": "IMP-G8",
      "sub": "Önizleme, bağlantı hatası ve anasayfa",
-     "title": "Aynı CN + aynı CA'lı birden çok eski sertifika (test paketinde tüm `localhost` sertifikaları; `25-sunucu-yenisi.pem`)",
+     "title": "Aynı CN + aynı CA'lı birden çok eski sertifika (test paketinde tüm localhost sertifikaları; 25-sunucu-yenisi.pem)",
      "expected": "v3.8.12: önizleme tüm eski sertifikaları bitiş, SKI ve bağlantılarıyla listeler, hiçbiri seçili gelmez. Talep yalnız seçilen eski için açılır (9446 seçilince: 9446 domaini + Ödeme API Trusted bağlantısı, 2 talep). Seçilmezse onay penceresi \"Açılmayacak — eski sertifika seçilmedi\", yalnız \"1 sertifika eklendi\". v3.8.9–v3.8.11: kutu yalnız bitişi en geç olanı (9441) kapsıyordu"
     },
     {
@@ -544,19 +544,19 @@
      "id": "CNL-C14",
      "sub": "",
      "title": "Değişiklik Talepleri'nde EKLE veya KALDIR talebi \"İncele\" ile açılıyor",
-     "expected": "Sertifika kartı ve \"Neden bu talep?\" altında \"Sertifika Detayı\" tablosu: Subject, SAN, Issuer, SKI, AKI, SHA-256 parmak izi, Serial, Başlangıç, Bitiş, Anahtar (ör. RSA 2048), İmza algoritması. Sütun başlığı \"EKLENECEK SERTİFİKA\" ya da \"KALDIRILACAK SERTİFİKA\". \"Diğer bağlantıları\" sertifikanın başka domain bağlarını listeler (talebin kendi domaini hariç), yoksa \"Başka domaine bağlı değil.\" Yenileme (eski → yeni) ekranı değişmez. Ekranlar: 01-ekle-talebi.png, 02-kaldir-talebi.png, 03-yenileme-degismedi.png. Otomatik: `frontend/src/components/ProposalReviewDrawer.test.tsx`"
+     "expected": "Sertifika kartı ve \"Neden bu talep?\" altında \"Sertifika Detayı\" tablosu: Subject, SAN, Issuer, SKI, AKI, SHA-256 parmak izi, Serial, Başlangıç, Bitiş, Anahtar (ör. RSA 2048), İmza algoritması. Sütun başlığı \"EKLENECEK SERTİFİKA\" ya da \"KALDIRILACAK SERTİFİKA\". \"Diğer bağlantıları\" sertifikanın başka domain bağlarını listeler (talebin kendi domaini hariç), yoksa \"Başka domaine bağlı değil.\" Yenileme (eski → yeni) ekranı değişmez. Ekranlar: 01-ekle-talebi.png, 02-kaldir-talebi.png, 03-yenileme-degismedi.png. Otomatik: frontend/src/components/ProposalReviewDrawer.test.tsx"
     },
     {
      "id": "CNL-C15",
      "sub": "",
      "title": "ÇAPRAZ İMZALI KÖK: sunucu, tarayıcıların güvendiği bir kökün başka CA imzalı kopyasını ve onun üstündeki eski zinciri de gönderiyor (www.akbank.de: uç → CA EV R36 → Root R46 kopyası → USERTrust kopyası → AAA)",
-     "expected": "\"Yeni Domain\" canlı zincirde 5 sertifika da görünür. Root R46 \"I\" kalır ama yanında \"Çapraz imzalı kök\" etiketi; USERTrust ve AAA \"Ek zincir\". Altta mavi not: tarayıcılar zinciri R46 kökünde bitirir, altındaki 2 sertifika eski cihazlar için. İçe aktarma ve canlı doğrulama değişmez (sunucunun gönderdiği 5 sertifika bağlanır). Şirket içi CA'larda etiket çıkmaz. Ekranlar: 01-capraz-imzali-kok.png, 02-capraz-imzali-kok-aciklama.png. Otomatik: `tests/test_capraz_imzali_kok.py`"
+     "expected": "\"Yeni Domain\" canlı zincirde 5 sertifika da görünür. Root R46 \"I\" kalır ama yanında \"Çapraz imzalı kök\" etiketi; USERTrust ve AAA \"Ek zincir\". Altta mavi not: tarayıcılar zinciri R46 kökünde bitirir, altındaki 2 sertifika eski cihazlar için. İçe aktarma ve canlı doğrulama değişmez (sunucunun gönderdiği 5 sertifika bağlanır). Şirket içi CA'larda etiket çıkmaz. Ekranlar: 01-capraz-imzali-kok.png, 02-capraz-imzali-kok-aciklama.png. Otomatik: tests/test_capraz_imzali_kok.py"
     },
     {
      "id": "CNL-C16",
      "sub": "",
      "title": "KAYITTAKİ TARİH YANLIŞ: sunucu, domaine bağlı sertifikanın aynısını (parmak izi aynı) sunuyor, ama envanter kaydındaki bitiş tarihi farklı (eski uygulamadan kalan kayıt, ör. UAT'de *.akbank.com kaydında 04.06.2022, gerçeği 23.12.2032)",
-     "expected": "Durum sertifikanın kendi tarihine göre: süresi dolmamışsa \"Eşleşiyor\", \"SÜRESİ DOLMUŞ\" çıkmaz. Altta \"Tarih farkı: Kayıttaki tarih sertifikanın kendisinden farklı: <ad> (kayıtta bitiş …, sertifikada …) — tarih güncelleme talebi SY onayında\". Değişiklik Talepleri'nde mavi \"TARİH\" satırı (bitiş eski → yeni), Tip \"tarih güncelleme\". İncele: \"Tarih Güncelleme İncelemesi\", Başlangıç/Bitiş için KAYITTA ve SERTİFİKADA sütunları. Onayda yalnız tarihler sertifikadan düzeltilir (bağlantılar değişmez, pasife alma yok), Audit Log \"Tarih güncellendi (talep)\". Tekrar doğrulamada not kalkar. Sertifika başına tek talep; reddedilirse yeniden açılmaz, not \"talebi reddedilmişti\" der. Hatırlatma mailinde \"Tarih güncelleme: <ad>\", Kayıttaki/Sertifikadaki Bitiş satırları. Ekranlar: tarih-guncelleme/ 01–06. Otomatik: `tests/test_live_check_date_fix.py`"
+     "expected": "Durum sertifikanın kendi tarihine göre: süresi dolmamışsa \"Eşleşiyor\", \"SÜRESİ DOLMUŞ\" çıkmaz. Altta \"Tarih farkı: Kayıttaki tarih sertifikanın kendisinden farklı: <ad> (kayıtta bitiş …, sertifikada …) — tarih güncelleme talebi SY onayında\". Değişiklik Talepleri'nde mavi \"TARİH\" satırı (bitiş eski → yeni), Tip \"tarih güncelleme\". İncele: \"Tarih Güncelleme İncelemesi\", Başlangıç/Bitiş için KAYITTA ve SERTİFİKADA sütunları. Onayda yalnız tarihler sertifikadan düzeltilir (bağlantılar değişmez, pasife alma yok), Audit Log \"Tarih güncellendi (talep)\". Tekrar doğrulamada not kalkar. Sertifika başına tek talep; reddedilirse yeniden açılmaz, not \"talebi reddedilmişti\" der. Hatırlatma mailinde \"Tarih güncelleme: <ad>\", Kayıttaki/Sertifikadaki Bitiş satırları. Ekranlar: tarih-guncelleme/ 01–06. Otomatik: tests/test_live_check_date_fix.py"
     },
     {
      "id": "CNL-C17",
@@ -749,8 +749,8 @@
     {
      "id": "KRT-A4",
      "sub": "",
-     "title": "Domain aramasında `ILETISIM`, `iletisim`, `İletişim` yazın",
-     "expected": "Üçünde de doğru domain bulunur; tablo sütun filtresinde `internet` yazınca \"İnternet Şubesi\" bulunur"
+     "title": "Domain aramasında ILETISIM, iletisim, İletişim yazın",
+     "expected": "Üçünde de doğru domain bulunur; tablo sütun filtresinde internet yazınca \"İnternet Şubesi\" bulunur"
     },
     {
      "id": "KRT-A5",
@@ -1520,6 +1520,18 @@
      "sub": "",
      "title": "Testi Bitir, sonra bir senaryoyu işaretlemeyi dene",
      "expected": "Onay penceresinde sayılar görünür. Bitirilen testte düğmeler pasif, \"Bu test bitirildi\" notu çıkar; Audit Log'da \"Regresyon testi bitti\""
+    },
+    {
+     "id": "EKR-E115",
+     "sub": "",
+     "title": "Elle test listesinde \"Uygulamalar, trust store, sertifika yönetimi, uyum ve iptal\" bölümü",
+     "expected": "51 senaryo, B2-8.1 … B2-11.10; numaralar Regresyon Test Kılavuzu Bölüm 2 ile aynı; adımlarda kod işareti () görünmez"
+    },
+    {
+     "id": "EKR-E116",
+     "sub": "",
+     "title": "Kurum wiki'sine Regresyon-Testi sayfaları aktarıldıktan sonra Ayarlar'da \"Wiki'yi Şimdi Oku\", sonra B2-8.6'da ✦ > Adımı anlat",
+     "expected": "AI cevabı kılavuzun \"8 Uygulamalar, dış bağımlılıklar ve trusted sertifikalar\" sayfasına dayanır; \"Baktığı yerler\"de Kullanım Kılavuzu görünür"
     }
    ]
   },
@@ -1531,7 +1543,7 @@
     {
      "id": "POD-K1",
      "sub": "",
-     "title": "DB kullanıcısıyla `sp_getapplock` deneme sorgusu (deploy/README.md)",
+     "title": "DB kullanıcısıyla sp_getapplock deneme sorgusu (deploy/README.md)",
      "expected": "Sonuç 0"
     },
     {
@@ -1585,8 +1597,8 @@
     {
      "id": "POD-K10",
      "sub": "",
-     "title": "Dış araç: `POST /api/notifications/expiry-run` + X-API-Key",
-     "expected": "202 \"started\"; `GET …/expiry-run/status` biter, sent sayısı görünür"
+     "title": "Dış araç: POST /api/notifications/expiry-run + X-API-Key",
+     "expected": "202 \"started\"; GET …/expiry-run/status biter, sent sayısı görünür"
     },
     {
      "id": "POD-K11",
@@ -1604,7 +1616,7 @@
      "id": "POD-K13",
      "sub": "",
      "title": "İptal Durumu: \"İptal denetimi etkin\" açık, \"Her gece otomatik çalışsın\" kapalı",
-     "expected": "Gece denetim yok; `POST /api/certificates/revocation-run` + anahtar ile çalışır"
+     "expected": "Gece denetim yok; POST /api/certificates/revocation-run + anahtar ile çalışır"
     },
     {
      "id": "POD-K14",
@@ -1615,7 +1627,7 @@
     {
      "id": "POD-K15",
      "sub": "",
-     "title": "Ağ keşfi / CT: anahtarla `POST /api/discovery/scan` ve `/ct-scan`",
+     "title": "Ağ keşfi / CT: anahtarla POST /api/discovery/scan ve /ct-scan",
      "expected": "Tarama başlar; yanlış anahtar 401"
     },
     {
@@ -1629,6 +1641,319 @@
      "sub": "",
      "title": "Canlı doğrulama sürerken o pod'u sil",
      "expected": "Durum \"yarıda kaldı\"; tekrar \"Şimdi Çalıştır\" çalışır (kilit takılı kalmaz)"
+    }
+   ]
+  },
+  {
+   "key": "bolum2",
+   "title": "Uygulamalar, trust store, sertifika yönetimi, uyum ve iptal",
+   "note": "Regresyon Test Kılavuzu Bölüm 2; adım numaraları kılavuzla aynı. Bölüm 1'deki Hazırlık (test paketi, test siteleri, hesaplar) geçerlidir. Bölümler kendi içinde sırayla yapılır.",
+   "scenarios": [
+    {
+     "id": "B2-8.1",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Uygulamalar > Yeni Ekle: Uygulama Adı = Ödeme API, Sunucu Adı = odemesrv01, SY Takımı = Ödeme Sistemleri SY, Bağlı Domain = localhost:9441. Ekle",
+     "expected": "Listede Ödeme API, Domain localhost:9441, SY Ödeme Sistemleri SY, Durum Aktif"
+    },
+    {
+     "id": "B2-8.2",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme API satırında kalem (düzenle) simgesi. \"Dış Bağımlılıklar (trusted)\" altında Hedef Domain = localhost:9446, Ekle",
+     "expected": "Listeye localhost:9446 gelir. Altında \"Trusted: localhost [..]\" ile 9446'daki sertifikanın adı ve anahtar kimliğinin başı yazar. Sertifikayı sizin seçmeniz gerekmez."
+    },
+    {
+     "id": "B2-8.3",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Hedef Domain listesini açın",
+     "expected": "localhost:9441 listede yoktur, çünkü uygulama kendi domainine bağımlı olamaz"
+    },
+    {
+     "id": "B2-8.4",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Hedef Domain = localhost:9446 seçip tekrar Ekle",
+     "expected": "\"Bu bağımlılık zaten kayıtlı\" mesajı; listede ikinci satır oluşmaz"
+    },
+    {
+     "id": "B2-8.5",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "İletişim editörü ile girin, Uygulamalar",
+     "expected": "Ödeme API listede görünmez (başka ekibin uygulaması)"
+    },
+    {
+     "id": "B2-8.6",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Yönetici hesabıyla SSL Sertifikaları > Yeni Ekle > Dosyadan İçe Aktar: 25-sunucu-yenisi.pem, Oluşturan Ekip = İletişim Kanalları SY, Ortam = Test. Önizlemedeki eski sertifika listesine bakın, sonra \"değişiklik talebi oluştur\" işaretini kaldırın (talebi 8.7'de editör açacak) ve İçe Aktar",
+     "expected": "Önizlemede \"Yeniden anahtarlama → localhost\" ve \"Bu ada ve CA'ya sahip … eski sertifika var. Yeni sertifika hangisinin yerine geçiyor?\" yazısıyla tüm eski localhost sertifikaları listelenir. Hiçbiri seçili gelmez. Her satırda bitiş ve bağlantılar yazar; süresi geçmiş olanın satırında \"localhost:9446 (server), Ödeme API (istemci sertifikası)\". Kaydedince yalnız \"1 sertifika eklendi\" yazar ve yeni bir localhost sertifikası eklenir (yaklaşık 299 gün kaldı)."
+    },
+    {
+     "id": "B2-8.7",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme editörü ile girin. SSL Sertifikaları'nda 9446'daki eski localhost sertifikasının (süresi geçmiş) göz simgesini açın. \"Değişiklik Talebi Oluştur\" bölümünde Yeni sertifika = 8.6'da eklenen yeni sertifika, Değişiklik Talebi Oluştur",
+     "expected": "\"2 değişiklik talebi oluşturuldu — ilgili SY ekiplerinin onayı bekleniyor\""
+    },
+    {
+     "id": "B2-8.8",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Aynı hesapla Değişiklik Talepleri",
+     "expected": "Yalnız bir satır görünür: ESKİ localhost → YENİ localhost, Domain sütununda \"Trusted bağlantı\", SY Ekip Ödeme Sistemleri SY"
+    },
+    {
+     "id": "B2-8.9",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "İletişim editörü ile Değişiklik Talepleri",
+     "expected": "Yalnız bir satır: Domain localhost:9446, SY Ekip İletişim Kanalları SY. Trusted bağlantı satırı bu hesapta görünmez"
+    },
+    {
+     "id": "B2-8.10",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme editörü ile Trusted bağlantı satırını Onayla",
+     "expected": "Satır listeden çıkar. Uygulamalar > Ödeme API düzenle: Dış Bağımlılıklar'da artık yeni sertifika yazar (anahtar kimliği değişmiştir). Eski sertifika henüz aktif kalır, çünkü 9446 domaini hâlâ ona bağlı"
+    },
+    {
+     "id": "B2-8.11",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "İletişim editörü ile 9446 satırını Onayla",
+     "expected": "Domainler > localhost:9446 detayında yeni sertifika (~299g) görünür. SSL Sertifikaları'nda eski sertifika artık listede yoktur; \"Pasifleri göster\" açılınca pasif olarak görünür"
+    },
+    {
+     "id": "B2-8.12",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme editörü ile Ödeme API düzenle. \"Trusted Sertifikalar (trust store)\" altında Sertifika = trusted-20-gun-kala.jumbo-test.local (Bölüm 1'de yüklendi; yüklenmediyse önce 10-trusted-20-gun-kala.pem dosyasını Ödeme Sistemleri SY ile yükleyin), Ekle",
+     "expected": "Sertifika mor kalkan simgesiyle listeye gelir"
+    },
+    {
+     "id": "B2-8.13",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Aynı sertifikayı tekrar ekleyin",
+     "expected": "\"Bu sertifika zaten trust store'da\" mesajı"
+    },
+    {
+     "id": "B2-8.14",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Yönetici hesabıyla 24-trusted-yenisi.pem dosyasını yükleyin (Oluşturan Ekip = Ödeme Sistemleri SY). Önizlemede \"Eskinin bağlı olduğu uygulamalar: Ödeme API (trust store)\" ve işaretli \"değişiklik talebi oluştur\" görünür; bu adımda talebi editör açacağı için işareti kaldırıp İçe Aktar (mesaj: \"1 sertifika eklendi\"). Sonra Ödeme editörü ile eski trusted-20-gun-kala sertifikasının (19 gün kalan) detayında Yeni sertifika = yeni yüklenen (~299 gün), Değişiklik Talebi Oluştur",
+     "expected": "\"1 değişiklik talebi oluşturuldu\". Değişiklik Talepleri'nde satırda \"trust store'a ekle — eski kalır\", Domain sütununda \"Ödeme API (trust store)\", SY Ekip Ödeme Sistemleri SY"
+    },
+    {
+     "id": "B2-8.15",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme editörü ile bu talebi Onayla",
+     "expected": "Ödeme API'nin trust store'unda iki sertifika görünür: eskisi ve yenisi (\"yeni sertifika (değişiklik talebi onayı ile eklendi)\"). Eski sertifika aktif kalır"
+    },
+    {
+     "id": "B2-8.16",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Ödeme editörü ile trust store'da eski sertifikanın satırındaki çöp kutusu, sonra Kaydet",
+     "expected": "Yalnız yeni sertifika kalır. Eski sertifika SSL Sertifikaları'nda aktif kalır (silinmez, pasife alınmaz)"
+    },
+    {
+     "id": "B2-8.17",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Analiz > Sertifika Haritası > İlişkiler",
+     "expected": "Ödeme API, localhost:9441'e ve localhost:9446'ya bağlı görünür; 9446 bağlantısı turuncu kesikli oktur"
+    },
+    {
+     "id": "B2-8.18",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Yönetici hesabıyla SSL Sertifikaları'nda iptal-bilgisi-yok.jumbo-test.local sertifikasını Pasife Al (11. bölümden önce yapıyorsanız önce 16-iptal-bilgisi-yok.pem dosyasını yükleyin; 11. bölümden önce Aktifleştir ile geri alın). Sonra Ödeme API düzenle > Trusted Sertifikalar > Sertifika listesini açın",
+     "expected": "Pasif sertifika listede yoktur. Trust store'da zaten olan sertifika da listede yoktur"
+    },
+    {
+     "id": "B2-8.19",
+     "sub": "Uygulamalar: dış bağımlılıklar ve trusted sertifikalar",
+     "title": "Uygulamalar > Yeni Ekle: Uygulama Adı = Yeni Test Uygulaması, Sunucu Adı = yenisrv01, SY Takımı = Ödeme Sistemleri SY. Aşağıdaki \"Trusted Sertifikalar (trust store)\" alanında bir trusted sertifika seçip yanındaki Ekle, sonra pencerenin altındaki Ekle",
+     "expected": "Uygulama eklenir. Düzenle açılınca seçtiğiniz sertifika trust store'da görünür"
+    },
+    {
+     "id": "B2-9.1",
+     "sub": "Sertifika yönetimi",
+     "title": "Yönetici hesabıyla tek-sertifika detayı > kalem. Notlar = Regresyon notu: ğüşıöçİ, Satın Alım Yapan = Ayşe. Kaydet > Onaylıyorum",
+     "expected": "Detayda iki alan da yazıldığı gibi, Türkçe harfler bozulmadan görünür"
+    },
+    {
+     "id": "B2-9.2",
+     "sub": "Sertifika yönetimi",
+     "title": "İletişim editörü ile aynı sertifikanın Notlar'ını değiştirip kaydedin",
+     "expected": "Kırmızı mesaj \"Bu sertifika başka bir ekibe ait; yalnız o ekibin editörü veya admin düzenleyebilir\". Not değişmez"
+    },
+    {
+     "id": "B2-9.3",
+     "sub": "Sertifika yönetimi",
+     "title": "Ödeme editörü ile aynı değişikliği yapın",
+     "expected": "Kaydedilir"
+    },
+    {
+     "id": "B2-9.4",
+     "sub": "Sertifika yönetimi",
+     "title": "Ödeme editörü ile SSL Sertifikaları listesine bakın",
+     "expected": "İşlemler sütununda yalnız göz simgesi vardır. Pasife Al ve Sil simgeleri yoktur (bunlar yalnız yöneticidedir)"
+    },
+    {
+     "id": "B2-9.5",
+     "sub": "Sertifika yönetimi",
+     "title": "Yönetici hesabıyla, localhost:9441'e bağlı localhost sertifikasının satırında Pasife Al (turuncu duraklat simgesi) > Pasife Al",
+     "expected": "Kırmızı mesaj \"Bu sertifika şu domain(ler)e SERVER olarak bağlı: localhost:9441. Pasife almadan önce server bağlantısını Değişiklik Talebi ile yeni sertifikaya taşıyın.\" Sertifika aktif kalır"
+    },
+    {
+     "id": "B2-9.6",
+     "sub": "Sertifika yönetimi",
+     "title": "tek-sertifika satırında Pasife Al > \"Sertifikayı Pasife Al\" penceresinde Pasife Al",
+     "expected": "\"Sertifika pasife alındı.\" Sertifika listeden çıkar. \"Pasifleri göster\" açılınca yeniden görünür ve satırında yeşil Aktifleştir simgesi vardır. Bu işlem için kimseye mail gitmez (A kutusuna yeni mail gelmez)"
+    },
+    {
+     "id": "B2-9.7",
+     "sub": "Sertifika yönetimi",
+     "title": "\"Pasifleri göster\" açıkken aynı satırda Aktifleştir (yeşil oynat simgesi)",
+     "expected": "Sertifika yeniden aktif olur; anahtar kapatılınca listede görünür"
+    },
+    {
+     "id": "B2-9.8",
+     "sub": "Sertifika yönetimi",
+     "title": "tek-sertifika satırında Sil (kırmızı çöp kutusu) > \"Sertifikayı Kalıcı Sil\" penceresinde Kalıcı Sil",
+     "expected": "Sertifika \"Pasifleri göster\" açık olsa da listede yoktur"
+    },
+    {
+     "id": "B2-9.9",
+     "sub": "Sertifika yönetimi",
+     "title": "01-tek-sertifika.pem dosyasını tekrar yükleyin (Oluşturan Ekip = Ödeme Sistemleri SY, Ortam = Test)",
+     "expected": "Önizlemede \"Yeni\" yazar ve sertifika yeniden eklenir. Notlar boştur (silinen kayıt geri gelmez)"
+    },
+    {
+     "id": "B2-9.10",
+     "sub": "Sertifika yönetimi",
+     "title": "Uygulamalar > Ödeme API düzenle. Etiketler kutusunda listeden Yüksek'i seçin. Sonra Yeni etiket kategorisi = Ürün iken kutuya Kart Ödemeleri yazıp Enter. Kaydet",
+     "expected": "Listede Ödeme API satırında \"Yüksek\" ve \"Kart Ödemeleri\" etiketleri görünür"
+    },
+    {
+     "id": "B2-9.11",
+     "sub": "Sertifika yönetimi",
+     "title": "Uygulamalar arama kutusuna kart ödemeleri yazın",
+     "expected": "Ödeme API bulunur"
+    },
+    {
+     "id": "B2-9.12",
+     "sub": "Sertifika yönetimi",
+     "title": "Ödeme editörü ile Ödeme API düzenle, Yeni etiket kategorisi listesini açın",
+     "expected": "Yalnız var olan kategoriler (Kritiklik, Ortam, Ürün) seçilebilir. Kategori = Ürün ile Mobil Ödeme yazıp Enter, Kaydet: etiket eklenir"
+    },
+    {
+     "id": "B2-9.13",
+     "sub": "Sertifika yönetimi",
+     "title": "Yönetici hesabıyla Analiz > Sertifika Haritası (Sertifikalar görünümü)",
+     "expected": "Soldan sağa Kök (mavi) → Ara (yeşil) → sertifikalar (turuncu) → domainler (mor). localhost:9441 ve localhost:9446 domainleri kendi sertifikalarına bağlıdır"
+    },
+    {
+     "id": "B2-10.1",
+     "sub": "Uyum kuralları",
+     "title": "Şu dosyaları yükleyin (Oluşturan Ekip = Ödeme Sistemleri SY, Ortam = Test): 17-zayif-rsa-1024.pem, 18-zayif-ec-p192.pem, 19-sha224-imzali.pem, 20-omur-399-gun.pem, 21-omur-398-gun.pem, 22-baska-yayinci.pem, 23-istanbul-yayinci.pem",
+     "expected": "Hepsi eklenir. 22 ve 23 ikişer sertifika ekler: kendi yayıncıları (\"Bilinmeyen Test SM\", \"İSTANBUL Test SM\") ve asıl sertifika"
+    },
+    {
+     "id": "B2-10.2",
+     "sub": "Uyum kuralları",
+     "title": "Analiz > Uyum",
+     "expected": "Listede üçü vardır: zayif-rsa (Zayıf Anahtar, RSA 1024, Önem Yüksek), zayif-ec (Zayıf Anahtar, EC 192, Önem Orta), omur-399 (Aşırı Ömür, Önem Orta). omur-398, sha224-imza, baska-yayinci, istanbul-yayinci listede yoktur"
+    },
+    {
+     "id": "B2-10.3",
+     "sub": "Uyum kuralları",
+     "title": "Üstteki \"Kurallar\" satırında \"Zayıf Anahtar\" etiketine tıklayın",
+     "expected": "Liste yalnız zayıf anahtarlı sertifikalara iner. Tekrar tıklayınca filtre kalkar"
+    },
+    {
+     "id": "B2-10.4",
+     "sub": "Uyum kuralları",
+     "title": "Ayarlar > Uyum > Yasak İmza Özet Algoritmaları kutusuna sha224 ekleyin (listeden seçin ya da yazıp Enter). Kaydet. Uyum sayfasını yenileyin",
+     "expected": "sha224-imza listeye gelir: Zayıf İmza, İmza sütununda sha224, Önem Yüksek."
+    },
+    {
+     "id": "B2-10.5",
+     "sub": "Uyum kuralları",
+     "title": "Ayarlar > Uyum: \"CA allowlist zorunlu\" açın. CA Allowlist kutusuna Jumbo Test yazıp Enter, sonra istanbul yazıp Enter (küçük harfle, Latin i ile). Kaydet. Uyum sayfasını yenileyin",
+     "expected": "baska-yayinci gelir: İzin Listesi Dışı CA, Önem Yüksek. istanbul-yayinci gelmez; yayıncısı \"İSTANBUL Test SM\" büyük İ ile yazılmış olsa da izin listesindeki istanbul ile eşleşir. Bölüm 1'in localhost sertifikaları (yayıncı Jumbo Test Ara SM) gelmez"
+    },
+    {
+     "id": "B2-10.6",
+     "sub": "Uyum kuralları",
+     "title": "Bölüm 1, madde 7'de gerçek sitelerden domain eklediyseniz bu sitelerin sertifikalarına bakın",
+     "expected": "Onlar da İzin Listesi Dışı CA olarak gelir, çünkü yayıncıları izin listesinde yoktur. Bu beklenen sonuçtur"
+    },
+    {
+     "id": "B2-10.7",
+     "sub": "Uyum kuralları",
+     "title": "Ayarlar > Uyum: Asgari RSA (bit) = 1024. Kaydet. Uyum sayfasını yenileyin",
+     "expected": "zayif-rsa listeden çıkar; zayif-ec kalır"
+    },
+    {
+     "id": "B2-10.8",
+     "sub": "Uyum kuralları",
+     "title": "Ayarlar > Uyum: \"Uyum değerlendirmesi etkin\" kapatın, Kaydet. Uyum sayfasını açın",
+     "expected": "Sarı uyarı: \"Uyum değerlendirmesi kapalı (Ayarlar → Uyum). Aşağıdaki bulgular yine de mevcut envantere göre hesaplanır...\" Liste görünmeye devam eder"
+    },
+    {
+     "id": "B2-10.9",
+     "sub": "Uyum kuralları",
+     "title": "Ayarları geri alın: Uyum değerlendirmesi etkin açık, Asgari RSA 2048, sha224 silinir, CA allowlist zorunlu kapalı, izin listesi boş. Kaydet",
+     "expected": "10.2'deki üç sertifika yeniden listededir; sha224-imza ve baska-yayinci listeden çıkar"
+    },
+    {
+     "id": "B2-11.1",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "Yönetici hesabıyla Ayarlar > İptal (OCSP/CRL) sayfasına bakın",
+     "expected": "\"Gece iptal denetimi etkin (her gün)\" kapalıdır (varsayılan). Yöntem \"OCSP → CRL (önerilen)\", Gece Saati 5"
+    },
+    {
+     "id": "B2-11.2",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "14-iptal-edilmis.pem, 15-iptal-edilmemis.pem, 16-iptal-bilgisi-yok.pem dosyalarını yükleyin (Oluşturan Ekip = Ödeme Sistemleri SY, Ortam = Test)",
+     "expected": "Üçü de eklenir. Detaylarında \"İptal Durumu (OCSP/CRL)\" altında Denetlenmedi yazar"
+    },
+    {
+     "id": "B2-11.3",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "Ödeme editörü ile iptal-edilmis.jumbo-test.local detayı > Şimdi Kontrol Et",
+     "expected": "Kırmızı İPTAL EDİLMİŞ ve yanında \"Son denetim: <şimdiki saat>\"."
+    },
+    {
+     "id": "B2-11.4",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "A kutusuna bakın",
+     "expected": "Tek mail: konu \"[JUMBO] İPTAL EDİLMİŞ sertifika: iptal-edilmis.jumbo-test.local — acil aksiyon gerekli\". İçinde Sertifika, Seri No, Bitiş, \"Durum: İPTAL EDİLMİŞ (revoked)\" ve üç adımlık \"Lütfen şu adımları izleyin\" listesi var. Görünümü diğer Jumbo mailleriyle aynıdır"
+    },
+    {
+     "id": "B2-11.5",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "Aynı sertifikada tekrar Şimdi Kontrol Et",
+     "expected": "Durum yine İPTAL EDİLMİŞ, Son denetim saati güncellenir. Yeni mail gelmez"
+    },
+    {
+     "id": "B2-11.6",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "iptal-edilmemis.jumbo-test.local > Şimdi Kontrol Et",
+     "expected": "Yeşil İptal edilmemiş. Mail gelmez"
+    },
+    {
+     "id": "B2-11.7",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "iptal-bilgisi-yok.jumbo-test.local > Şimdi Kontrol Et",
+     "expected": "Gri Kontrol edilemez (bu sertifikada sorulacak adres yoktur). Mail gelmez"
+    },
+    {
+     "id": "B2-11.8",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "İzleyici hesabıyla aynı detayı açın",
+     "expected": "Durum görünür ama Şimdi Kontrol Et düğmesi yoktur"
+    },
+    {
+     "id": "B2-11.9",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "Yönetici hesabıyla Ayarlar > İptal: \"Gece iptal denetimi etkin\" açın, Kaydet. Ertesi sabah (05:00'ten sonra) üç sertifikaya bakın",
+     "expected": "Durumlar aynıdır (İPTAL EDİLMİŞ / İptal edilmemiş / Kontrol edilemez); Son denetim saati gece 05 civarıdır. İptal edilmiş sertifika için yeni mail gelmez, çünkü durum değişmedi"
+    },
+    {
+     "id": "B2-11.10",
+     "sub": "İptal (OCSP/CRL) kontrolü",
+     "title": "Ayarı tekrar kapatın (varsayılan), Kaydet",
+     "expected": "Kaydedilir"
     }
    ]
   }

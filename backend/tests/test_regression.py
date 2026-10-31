@@ -26,7 +26,7 @@ def test_catalog_has_all_sections_and_unique_ids(client, auth_headers):
     assert r.status_code == 200
     body = r.json()
     keys = [s["key"] for s in body["sections"]]
-    assert keys == ["import", "canli", "mail", "kritik", "ekran", "pod"]
+    assert keys == ["import", "canli", "mail", "kritik", "ekran", "pod", "bolum2"]
     ids = [sc["id"] for s in body["sections"] for sc in s["scenarios"]]
     assert len(ids) == len(set(ids)) == body["total"] > 200
     assert all(sc["title"] and sc["expected"] for s in body["sections"] for sc in s["scenarios"])

@@ -1,0 +1,24 @@
+Regresyon Test Kılavuzu, Bölüm 1, madde 7. Önce *Hazırlık* sayfası yapılmış olmalıdır. Tablodaki her adımı yapın ve ekranda "Ne görmelisiniz" sütunundakini görüp görmediğinize bakın.
+
+Bu bölüm, Jumbo'nun internetteki gerçek sitelerden sertifikayı doğru çektiğini kontrol eder. Jumbo sunucusunun internete çıkabilmesi gerekir. Adresler iki gruptan oluşur: Türkiye'de bilinen normal siteler ve **badssl.com**. badssl.com, bilerek hatalı sertifika sunan, herkese açık bir test sitesidir.
+
+Gerçek sitelerin sertifikaları zamanla yenilenir. Bu yüzden tabloda tarih ve yayıncı adı yerine ne tür bir sonuç görmeniz gerektiği yazar. Domain eklerken 2. bölümdeki gibi davranın: SY Takımı = Ödeme Sistemleri SY, Ortam = Test, LoadBalancer ve WAF alanlarında herhangi bir değer. Bölüm bitince burada eklediğiniz domainleri silebilirsiniz.
+
+| Adım | Ne yapın | Ne görmelisiniz |
+|---|---|---|
+| 7.0 | Önce ağı kontrol edin. Test paketindeki `gercek-site-testi.py` dosyasını Jumbo sunucusuyla aynı ağdaki bir makinede çalıştırın: `python3 gercek-site-testi.py` | Her adres için "SONUÇ: DOĞRU" ya da "FARKLI AMA GEÇERLİ". "DİKKAT — ... tarayıcı bu sertifikaya güvenmiyor" çıkarsa aradaki bir güvenlik cihazı sertifikaları değiştiriyordur. Bu durumda bölümü durdurun ve sistem yöneticisine bildirin, çünkü Jumbo'nun göreceği sertifikalar gerçek olmaz |
+| 7.1 | Yeni Ekle'de `www.google.com` yazıp Tab'a basın. Aktarma kutusunu işaretleyip Ekle | Kutuda L (www.google.com ya da *.google.com) ve Google'ın ara sertifikası (I) görünür. Kırmızı adres uyarısı yoktur. Kaydedince "Zincir aktarıldı" ile başlayan yeşil mesaj, Server Sertifika sütununda yeşil kalan gün görünür. Google sertifikaları kısa ömürlüdür, kalan gün genelde 90'dan azdır |
+| 7.2 | `www.google.com` detayı > Şimdi Doğrula | Yeşil "Eşleşiyor" |
+| 7.3 | Yeni Ekle'de sırayla `google.com` ve `mail.google.com` yazıp Tab'a basın (kaydetmeyin, Vazgeç) | İkisinde de zincir gelir, kırmızı adres uyarısı çıkmaz |
+| 7.4 | `www.akbank.com`, `www.isbank.com.tr` ve `www.garantibbva.com.tr` için 7.1'i tekrarlayın | Üçünde de zincir gelir, kırmızı uyarı yoktur. Kaydedince yeşil kalan gün görünür. Detay > Şimdi Doğrula yeşil "Eşleşiyor" |
+| 7.5 | Yeni Ekle'de tarayıcıdan kopyalanmış bir adres yapıştırın: `https://www.isbank.com.tr/bireysel` ve Tab | Yalnız adres kısmı kullanılır; 7.4'teki isbank zinciri gelir. Kaydetmeyi denerseniz "Bu domain zaten kayıtlı" uyarısı çıkar. Vazgeç |
+| 7.6 | Yeni Ekle'de `wrong.host.badssl.com` yazıp Tab | Kırmızı uyarı: "Sunucunun verdiği sertifika 'wrong.host.badssl.com' adresini kapsamıyor (sertifikadaki adlar: *.badssl.com, badssl.com)...". Aktarma kutusu işaretsiz gelir. Bu doğrudur, çünkü *.badssl.com yalnız tek seviyeli adresleri kapsar |
+| 7.7 | `expired.badssl.com` ekleyin (aktarma kutusu işaretli) | Kırmızı adres uyarısı yoktur. Listede kırmızı "Süresi Doldu" görünür (bu sertifika yıllar önce doldu). Detay > Şimdi Doğrula: kırmızı "SÜRESİ DOLMUŞ — sunucu süresi dolmuş sertifikayı sunuyor" |
+| 7.8 | `self-signed.badssl.com` ekleyin (aktarma kutusu işaretli) | Kutuda tek satır görünür (ara sertifika yoktur, sertifikayı site kendisi imzalamıştır). Jumbo hata vermez, sertifika bağlanır. Jumbo tarayıcı gibi güven kontrolü yapmaz; bu doğrudur |
+| 7.9 | `untrusted-root.badssl.com` ekleyin (aktarma kutusu işaretli) | Zincir gelir; yayıncının adında "BadSSL Untrusted Root" geçer. Kırmızı adres uyarısı yoktur, sertifika bağlanır |
+| 7.10 | Önce `www.badssl.com` ekleyin (aktarma kutusu işaretli). Sonra `incomplete-chain.badssl.com` ekleyin. Detay > Şimdi Doğrula | www.badssl.com'da L ve I gelir. incomplete-chain'de yalnız L gelir, çünkü bu site ara sertifikayı göndermez. Şimdi Doğrula'da sarı "Ara sertifika sunucuda eksik" ve notta eksik ara sertifikanın adı görünür |
+| 7.11 | Ayarlar > İptal (OCSP/CRL) bölümünde "Gece iptal denetimi etkin" seçeneğini açıp kaydedin. `revoked.badssl.com` ekleyin. SSL Sertifikaları'nda bu sertifikanın detayını açın > İptal Durumu > Şimdi Kontrol Et | Kırmızı "Sertifika İPTAL EDİLMİŞ (revoked)" mesajı, durumda "İPTAL EDİLMİŞ". Sertifikanın sahibi yoksa yedek adrese "İPTAL EDİLMİŞ" konulu bir mail gider |
+| 7.12 | 7.4'te eklenen akbank sertifikasının detayında Şimdi Kontrol Et. Sonra Ayarlar'da iptal denetimini yeniden kapatın | Yeşil "İptal edilmemiş (good)" |
+| 7.13 | Yeni Ekle'de `bu-adres-yok.jumbo-test-olmayan.com` yazıp Tab | "Zincir çekilemedi: 'bu-adres-yok.jumbo-test-olmayan.com' adresi DNS'te bulunamadı. Adres yanlış yazılmış olabilir ya da bu adres yalnız iç ağdan çözülüyor olabilir. (Teknik ayrıntı: ...) — domain yine de kaydedilebilir." Vazgeç. (v3.8.9'dan önceki sürümde yalnız işletim sisteminin İngilizce hata mesajı görünür.) |
+
+Gerçek siteler bu kılavuzun dışında değişebilir. Bir satır beklenenden farklı çıkarsa önce 7.0'daki betiği o adresle yeniden çalıştırın: `python3 gercek-site-testi.py adres`. Sonra sonucu ve ekran görüntüsünü bildirin.
