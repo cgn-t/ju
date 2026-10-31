@@ -84,3 +84,119 @@ def finish(run_id: str, request: Request, db: Session = Depends(get_db),
     if run["finished_at"]:
         return run
     return regression.finish_run(db, user, run_id, request)
+
+
+# ---------------------------------------------------------------- Test Hazırlığı (v3.9.28)
+# Yalnız admin ve yalnız REGRESSION_TOOLS=1 iken (test/preprod). Kapalıyken uçlar 404 döner,
+# ekran sekmeyi göstermez.
+from fastapi.responses import Response  # noqa: E402
+
+from app.services import regression_lab  # noqa: E402
+from app.services.audit import log_action  # noqa: E402
+
+
+def _lab_on():
+    if not regression_lab.enabled():
+        raise HTTPException(status_code=404, detail="Test Hazırlığı bu ortamda kapalı (REGRESSION_TOOLS)")
+
+
+@router.get("/lab")
+def lab_status(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    if not regression_lab.enabled():
+        return {"enabled": False}
+    return regression_lab.status(db)
+
+
+def _lab_log(db: Session, user: User, step: str, request: Request):
+    log_action(db, user.username, "regression_lab", "regression", None, {"step": step}, request)
+    db.commit()
+
+
+@router.post("/lab/certs")
+def lab_generate(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    _lab_on()
+    regression_lab.generate_and_store(db, user.username)
+    _lab_log(db, user, "Test sertifikaları üretildi", request)
+    return regression_lab.status(db)
+
+
+@router.get("/lab/files/{name}")
+def lab_file(name: str, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _lab_on()
+    data = regression_lab.file_bytes(db, name)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Dosya bulunamadı")
+    return Response(data, media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/lab/zip")
+def lab_zip(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _lab_on()
+    data = regression_lab.zip_bytes(db)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Önce test sertifikalarını üretin")
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="jumbo-test-dosyalari.zip"'})
+
+
+@router.post("/lab/sites/start")
+def lab_sites_start(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    _lab_on()
+    try:
+        regression_lab.start_sites(db, user.username)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    _lab_log(db, user, f"Test siteleri açıldı ({regression_lab.SITE_HOURS} saat)", request)
+    return regression_lab.status(db)
+
+
+@router.post("/lab/sites/stop")
+def lab_sites_stop(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    _lab_on()
+    regression_lab.stop_sites(db)
+    _lab_log(db, user, "Test siteleri kapatıldı", request)
+    return regression_lab.status(db)
+
+
+@router.post("/lab/sites/renewed")
+def lab_sites_renewed(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
+                      user: User = Depends(require_role("admin"))):
+    _lab_on()
+    on = bool((body or {}).get("renewed"))
+    regression_lab.set_renewed(db, on)
+    _lab_log(db, user, "9444 yenilenmiş sertifikayı sunuyor" if on else "9444 eski sertifikayı sunuyor", request)
+    return regression_lab.status(db)
+
+
+@router.post("/lab/data")
+def lab_data(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
+             user: User = Depends(require_role("admin"))):
+    _lab_on()
+    regression_lab.prepare_data(db, user.username, (body or {}).get("emails") or {})
+    _lab_log(db, user, "Test ekipleri ve hesapları hazırlandı", request)
+    return regression_lab.status(db)
+
+
+@router.post("/lab/all")
+def lab_all(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
+            user: User = Depends(require_role("admin"))):
+    """Hepsini Hazırla: sertifikalar + siteler + ekip/hesaplar."""
+    _lab_on()
+    regression_lab.generate_and_store(db, user.username)
+    regression_lab.start_sites(db, user.username)
+    regression_lab.prepare_data(db, user.username, (body or {}).get("emails") or {})
+    _lab_log(db, user, "Test ortamı hazırlandı (sertifikalar, siteler, ekipler, hesaplar)", request)
+    return regression_lab.status(db)
+
+
+@router.get("/lab/cleanup")
+def lab_cleanup_preview(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _lab_on()
+    return regression_lab.cleanup_preview(db)
+
+
+@router.post("/lab/cleanup")
+def lab_cleanup(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    _lab_on()
+    return regression_lab.cleanup(db, user, request)

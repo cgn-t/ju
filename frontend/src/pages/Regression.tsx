@@ -22,6 +22,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { askAi } from '../utils/aiAsk'
 import { exportSheet } from '../utils/exportSheet'
 import { foldText } from '../utils/textMatch'
+import RegressionLab, { useLabStatus } from './RegressionLab'
 
 // Regresyon Testi (yalnız admin, v3.9.27): otomatik kontroller (yalnız okur), elle test listesi
 // (Geçti / Kaldı / Atlandı + not) ve her adımda AI yardımı. Sonuçlar sunucuda Audit Log'a yazılır.
@@ -63,7 +64,8 @@ function scenarioText(sc: Scenario, section: string) {
 
 export default function Regression() {
   useDocumentTitle('Regresyon Testi')
-  const [tab, setTab] = useState<'manual' | 'auto'>('manual')
+  const [tab, setTab] = useState<'manual' | 'auto' | 'lab'>('manual')
+  const lab = useLabStatus()   // Test Hazırlığı yalnız REGRESSION_TOOLS=1 olan ortamda
   const [runId, setRunIdState] = useState<string | null>(readRun)
   const setRunId = (id: string | null) => {
     setRunIdState(id)
@@ -95,11 +97,13 @@ export default function Regression() {
   return (
     <Box>
       {header}
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto"
+            sx={{ mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
         <Tab value="manual" label={`Elle test (${catalog.data.total} senaryo)`} sx={{ textTransform: 'none', fontWeight: 600 }} />
         <Tab value="auto" label="Otomatik kontroller" sx={{ textTransform: 'none', fontWeight: 600 }} />
+        {lab.data?.enabled && <Tab value="lab" label="Test Hazırlığı" sx={{ textTransform: 'none', fontWeight: 600 }} />}
       </Tabs>
-      {tab === 'manual'
+      {tab === 'lab' && lab.data?.enabled ? <RegressionLab lab={lab.data} /> : tab === 'manual'
         ? <ManualTests catalog={catalog.data} runs={runs.data ?? []} runId={current?.id ?? null}
                        onSelect={setRunId} aiOn={aiOn} />
         : <AutoChecks runId={current && !current.finished_at ? current.id : null} runTitle={current?.title} aiOn={aiOn} />}

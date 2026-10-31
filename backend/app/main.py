@@ -37,6 +37,7 @@ from app.db import models  # noqa: F401 — model kayıtları için
 from app.db.session import Base, SessionLocal, engine
 from app.services import job_lock
 from app.services.notifier import start_scheduler
+from app.services import regression_lab
 
 setup_logging()  # tek biçimli log (bkz. core/logging_config) — basicConfig yerine
 log = logging.getLogger(__name__)
@@ -595,6 +596,7 @@ async def lifespan(app: FastAPI):
     finally:
         schema_lock.release()
     start_scheduler()
+    regression_lab.start_watcher(SessionLocal)   # yalnız REGRESSION_TOOLS=1 iken çalışır
     yield
 
 
