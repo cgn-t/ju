@@ -706,8 +706,8 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
     (bkz. test_scn_partial_failure_retries_only_failed_stakeholder). dedup KAPALIYSA her tarama
     gönderir; force=True → dedup'tan bağımsız mutlaka gönderilir (API). queue_enabled ise
     mailler doğrudan gönderilmez, mail_queue'ya yazılır. make_html verilirse multipart:
-    HTML + düz metin yedek."""
-    sent = skipped = 0
+    HTML + düz metin yedek. `failed`: hiçbir adrese (yedek dahil) ULAŞTIRILAMAYAN mail sayısı."""
+    sent = skipped = failed = 0
     details: list[dict] = []
     interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
     dedup_enabled = cfg.get("resend_dedup_enabled", True)  # kapalıysa her tarama gönderir
@@ -773,6 +773,7 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                                          stakeholder=p["label"], days_left=days_left,
                                          status="failed", last_error=(note or "")[:1000], attempts=1))
                         db.commit()
+                    failed += 1
                     mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
             details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
         except Exception as exc:
@@ -786,6 +787,7 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
             cert_name = getattr(cert, "name", str(cert))
             logger.exception("Sertifika bildirimi işlenemedi (atlanıyor): %s", cert_name)
             skipped += 1
+            failed += 1
             _record_dispatch_error(db, "Sertifika bildirimi işlenemedi", exc,
                                    certificate_id=getattr(cert, "id", None), label=cert_name,
                                    valid_to=getattr(cert, "valid_to", None))
@@ -793,7 +795,7 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                             "mails": [], "error": f"beklenmeyen hata — atlandı: {exc}"})
 
     return {"enabled": True, "checked": len(certs), "sent": sent, "skipped": skipped,
-            "details": details,
+            "failed": failed, "details": details,
             "message": f"{len(certs)} sertifika tarandı, {sent} mail gönderildi, {skipped} atlandı."}
 
 
@@ -804,8 +806,8 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
     partial-failure-per-stakeholder karmaşıklığı yok. Aynı dedup/resend/queue/fallback
     çekirdeğini (_deliver/_send_with_fallback) paylaşır; Notification/MailQueue satırları
     certificate_id=NULL, domain_id=domain.id ile yazılır. Dönüş {checked, sent, skipped,
-    details} — enabled/message çağıran fonksiyonda (cert sonucuyla) birleştirilir."""
-    sent = skipped = 0
+    failed, details} — enabled/message çağıran fonksiyonda (cert sonucuyla) birleştirilir."""
+    sent = skipped = failed = 0
     details: list[dict] = []
     interval_hours = max(1, int(cfg.get("resend_interval_hours") or 3))
     dedup_enabled = cfg.get("resend_dedup_enabled", True)
@@ -853,6 +855,7 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
                                      stakeholder=p["label"], days_left=days_left,
                                      status="failed", last_error=(note or "")[:1000], attempts=1))
                     db.commit()
+                failed += 1
                 mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
             details.append({"domain": dom.domain, "days_left": days_left, "mails": mails})
         except Exception as exc:
@@ -862,16 +865,18 @@ def _dispatch_domain_mails(db: Session, cfg: dict, domains: list, *, force: bool
             dom_name = getattr(dom, "domain", str(dom))
             logger.exception("Domain bildirimi işlenemedi (atlanıyor): %s", dom_name)
             skipped += 1
+            failed += 1
             _record_dispatch_error(db, "Domain bildirimi işlenemedi", exc,
                                    domain_id=getattr(dom, "id", None), label=dom_name,
                                    valid_to=getattr(dom, "expire_date", None))
             details.append({"domain": dom_name, "days_left": None,
                             "mails": [], "error": f"beklenmeyen hata — atlandı: {exc}"})
 
-    return {"checked": len(domains), "sent": sent, "skipped": skipped, "details": details}
+    return {"checked": len(domains), "sent": sent, "skipped": skipped, "failed": failed,
+            "details": details}
 
 
-_SMTP_OFF = {"enabled": False, "checked": 0, "sent": 0, "skipped": 0, "details": [],
+_SMTP_OFF = {"enabled": False, "checked": 0, "sent": 0, "skipped": 0, "failed": 0, "details": [],
              "message": "SMTP kapalı veya sunucu tanımsız — mail gönderilmedi."}
 
 
@@ -1000,6 +1005,7 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
         "checked": cert_result["checked"] + dom_result["checked"],
         "sent": cert_result["sent"] + dom_result["sent"],
         "skipped": cert_result["skipped"] + dom_result["skipped"],
+        "failed": cert_result["failed"] + dom_result["failed"],
         "details": cert_result["details"] + dom_result["details"],
         "message": (f"{cert_result['checked']} sertifika + {dom_result['checked']} domain "
                     f"tarandı, {cert_result['sent'] + dom_result['sent']} mail gönderildi, "
@@ -1014,7 +1020,7 @@ def send_revoked_notifications(db: Session, certs: list) -> dict:
     ve kalan-gün penceresi uygulanmaz. Alıcısız sertifika yedek adrese gider."""
     cfg = get_category(db, "smtp", mask_secrets=False)
     if not certs:
-        return {"enabled": bool(cfg.get("enabled")), "checked": 0, "sent": 0, "skipped": 0,
+        return {"enabled": bool(cfg.get("enabled")), "checked": 0, "sent": 0, "skipped": 0, "failed": 0,
                 "details": [], "message": "İptal edilen yeni sertifika yok."}
     if not cfg.get("enabled") or not cfg.get("host"):
         return dict(_SMTP_OFF)
@@ -1149,6 +1155,7 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
         "checked": cert_result["checked"] + dom_result["checked"],
         "sent": cert_result["sent"] + dom_result["sent"],
         "skipped": cert_result["skipped"] + dom_result["skipped"],
+        "failed": cert_result["failed"] + dom_result["failed"],
         "details": cert_result["details"] + dom_result["details"],
         "message": (f"{cert_result['checked']} sertifika + {dom_result['checked']} domain "
                     f"tarandı, {cert_result['sent'] + dom_result['sent']} mail gönderildi, "
@@ -1272,7 +1279,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
         else:
             by_team.setdefault(p.sy_team_id, []).append(p)
 
-    sent = skipped = 0
+    sent = skipped = failed = 0   # failed: hiçbir adrese ulaştırılamayan hatırlatma maili
     for team_id, props in by_team.items():
         try:
             team = db.get(Team, team_id)
@@ -1293,6 +1300,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 sent += 1
             else:
                 skipped += len(props)
+                failed += 1
                 logger.warning("Değişiklik talebi hatırlatması gönderilemedi: %s (%s)",
                                team.name if team else team_id, note)
                 # queue KAPALIYKEN doğrudan gönderim başarısız → Mail Gönderim Geçmişi'nde
@@ -1310,6 +1318,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             team_label = getattr(db.get(Team, team_id), "name", None) or f"team_id={team_id}"
             logger.exception("Değişiklik talebi hatırlatması işlenemedi (atlanıyor): %s", team_label)
             skipped += len(props)
+            failed += 1
             _record_dispatch_error(db, "Değişiklik talebi hatırlatması işlenemedi", exc, label=team_label)
 
     # Sahipsiz (sy_team yok → yalnız admin onaylar) öneriler: fallback adrese bilgi (varsa)
@@ -1327,6 +1336,7 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                     sent += 1
                 else:
                     skipped += len(ownerless)
+                    failed += 1
                     logger.warning("Sahipsiz değişiklik talebi hatırlatması gönderilemedi: %s", note)
                     if not cfg.get("queue_enabled"):
                         db.add(MailQueue(to_addresses=", ".join(fb), subject=subject,
@@ -1340,10 +1350,12 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             db.rollback()
             logger.exception("Sahipsiz değişiklik talebi hatırlatması işlenemedi (atlanıyor)")
             skipped += len(ownerless)
+            failed += 1
             _record_dispatch_error(db, "Sahipsiz değişiklik talebi hatırlatması işlenemedi", exc,
                                    label="ownerless")
 
-    return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped, "details": [],
+    return {"enabled": True, "checked": len(pending), "sent": sent, "skipped": skipped,
+            "failed": failed, "details": [],
             "message": f"{len(pending)} bekleyen talep; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
