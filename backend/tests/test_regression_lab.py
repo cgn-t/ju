@@ -171,7 +171,7 @@ def test_prepare_data_and_cleanup(client, auth_headers, lab_on):
     assert r.status_code == 200, r.text
 
     after = client.get("/api/regression/lab/cleanup", headers=auth_headers).json()
-    assert after == {"certificates": 0, "domains": 0, "applications": 0, "users": 0, "teams": 0}
+    assert after == {"certificates": 0, "domains": 0, "applications": 0, "users": 0, "teams": 0, "mails": 0}
     db = SessionLocal()
     assert db.query(Team).filter(Team.name == "Mobil Uygulamalar SY").count() == 1   # önceden vardı
     assert db.query(User).filter(User.username.like("%.test")).count() == 0

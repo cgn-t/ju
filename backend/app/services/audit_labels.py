@@ -209,7 +209,7 @@ def summarize(action: str, details) -> str:
     if action == "regression_cleanup":
         c = details.get("counts") or {}
         names = {"certificates": "sertifika", "domains": "domain", "applications": "uygulama",
-                 "users": "hesap", "teams": "ekip"}
+                 "users": "hesap", "teams": "ekip", "mails": "test maili"}
         return ", ".join(f"{v} {names.get(k, k)}" for k, v in c.items() if v) or "silinecek kayıt yoktu"
     if action in ("regression_end", "regression_auto"):
         c = details.get("counts") or {}

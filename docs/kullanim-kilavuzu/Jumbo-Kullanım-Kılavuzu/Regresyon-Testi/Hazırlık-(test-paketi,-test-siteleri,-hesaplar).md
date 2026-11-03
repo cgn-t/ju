@@ -1,6 +1,6 @@
 Regresyon testine başlamadan önce bir kez yapılır. Bütün bölümler (1–11) bu hazırlığı kullanır.
 
-> **En kolay yol:** Test Jumbo'sunda REGRESSION_TOOLS=1 açıksa Regresyon Testi sayfasındaki **Test Hazırlığı** sekmesi bu sayfadaki test paketini, test sitelerini, ekipleri ve test hesaplarını tek düğmeyle hazırlar (bkz. *Regresyon Testi sayfasını kullanma*). O zaman bu sayfada yalnız **Mail adresleri** ve **Ekipler ve ayarlar**'daki E-posta (SMTP) ayarlarını yapmanız yeterlidir; aşağıdaki Docker ve Python yolları gerekmez.
+> **En kolay yol:** Test Jumbo'sunda REGRESSION_TOOLS=1 açıksa Regresyon Testi sayfasındaki **Test Hazırlığı** sekmesi bu sayfadaki test paketini, test sitelerini, ekipleri ve test hesaplarını tek düğmeyle hazırlar (bkz. *Regresyon Testi sayfasını kullanma*). O zaman bu sayfada yalnız **Mail adresleri** ve **Ekipler ve ayarlar**'daki E-posta (SMTP) ayarlarını yapmanız yeterlidir (test mail kutusu açıksa gerçek mail sunucusu da gerekmez); aşağıdaki Docker ve Python yolları gerekmez.
 
 Test canlıda değil, canlıya benzeyen bir **test Jumbo'sunda** yapılır (tercihen canlıdaki gibi MSSQL ve AD girişli). Boş ya da test verili bir veritabanı olabilir.
 
@@ -64,6 +64,8 @@ Rol ve üyelik Ayarlar > Kullanıcılar ve Ayarlar > Ekip Üyelikleri'nden veril
 ## Mail adresleri
 
 Okuyabildiğiniz **4 adres** gerekir (dağıtım listesi ya da takma ad da olur). Bu kılavuzda A, B, C ve Y diye geçerler. Test Jumbo'su test mail sunucusuna bağlı olmalıdır.
+
+> Test Hazırlığı sekmesindeki **Test mail kutusu**'nu açarsanız gerçek posta kutusu ve mail sunucusu gerekmez: A, B, C ve Y için uydurma adresler (ör. odeme-sy@banka.local) yazmanız yeterlidir, mailler o kutuda adres etiketiyle görünür. Gerçek mail sunucusunu sınayan adımlar için kutuyu kapatıp gerçek adresleri kullanın.
 
 ## Ekipler ve ayarlar (Yönetici hesabıyla)
 

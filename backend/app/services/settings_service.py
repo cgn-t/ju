@@ -339,6 +339,11 @@ def get_category(db: Session, category: str, mask_secrets: bool = True) -> dict:
                                "kabul edildi.", row.key)
                 raw = ""
         result[field] = json.loads(raw) if raw else raw
+    if category == "smtp" and not mask_secrets:
+        # Regresyon test mail kutusu (v3.9.29, yalnız REGRESSION_TOOLS=1): açıkken mailler dışarı
+        # gitmez, Test Hazırlığı sekmesinde toplanır. Gönderim yolu bu işareti görür.
+        from app.services import regression_lab
+        result = regression_lab.apply_mail_capture(db, result)
     return result
 
 

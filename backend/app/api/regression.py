@@ -200,3 +200,39 @@ def lab_cleanup_preview(db: Session = Depends(get_db), _: User = Depends(require
 def lab_cleanup(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
     _lab_on()
     return regression_lab.cleanup(db, user, request)
+
+
+# ---- Test mail kutusu (v3.9.29)
+@router.post("/lab/mail/capture")
+def lab_mail_capture(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
+                     user: User = Depends(require_role("admin"))):
+    """Açıkken Jumbo'nun mailleri dışarı gitmez, test mail kutusunda toplanır."""
+    _lab_on()
+    on = bool((body or {}).get("on"))
+    regression_lab.set_capture(db, on)
+    _lab_log(db, user, "Test mail kutusu açıldı (mailler dışarı gitmiyor)" if on
+             else "Test mail kutusu kapatıldı (mailler gerçek sunucuya gidiyor)", request)
+    return regression_lab.status(db)
+
+
+@router.get("/lab/mails")
+def lab_mails(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _lab_on()
+    return regression_lab.list_mails(db)
+
+
+@router.get("/lab/mails/{mail_id}")
+def lab_mail(mail_id: str, db: Session = Depends(get_db), _: User = Depends(require_role("admin"))):
+    _lab_on()
+    m = regression_lab.get_mail(db, mail_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="Mail bulunamadı")
+    return m
+
+
+@router.delete("/lab/mails")
+def lab_mails_clear(request: Request, db: Session = Depends(get_db), user: User = Depends(require_role("admin"))):
+    _lab_on()
+    n = regression_lab.clear_mails(db)
+    _lab_log(db, user, f"Test mail kutusu boşaltıldı ({n} mail)", request)
+    return {"deleted": n}
