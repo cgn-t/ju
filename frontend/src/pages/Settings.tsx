@@ -309,7 +309,7 @@ function SmtpTab() {
               helper="Maillerin en altına eklenir. Her satıra bir link/metin; http(s) linkleri tıklanabilir olur."
               width={{ xs: 12, sm: 12 }} />
         <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
-              helper='Dış araç: POST /api/notifications/expiry-run (expired-run, proposal-run) + "X-API-Key: <anahtar>" başlığı. Tarama arka planda çalışır (202); durum: GET …/expiry-run/status. Boşsa dış tetikleme kapalı.'
+              helper='Dış araç: POST /api/notifications/expiry-run (expired-run, proposal-run) + "X-API-Key: <anahtar>" başlığı. Tarama arka planda çalışır (202); durum: GET …/expiry-run/status (gönderilemeyen mail varsa status: error). E-posta kapalıysa 503 döner. Boşsa dış tetikleme kapalı.'
               width={{ xs: 12, sm: 12 }} />
       </Grid>
 

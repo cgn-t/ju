@@ -720,6 +720,24 @@
      "sub": "",
      "title": "Trust store'daki sertifikanın süresi dolsun, \"Süresi Geçenleri Şimdi Gönder\"",
      "expected": "Trusted uygulama sahibine mail GİTMEZ (yalnız süre dolana kadar uyarılır)"
+    },
+    {
+     "id": "MAIL-A22",
+     "sub": "",
+     "title": "\"E-posta Bildirimleri Etkin\" kapalıyken dış araçla POST /api/notifications/expiry-run (X-API-Key) çağırın; expired-run ve proposal-run ile tekrarlayın",
+     "expected": "Hemen 503 ve \"E-posta bildirimleri kapalı veya mail sunucusu tanımsız\" döner, mail gitmez. Ekrandaki \"Şimdi Gönder\" ise eskisi gibi mesajla döner"
+    },
+    {
+     "id": "MAIL-A23",
+     "sub": "",
+     "title": "E-posta açık, yedek adres boş; alıcı ekibin adresini sunucunun reddedeceği bir adres yapın, dış araçla tetikleyin ve durum adresini (GET …/expiry-run/status) sorgulayın",
+     "expected": "Tetik 202 döner; tarama bitince sonuçta \"status\": \"error\", \"failed\": 1 (veya daha fazla) ve \"mail gönderilemedi\" mesajı görünür"
+    },
+    {
+     "id": "MAIL-A24",
+     "sub": "",
+     "title": "A23'ü yedek adres doluyken tekrarlayın",
+     "expected": "Mail yedek adrese gider, sonuç \"status\": \"ok\", \"failed\": 0"
     }
    ]
   },

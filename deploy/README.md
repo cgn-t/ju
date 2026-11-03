@@ -124,6 +124,8 @@ Uygulama aynı MSSQL'e bağlı birden fazla pod'da (farklı cluster'lar dahil) �
   Dış tetik hemen döner, iş arka planda yürür. Mail tetiklerinde tekrar-önleme açıktır: araç
   zaman aşımına düşüp tekrar denerse aynı kişiye ikinci mail gitmez. Aynı iş başka yerde
   sürüyorsa `409`, 60 saniye içinde ikinci dış tetik `429` döner.
+  Mail tetiklerinde "E-posta Bildirimleri Etkin" kapalıysa `503` döner; gönderilemeyen mail
+  olursa durum adresinin sonucu `"status": "error"` ve `"failed": <adet>` olur (v3.9.30).
 - **Yeni sürüm** açılırken şema güncellemesini tek pod yapar, diğerleri bekler.
 - Ayarlar'da değiştirilen saatler tüm pod'larda en geç 1 dakikada geçerli olur.
 - Kilidi denemek için uygulamanın DB kullanıcısıyla:

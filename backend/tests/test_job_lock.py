@@ -200,7 +200,7 @@ def test_external_mail_trigger_runs_in_background_with_dedup(client, auth_header
         seen.append(force)
         return {"enabled": True, "checked": 4, "sent": 2, "skipped": 2, "message": "ok", "details": []}
     monkeypatch.setitem(notifications_api._JOBS, "expiry-run", (notifier.JOB_EXPIRY_MAIL, fake_scan))
-    _smtp(client, auth_headers, trigger_api_key="mail-key")
+    _smtp(client, auth_headers, trigger_api_key="mail-key", enabled=True, host="smtp.test")
     key = {"X-API-Key": "mail-key"}
     r = client.post("/api/notifications/expiry-run", headers=key)
     assert r.status_code == 202, r.text

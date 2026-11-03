@@ -137,7 +137,13 @@ Aynı ekip birden çok nedenle alıcıysa tek mail alır, nedenler birleşir.
 
 **Yanıt**: `{"enabled": true, "checked": 12, "sent": 8, "skipped": 4, "message": "..."}`
 (dış anahtar yalnız sayısal özet alır; admin JWT sertifika/alıcı detaylarını da görür).
-SMTP kapalıysa `enabled: false` ile 200 döner, mail gitmez.
+Admin "Şimdi Gönder": SMTP kapalıysa `enabled: false` ile 200 döner, mail gitmez.
+Dış araç (`X-API-Key`, v3.9.30):
+- "E-posta Bildirimleri Etkin" kapalıysa ya da mail sunucusu tanımsızsa tarama başlamaz,
+  **503** döner: `{"detail": "E-posta bildirimleri kapalı veya mail sunucusu tanımsız — ..."}`.
+- Aksi halde **202** döner, tarama arka planda yürür. `GET …/<uç>/status` sonucunda en az bir
+  mail hiçbir adrese (yedek adres dahil) ulaştırılamadıysa `"status": "error"`, `"failed": <adet>`
+  ve `"error"` mesajı; hepsi gittiyse `"status": "ok"`, `"failed": 0` görünür.
 
 **Hata kodları**: `401` geçersiz/eksik anahtar · `429` çok fazla başarısız deneme
 (60 sn'de >10) veya aynı ucun 60 sn içinde tekrar tetiklenmesi. Tüm tetiklemeler

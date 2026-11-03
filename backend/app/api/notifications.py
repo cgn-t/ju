@@ -8,6 +8,11 @@ Günlük 08:00 cron'una ek olarak tarama iki yoldan ANINDA tetiklenebilir:
              -H "X-API-Key: <anahtar>"
     Anahtar BOŞSA dış tetikleme kapalıdır (yalnız admin JWT çalışır). Dış tetikte tarama arka
     planda yürür (202) ve tekrar-önleme geçerlidir; durum: GET .../expiry-run/status.
+    Dış tetikte HATA (v3.9.30):
+      • "E-posta Bildirimleri Etkin" kapalıysa ya da mail sunucusu tanımsızsa tarama BAŞLAMAZ,
+        hemen 503 döner (araç mailin gitmeyeceğini doğrudan görür).
+      • Tarama bittiğinde en az bir mail hiçbir adrese (yedek adres dahil) ulaştırılamadıysa durum
+        adresinin sonucu "status": "error" ve "failed": <adet> olur; aksi halde "status": "ok".
 
 Tetiklenince: bitişine `expiry_warning_days`'ten az gün kalan her sertifika için
 paydaşlara AYRI AYRI mail gönderilir — sahibi (oluşturan kullanıcı), bağlı domainlerin
@@ -29,6 +34,7 @@ from app.db.session import get_db
 from app.core.timeutil import time_window
 from app.services import job_lock, mail_history, notifier
 from app.services.audit import log_action
+from app.services.settings_service import get_category
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -44,6 +50,8 @@ _JOBS = {
     "proposal-run": (notifier.JOB_PROPOSAL_MAIL, notifier.send_pending_proposal_notifications),
 }
 _BUSY = "Bu mail taraması şu anda çalışıyor (bu ya da başka bir sunucuda) — bitince tekrar deneyin"
+_MAIL_OFF = ("E-posta bildirimleri kapalı veya mail sunucusu tanımsız — mail gönderilemez "
+             "(Ayarlar > E-posta)")
 
 
 def _external_scan(scan_fn, endpoint: str, request_meta: dict) -> dict:
@@ -57,10 +65,17 @@ def _external_scan(scan_fn, endpoint: str, request_meta: dict) -> dict:
         result = scan_fn(db, force=False)
     finally:
         db.close()
-    summary = {"checked": result["checked"], "sent": result["sent"], "skipped": result["skipped"]}
+    failed = int(result.get("failed") or 0)
+    summary = {"checked": result["checked"], "sent": result["sent"], "skipped": result["skipped"],
+               "failed": failed}
     log_standalone(EXTERNAL_ACTOR, "notify", "notifications", None,
                    {"endpoint": endpoint, **summary, **request_meta})
-    return {"status": "ok", "enabled": result["enabled"], **summary, "message": result["message"]}
+    out = {"status": "error" if failed else "ok", "enabled": result["enabled"], **summary,
+           "message": result["message"]}
+    if failed:
+        out["error"] = (f"{failed} mail gönderilemedi (mail sunucusu reddetti ya da ulaşılamadı) — "
+                        "ayrıntı: Mail Gönderim Geçmişi")
+    return out
 
 
 def _run_scan(endpoint: str, request: Request, actor: str, db: Session):
@@ -73,6 +88,9 @@ def _run_scan(endpoint: str, request: Request, actor: str, db: Session):
     Aynı tarama başka yerde sürüyorsa 409."""
     job_name, scan_fn = _JOBS[endpoint]
     if actor == EXTERNAL_ACTOR:
+        cfg = get_category(db, "smtp", mask_secrets=False)
+        if not cfg.get("enabled") or not cfg.get("host"):
+            raise HTTPException(status_code=503, detail=_MAIL_OFF)
         external_cooldown(endpoint)  # mail-spam freni
         meta = {"ip": request.client.host if request.client else None}
         started = job_lock.start_in_background(
