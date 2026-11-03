@@ -1580,6 +1580,36 @@
      "sub": "",
      "title": "Test Hazırlığı > Test Verisini Temizle",
      "expected": "Pencerede silinecek sertifika/domain/uygulama/hesap/ekip sayıları; Temizle sonrası test kayıtları gider, önceden var olan ekipler ve gerçek domainler kalır; Audit Log'da \"Regresyon test verisi temizlendi\""
+    },
+    {
+     "id": "EKR-E125",
+     "sub": "",
+     "title": "Test Hazırlığı > Test mail kutusu anahtarını aç",
+     "expected": "Turuncu uyarı çıkar; Regresyon Testi > Kontrolleri Çalıştır'da mail sunucusu satırı Uyarı: \"Test mail kutusu açık\"; Ayarlar > E-posta (SMTP) ekranındaki değerler değişmez"
+    },
+    {
+     "id": "EKR-E126",
+     "sub": "",
+     "title": "Kutu açıkken Ayarlar > E-posta (SMTP) > Test Maili Gönder",
+     "expected": "Gerçek sunucuya bağlanmadan \"gönderildi\" der; mail kutuda [JUMBO] SMTP test maili konusuyla görünür"
+    },
+    {
+     "id": "EKR-E127",
+     "sub": "",
+     "title": "Kutu açıkken 20 gün kala test sertifikası (10 numaralı dosya, Ödeme Sistemleri SY) yükle, süre kontrolünü çalıştır",
+     "expected": "Kutuda \"Sertifika süresi doluyor\" maili, alıcı \"A · Ödeme Sistemleri SY\"; satıra tıklayınca mail HTML haliyle açılır"
+    },
+    {
+     "id": "EKR-E128",
+     "sub": "",
+     "title": "Test mail kutusu > Kutuyu Boşalt; ayrıca Test Verisini Temizle",
+     "expected": "Onaydan sonra kutu boşalır; Temizle penceresinde \"test maili\" sayısı görünür, temizlik sonrası kutu boş ve kapalıdır, mailler yeniden gerçek sunucuya gider"
+    },
+    {
+     "id": "EKR-E129",
+     "sub": "",
+     "title": "REGRESSION_TOOLS=0 ile çalışan Jumbo",
+     "expected": "Test mail kutusu hiç devreye girmez, mailler her zaman gerçek sunucudan gider (önceden açık bırakılmış olsa bile)"
     }
    ]
   },

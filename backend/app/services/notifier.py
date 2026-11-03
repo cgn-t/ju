@@ -33,7 +33,14 @@ def _send_mail(cfg: dict, to_addresses: list[str], subject: str, body: str,
     Bağlantı: use_ssl → doğrudan TLS (SMTPS, genelde 465); use_tls → STARTTLS (25/587); ikisi de
     kapalıysa düz bağlantı. Döner: sunucunun REDDETTİĞİ alıcılar {adres: (kod, mesaj)} —
     smtplib yalnız TÜM alıcılar reddedilince hata fırlatır; kısmi red sessiz kalmasın diye
-    çağıran bu sözlüğü işler (bkz. _send_with_fallback)."""
+    çağıran bu sözlüğü işler (bkz. _send_with_fallback).
+
+    Regresyon test mail kutusu açıksa (cfg["_capture"], yalnız REGRESSION_TOOLS=1) mail sunucuya
+    gitmez, Test Hazırlığı sekmesindeki kutuya yazılır ve gönderilmiş sayılır."""
+    if cfg.get("_capture"):
+        from app.services import regression_lab
+        regression_lab.capture_mail(cfg.get("from_address") or "", to_addresses, subject, body, html_body)
+        return {}
     if html_body:
         msg: MIMEText | MIMEMultipart = MIMEMultipart("alternative")
         msg.attach(MIMEText(body, "plain", "utf-8"))

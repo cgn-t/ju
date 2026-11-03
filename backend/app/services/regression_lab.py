@@ -658,7 +658,8 @@ def cleanup_targets(db: Session) -> dict:
 
 def cleanup_preview(db: Session) -> dict:
     t = cleanup_targets(db)
-    return {k: len(v) for k, v in t.items()}
+    return {**{k: len(v) for k, v in t.items()},
+            "mails": db.query(AppSetting).filter(AppSetting.category == MAIL_CATEGORY).count()}
 
 
 def cleanup(db: Session, admin: User, request=None) -> dict:
@@ -698,6 +699,11 @@ def cleanup(db: Session, admin: User, request=None) -> dict:
         db.delete(u)
     for tm in db.query(Team).filter(Team.id.in_(team_ids or [-1])).all():
         db.delete(tm)
+    counts["mails"] = db.query(AppSetting).filter(AppSetting.category == MAIL_CATEGORY).delete(
+        synchronize_session=False)
+    cap = db.get(AppSetting, CAPTURE_KEY)
+    if cap is not None:
+        cap.value = "0"
     log_action(db, admin.username, "regression_cleanup", "regression", None, {"counts": counts}, request)
     db.commit()
     state = load_state(db)
@@ -733,4 +739,113 @@ def status(db: Session) -> dict:
         "sites": {"running": running, "until": sites.get("until") if running else None,
                   "renewed": bool(sites.get("renewed")), "rows": site_rows},
         "data": data_view(db, state),
+        "mail": mail_status(db),
     }
+
+
+# ---------------------------------------------------------------- 5) test mail kutusu (v3.9.29)
+# Açıkken Jumbo'nun bütün mailleri (uyarılar, hatırlatmalar, Test Maili Gönder) sunucuya gitmez;
+# her biri app_settings'te ayrı bir satıra (category 'regression_mail') yazılır. Ayrı satır: aynı
+# anda giden mailler birbirinin üstüne yazmasın. Yalnız REGRESSION_TOOLS=1 iken geçerlidir; değişken
+# kaldırılınca mailler yine gerçek sunucuya gider.
+CAPTURE_KEY = "regression_lab.mail_capture"
+MAIL_CATEGORY = "regression_mail"
+MAIL_KEEP = 500
+CAPTURE_HOST = "test-mail-kutusu"
+
+
+def capture_enabled(db: Session) -> bool:
+    if not enabled():
+        return False
+    row = db.get(AppSetting, CAPTURE_KEY)
+    return bool(row and row.value == "1")
+
+
+def set_capture(db: Session, on: bool) -> None:
+    row = db.get(AppSetting, CAPTURE_KEY)
+    if row is None:
+        row = AppSetting(key=CAPTURE_KEY, category=CATEGORY)
+        db.add(row)
+    row.value = "1" if on else "0"
+    db.commit()
+
+
+def apply_mail_capture(db: Session, cfg: dict) -> dict:
+    """SMTP ayarına kutu işaretini ekler. Sunucu adı boşsa yer tutucu verilir: test için gerçek
+    mail sunucusu gerekmesin ("E-posta Bildirimleri Etkin" açık olmalı)."""
+    try:
+        on = capture_enabled(db)
+    except Exception:   # tablo henüz yok vb. — mail yolu bozulmasın
+        return cfg
+    if not on:
+        return cfg
+    cfg = dict(cfg)
+    cfg["_capture"] = True
+    cfg["host"] = cfg.get("host") or CAPTURE_HOST
+    cfg["from_address"] = cfg.get("from_address") or "jumbo@test-mail-kutusu"
+    return cfg
+
+
+def capture_mail(sender: str, to: list[str], subject: str, body: str, html: str | None) -> None:
+    from app.db.session import SessionLocal
+    now = _now()
+    rec = {"at": now.isoformat(), "from": sender, "to": list(to), "subject": subject,
+           "body": body, "html": html}
+    key = f"regression_lab.mail.{datetime.now(timezone.utc):%Y%m%d%H%M%S%f}.{secrets.token_hex(3)}"
+    with SessionLocal() as db:
+        db.add(AppSetting(key=key, category=MAIL_CATEGORY, value=json.dumps(rec, ensure_ascii=False)))
+        db.commit()
+        keys = [k for (k,) in db.query(AppSetting.key).filter(AppSetting.category == MAIL_CATEGORY)
+                .order_by(AppSetting.key.desc()).offset(MAIL_KEEP).all()]
+        if keys:
+            db.query(AppSetting).filter(AppSetting.key.in_(keys)).delete(synchronize_session=False)
+            db.commit()
+
+
+def _address_labels(db: Session) -> dict[str, str]:
+    """Adres → 'A · Ödeme Sistemleri SY' gibi kısa etiket (Hazırlık sayfasındaki A/B/C/Y)."""
+    from app.core.emails import split_emails
+    from app.services.settings_service import get_category
+    labels: dict[str, str] = {}
+    for tname, mail_key in TEST_TEAMS:
+        t = db.query(Team).filter(Team.name == tname, Team.type == "SY").first()
+        for a in split_emails(t.email if t else None):
+            labels[a.lower()] = f"{mail_key.upper()} · {tname}" if mail_key else tname
+    for a in split_emails(get_category(db, "smtp").get("fallback_address")):
+        labels.setdefault(a.lower(), "Y · Yedek adres")
+    return labels
+
+
+def list_mails(db: Session, limit: int = 200) -> list[dict]:
+    labels = _address_labels(db)
+    rows = (db.query(AppSetting).filter(AppSetting.category == MAIL_CATEGORY)
+            .order_by(AppSetting.key.desc()).limit(limit).all())
+    out = []
+    for r in rows:
+        try:
+            m = json.loads(r.value or "{}")
+        except ValueError:
+            continue
+        out.append({"id": r.key.rsplit("mail.", 1)[-1], "at": m.get("at"), "subject": m.get("subject"),
+                    "to": [{"address": a, "label": labels.get(a.lower())} for a in m.get("to") or []]})
+    return out
+
+
+def get_mail(db: Session, mail_id: str) -> dict | None:
+    r = db.get(AppSetting, f"regression_lab.mail.{mail_id}")
+    if r is None or r.category != MAIL_CATEGORY:
+        return None
+    m = json.loads(r.value or "{}")
+    labels = _address_labels(db)
+    return {**m, "id": mail_id, "to": [{"address": a, "label": labels.get(a.lower())} for a in m.get("to") or []]}
+
+
+def clear_mails(db: Session) -> int:
+    n = db.query(AppSetting).filter(AppSetting.category == MAIL_CATEGORY).delete(synchronize_session=False)
+    db.commit()
+    return n
+
+
+def mail_status(db: Session) -> dict:
+    return {"capture": capture_enabled(db),
+            "count": db.query(AppSetting).filter(AppSetting.category == MAIL_CATEGORY).count()}

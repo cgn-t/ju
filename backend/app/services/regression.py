@@ -157,6 +157,8 @@ def _smtp(db: Session):
     cfg = get_category(db, "smtp", mask_secrets=False)
     if not cfg.get("enabled"):
         return "skip", "Mail gönderimi kapalı"
+    if cfg.get("_capture"):
+        return "warn", "Test mail kutusu açık: mailler dışarı gitmiyor, Test Hazırlığı sekmesinde toplanıyor"
     if not cfg.get("host") or not cfg.get("from_address"):
         return "fail", "Sunucu ya da gönderen adresi boş"
     if cfg.get("use_ssl"):

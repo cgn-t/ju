@@ -21,6 +21,8 @@ const CATALOG = { total: 2, version: '3.9.27', sections: [{ key: 'mail', title: 
 const RUN = { id: 'R1', title: 'v3.9.27 preprod', version: '3.9.27', started_by: 'admin', started_at: '2026-10-30T20:00:00Z',
   finished_at: null, finished_by: null, counts: { pass: 1, fail: 0, skip: 0, pending: 1, total: 2 } }
 
+const MAILS = [{ id: 'M1', at: '2026-11-03T07:40:00Z', subject: 'Sertifika süresi doluyor: localhost (20 gün)',
+  to: [{ address: 'odeme@x', label: 'A · Ödeme Sistemleri SY' }] }]
 const LAB_EMPTY = { enabled: true, host: 'localhost', pfx_password: 'Jumbo2026!',
   certs: { generated_at: null, by: null, files: [] },
   sites: { running: false, until: null, renewed: false, rows: [] },
@@ -29,7 +31,9 @@ const LAB_EMPTY = { enabled: true, host: 'localhost', pfx_password: 'Jumbo2026!'
 function mockGet(ai = true, lab: object = { enabled: false }) {
   apiGet.mockImplementation(async (url: string) => {
     if (url === '/regression/lab') return { data: lab }
-    if (url === '/regression/lab/cleanup') return { data: { certificates: 5, domains: 2, applications: 1, users: 4, teams: 3 } }
+    if (url === '/regression/lab/cleanup') return { data: { certificates: 5, domains: 2, applications: 1, users: 4, teams: 3, mails: 0 } }
+    if (url === '/regression/lab/mails') return { data: MAILS }
+    if (url === '/regression/lab/mails/M1') return { data: { ...MAILS[0], from: 'jumbo@x', body: 'gövde', html: '<p>Merhabalar</p>' } }
     if (url === '/regression/catalog') return { data: CATALOG }
     if (url === '/regression/runs') return { data: [RUN] }
     if (url === '/regression/runs/R1') return { data: { ...RUN, marks: { 'MAIL-A1': { result: 'pass', note: '', by: 'admin', at: '2026-10-30T20:01:00Z' } } } }
@@ -114,5 +118,22 @@ describe('Regression', () => {
     expect(await within(dialog).findByText('5')).toBeTruthy()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Temizle' }))
     await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/regression/lab/cleanup'))
+  })
+
+  it('test mail kutusu: anahtar, kim aldı, maile tıklayınca içerik', async () => {
+    mockGet(true, { ...LAB_EMPTY, mail: { capture: true, count: 1 } })
+    apiPost.mockResolvedValue({ data: { ...LAB_EMPTY, mail: { capture: false, count: 1 } } })
+    renderPage(<Regression />, { url: '/regression' })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Test Hazırlığı' }))
+    const row = await screen.findByText('Sertifika süresi doluyor: localhost (20 gün)')
+    expect(screen.getByText('A · Ödeme Sistemleri SY')).toBeTruthy()
+    expect(screen.getByText(/Kutu açık: Jumbo dışarıya hiç mail göndermiyor/)).toBeTruthy()
+    await userEvent.click(row)
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByTitle('Mail içeriği')).toBeTruthy()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Kapat' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await userEvent.click(screen.getByRole('switch', { name: 'Mailleri gerçek sunucu yerine buraya topla' }))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/regression/lab/mail/capture', { on: false }))
   })
 })

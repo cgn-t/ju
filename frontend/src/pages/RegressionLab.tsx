@@ -4,6 +4,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DownloadIcon from '@mui/icons-material/Download'
 import FolderZipIcon from '@mui/icons-material/FolderZip'
 import GroupAddIcon from '@mui/icons-material/GroupAdd'
+import MailIcon from '@mui/icons-material/MailOutlined'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import StopIcon from '@mui/icons-material/Stop'
 import VerifiedIcon from '@mui/icons-material/VerifiedUser'
@@ -33,8 +34,12 @@ export type LabStatus = {
   data?: { at: string | null; password: string | null
     teams: { name: string; exists: boolean; email: string | null; mail_key: string | null; created_here: boolean }[]
     users: { username: string; role: string; team: string | null; exists: boolean; created_here: boolean }[] }
+  mail?: { capture: boolean; count: number }
 }
-type Cleanup = { certificates: number; domains: number; applications: number; users: number; teams: number }
+type MailTo = { address: string; label: string | null }
+type MailRow = { id: string; at: string; subject: string; to: MailTo[] }
+type MailFull = MailRow & { from: string; body: string; html: string | null }
+type Cleanup = { certificates: number; domains: number; applications: number; users: number; teams: number; mails: number }
 
 export function useLabStatus() {
   return useQuery<LabStatus>({
@@ -89,7 +94,7 @@ function Hint({ children }: { children: ReactNode }) {
   return <Typography variant="body2" color="text.secondary" sx={{ px: 2, pb: 2 }}>{children}</Typography>
 }
 
-const EMPTY_CLEANUP: Cleanup = { certificates: 0, domains: 0, applications: 0, users: 0, teams: 0 }
+const EMPTY_CLEANUP: Cleanup = { certificates: 0, domains: 0, applications: 0, users: 0, teams: 0, mails: 0 }
 
 export default function RegressionLab({ lab }: { lab: LabStatus }) {
   const { enqueueSnackbar } = useSnackbar()
@@ -118,7 +123,7 @@ export default function RegressionLab({ lab }: { lab: LabStatus }) {
       setCleanOpen(false)
       qc.invalidateQueries({ queryKey: ['regression', 'lab'] })
       enqueueSnackbar(`Temizlendi: ${c.certificates} sertifika, ${c.domains} domain, ${c.applications} uygulama, `
-        + `${c.users} hesap, ${c.teams} ekip`, { variant: 'success' })
+        + `${c.users} hesap, ${c.teams} ekip, ${c.mails} test maili`, { variant: 'success' })
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
@@ -321,6 +326,9 @@ export default function RegressionLab({ lab }: { lab: LabStatus }) {
         )}
       </Card>
 
+      <MailBox lab={lab} busy={busy} onToggle={(on) => run('mail/capture', on
+        ? 'Test mail kutusu açık: mailler dışarı gitmiyor' : 'Test mail kutusu kapatıldı: mailler gerçek sunucuya gidiyor', { on })} />
+
       <Dialog open={cleanOpen} onClose={() => setCleanOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Test verisi temizlensin mi?</DialogTitle>
         <DialogContent>
@@ -333,6 +341,7 @@ export default function RegressionLab({ lab }: { lab: LabStatus }) {
                   <li><b>{p.domains}</b> test domaini (localhost…, *.jumbo-test.local ve test ekiplerinin domainleri) ve talepleri</li>
                   <li><b>{p.applications}</b> test ekiplerinin uygulaması</li>
                   <li><b>{p.users}</b> yerel test hesabı ve <b>{p.teams}</b> test ekibi (yalnız bu sekmenin açtıkları)</li>
+                  <li><b>{p.mails}</b> mail test mail kutusundan silinir ve kutu kapatılır</li>
                 </Box>
                 <Alert severity="info" variant="outlined" sx={{ mt: 1.5 }}>
                   Regresyon test sonuçları, Audit Log ve ayarlar değişmez. Önceden var olan ekipler ve hesaplar silinmez.
@@ -349,5 +358,114 @@ export default function RegressionLab({ lab }: { lab: LabStatus }) {
         </DialogActions>
       </Dialog>
     </Box>
+  )
+}
+
+// ---------------------------------------------------------------- 4) test mail kutusu (v3.9.29)
+function MailBox({ lab, busy, onToggle }: { lab: LabStatus; busy: boolean; onToggle: (on: boolean) => void }) {
+  const { enqueueSnackbar } = useSnackbar()
+  const qc = useQueryClient()
+  const capture = !!lab.mail?.capture
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [clearOpen, setClearOpen] = useState(false)
+  const mails = useQuery<MailRow[]>({
+    queryKey: ['regression', 'lab', 'mails'], queryFn: async () => (await api.get('/regression/lab/mails')).data,
+    refetchInterval: capture ? 10_000 : false,
+  })
+  const one = useQuery<MailFull>({
+    queryKey: ['regression', 'lab', 'mail', openId], enabled: !!openId,
+    queryFn: async () => (await api.get(`/regression/lab/mails/${openId}`)).data,
+  })
+  const clear = useMutation({
+    mutationFn: async () => (await api.delete<{ deleted: number }>('/regression/lab/mails')).data,
+    onSuccess: (d) => {
+      setClearOpen(false)
+      qc.invalidateQueries({ queryKey: ['regression', 'lab'] })
+      enqueueSnackbar(`Test mail kutusu boşaltıldı (${d.deleted} mail)`, { variant: 'success' })
+    },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+  const rows = mails.data ?? []
+  const toText = (to: MailTo[]) => to.map((t) => t.label ?? t.address).join(', ')
+
+  return (
+    <Card title={<Step n={4} done={capture} text="Test mail kutusu" />} aside={
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+        {rows.length > 0 && (
+          <Button size="small" color="error" startIcon={<CleaningServicesIcon />} onClick={() => setClearOpen(true)}>
+            Kutuyu Boşalt
+          </Button>
+        )}
+        <FormControlLabel control={<Switch checked={capture} disabled={busy} onChange={(e) => onToggle(e.target.checked)} />}
+                          label="Mailleri gerçek sunucu yerine buraya topla" />
+      </Box>
+    }>
+      {capture && (
+        <Alert severity="warning" variant="outlined" sx={{ mx: 2, mb: 1.5 }}>
+          Kutu açık: Jumbo dışarıya hiç mail göndermiyor; uyarılar, hatırlatmalar ve "Test Maili Gönder" burada
+          görünür. Ayarlar &gt; E-posta (SMTP)'de "E-posta Bildirimleri Etkin" açık olmalı; mail sunucusu girilmese de olur.
+          Gerçek sunucuyu denemek için kutuyu kapatıp bir test maili gönderin.
+        </Alert>
+      )}
+      {mails.isError ? <Box sx={{ px: 2, pb: 2 }}><QueryError error={mails.error} onRetry={() => mails.refetch()} /></Box>
+        : rows.length ? (
+          <TableContainer sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 640 }}>
+              <TableHead><TableRow>
+                <TableCell sx={{ width: 150 }}>Zaman</TableCell><TableCell sx={{ width: 260 }}>Alıcı</TableCell>
+                <TableCell>Konu</TableCell>
+              </TableRow></TableHead>
+              <TableBody>
+                {rows.map((m) => (
+                  <TableRow key={m.id} hover sx={{ cursor: 'pointer' }} onClick={() => setOpenId(m.id)}>
+                    <TableCell sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{fmtDate(m.at)}</TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+                        <MailIcon fontSize="small" color="action" />{toText(m.to)}
+                      </Box>
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{m.subject}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Hint>{capture ? 'Henüz mail yok. Jumbo bir mail gönderdiğinde birkaç saniye içinde burada görünür.'
+            : 'Açıkken Jumbo mail göndermez; A, B, C ve Y adreslerine gidecek mailler burada listelenir. '
+              + '4 gerçek posta kutusu ya da test mail sunucusu gerekmez.'}</Hint>
+        )}
+
+      <Dialog open={!!openId} onClose={() => setOpenId(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pr: 6 }}>{one.data?.subject ?? 'Mail'}</DialogTitle>
+        <DialogContent dividers>
+          {one.isError ? <QueryError error={one.error} onRetry={() => one.refetch()} />
+            : !one.data ? <Skeleton variant="rounded" height={320} /> : (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  {fmtDate(one.data.at)} · Kimden: {one.data.from} · Kime: {one.data.to.map((t) =>
+                    t.label ? `${t.address} (${t.label})` : t.address).join(', ')}
+                </Typography>
+                {one.data.html
+                  ? <Box component="iframe" title="Mail içeriği" sandbox="" srcDoc={one.data.html}
+                         sx={{ width: '100%', height: 480, border: 1, borderColor: 'divider', borderRadius: 1, bgcolor: '#fff' }} />
+                  : <Box component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', m: 0 }}>{one.data.body}</Box>}
+              </>
+            )}
+        </DialogContent>
+        <DialogActions><Button onClick={() => setOpenId(null)}>Kapat</Button></DialogActions>
+      </Dialog>
+
+      <Dialog open={clearOpen} onClose={() => setClearOpen(false)}>
+        <DialogTitle>Test mail kutusu boşaltılsın mı?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">Kutudaki {rows.length} mail silinir. Jumbo'nun Mail Gönderim Geçmişi değişmez.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearOpen(false)}>Vazgeç</Button>
+          <Button variant="contained" color="error" disabled={clear.isPending} onClick={() => clear.mutate()}>Boşalt</Button>
+        </DialogActions>
+      </Dialog>
+    </Card>
   )
 }
