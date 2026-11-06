@@ -56,11 +56,17 @@ def certificate_mails(cert_id: int, db: Session = Depends(get_db),
 
 @router.get("/certificates/{cert_id}/impact", response_model=CertificateImpactOut)
 def certificate_impact(cert_id: int, db: Session = Depends(get_db),
-                       _: User = Depends(require_role("viewer"))):
+                       user: User = Depends(require_role("viewer"))):
     cert = db.get(Certificate, cert_id)
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
-    return team_summary.certificate_impact(db, cert)
+    out = team_summary.certificate_impact(db, cert)
+    # Kapsam dışı (başka SY ekibinin) domain detayına tıklanınca ekran uyarı versin
+    scope = domain_scope_team_ids(db, user)
+    team_of = {m.domain.id: m.domain.sy_team_id for m in cert.domain_mappings if m.domain is not None}
+    for d in out["domains"]:
+        d["can_view"] = scope is None or team_of.get(d["domain_id"]) in scope
+    return out
 
 
 @router.get("/system/health", response_model=SystemHealthOut)

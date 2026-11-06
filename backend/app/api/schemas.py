@@ -183,6 +183,11 @@ class MappedDomainOut(BaseModel):
     domain_id: int
     domain: str
     mapping_type: str
+    # Yalnız tekil sertifika GET'i doldurur: domainin SY ekibi ve kullanıcının o domainin
+    # detayını açıp açamayacağı (kapsam dışıysa ekran "başka ekibe ait" uyarısı gösterir).
+    team: str | None = None
+    can_view: bool = True
+    live_check_status: str | None = None  # Bağlantılar sekmesinde durum noktası
 
 
 class CertRefOut(BaseModel):
@@ -1100,6 +1105,7 @@ class ImpactDomain(BaseModel):
     domain: str
     mapping_type: str | None
     team: str | None
+    can_view: bool = True  # kullanıcı domain detayını açabilir mi (kapsam)
 
 
 class ImpactApp(BaseModel):

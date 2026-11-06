@@ -6,6 +6,7 @@ import {
 } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
+import { RecordUnavailable } from './RecordUnavailable'
 import type { Application } from '../api/types'
 import { MONO_FONT } from '../theme'
 import SkiText from './SkiText'
@@ -29,7 +30,7 @@ function Field({ label, value, mono }: { label: string; value?: string | null; m
 }
 
 export default function ApplicationDetailDrawer({ appId, onClose }: Props) {
-  const { data: app, isLoading } = useQuery<Application>({
+  const { data: app, isLoading, isError, error, refetch } = useQuery<Application>({
     queryKey: ['application', appId],
     queryFn: async () => (await api.get(`/applications/${appId}`)).data,
     enabled: appId !== null,
@@ -39,7 +40,9 @@ export default function ApplicationDetailDrawer({ appId, onClose }: Props) {
     <Drawer anchor="right" open={appId !== null} onClose={onClose}
             slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 } } } }}>
       <Box sx={{ p: 3 }}>
-        {isLoading || !app ? (
+        {isError && !app ? (
+          <RecordUnavailable kind="application" error={error} onClose={onClose} onRetry={() => refetch()} />
+        ) : isLoading || !app ? (
           <Skeleton variant="rounded" height={500} />
         ) : (
           <Stack spacing={2}>
