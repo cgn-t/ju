@@ -116,6 +116,12 @@ export default function MailHistoryDetailDrawer({ item, onClose, onChanged, onOp
               </Tooltip>
             </Box>
 
+            {d.status === 'sent' && d.error && (
+              <Alert severity="warning" variant="outlined">
+                <Box sx={{ fontFamily: MONO_FONT, fontSize: 12, wordBreak: 'break-word' }}>{d.error}</Box>
+              </Alert>
+            )}
+
             {d.status === 'failed' && d.error && (
               <Alert severity="error" variant="outlined"
                      action={d.retryable ? (

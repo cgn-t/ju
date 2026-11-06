@@ -44,6 +44,9 @@ function useDebounced<T>(value: T, ms = 350): T {
 function recordOf(r: MailHistoryEntry): { label: string; kind: 'cert' | 'domain' | null } {
   if (r.certificate_name) return { label: r.certificate_name, kind: 'cert' }
   if (r.domain_name) return { label: r.domain_name, kind: 'domain' }
+  // Sertifikaya/domaine bağlı olmayan mailler: kayıt sütunu boş kalmasın
+  if (r.mail_type === 'proposal') return { label: 'Değişiklik talepleri', kind: null }
+  if (r.mail_type === 'test') return { label: 'E-posta ayarları', kind: null }
   return { label: '—', kind: null }
 }
 
@@ -287,7 +290,8 @@ export default function MailHistoryPanel() {
                   </TableCell>
                   <TableCell>
                     {r.error ? (
-                      <Typography variant="body2" color="error.main" sx={{ display: '-webkit-box', WebkitLineClamp: 2,
+                      <Typography variant="body2" color={r.status === 'sent' ? 'warning.main' : 'error.main'}
+                                  sx={{ display: '-webkit-box', WebkitLineClamp: 2,
                                   WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word' }}>
                         {r.error}
                       </Typography>

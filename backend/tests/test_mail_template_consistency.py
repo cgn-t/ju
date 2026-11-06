@@ -197,10 +197,10 @@ def test_proposal_reminder_unexpected_error_visible_in_history_and_isolated(clie
 
     orig = notifier._render_proposal_reminder_html
 
-    def boom(props, cfg):
+    def boom(props, cfg, *rest):
         if any(p.sy_team_id == tid_boom for p in props):
             raise RuntimeError("kasıtlı render hatası (test)")
-        return orig(props, cfg)
+        return orig(props, cfg, *rest)
     monkeypatch.setattr(notifier, "_render_proposal_reminder_html", boom)
 
     db = SessionLocal()

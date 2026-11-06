@@ -481,7 +481,7 @@ export interface MailHistoryEntry {
   retryable: boolean            // başarısız + alıcısı belli → yeniden kuyruğa alınabilir
 }
 
-export type MailType = 'expiry' | 'expired' | 'revoked' | 'deactivated' | 'proposal' | 'other'
+export type MailType = 'expiry' | 'expired' | 'revoked' | 'deactivated' | 'proposal' | 'test' | 'other'
 export type MailStatus = 'sent' | 'pending' | 'failed'
 
 export interface MailHistoryList {

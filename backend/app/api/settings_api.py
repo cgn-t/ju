@@ -96,6 +96,27 @@ def jenkins_test(request: Request, db: Session = Depends(get_db), user: User = D
     return {"success": ok, "message": message}
 
 
+def _record_smtp_test(db: Session, to: list[str], refused: dict | None, subject: str, text: str,
+                     html_body: str, ok: bool, message: str, actor: str) -> None:
+    """Test maili de Mail Gönderim Geçmişi'nde görünsün (tür: 'SMTP test maili'). Ulaşan alıcılar
+    'Gönderildi' (Notification), ulaşmayanlar 'Başarısız' (mail_queue, hata mesajıyla) yazılır.
+    Kayıt hatası testin sonucunu asla bozmaz."""
+    from app.db.models import MailQueue, Notification
+    try:
+        failed = list(refused) if refused else ([] if ok else list(to))
+        delivered = [a for a in to if a not in failed]
+        if delivered:
+            db.add(Notification(recipient=", ".join(delivered), subject=f"{subject} → {actor}",
+                                days_left=None, channel="email"))
+        if failed:
+            db.add(MailQueue(to_addresses=", ".join(failed), subject=subject, body_text=text,
+                             body_html=html_body, stakeholder=actor, status="failed",
+                             last_error=message[:1000], attempts=1))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @router.post("/smtp/test")
 def smtp_test(request: Request, body: dict = Body(default={}), db: Session = Depends(get_db),
               user: User = Depends(require_role("admin"))):
@@ -119,7 +140,9 @@ def smtp_test(request: Request, body: dict = Body(default={}), db: Session = Dep
         else:
             ok, message = True, f"Test maili gönderildi: {', '.join(to)}"
     except Exception as exc:
+        refused = None
         ok, message = False, f"Gönderilemedi: {type(exc).__name__}: {exc}"
+    _record_smtp_test(db, to, refused, subject, text, html_body, ok, message, user.username)
     _log_test(request, user, "smtp", ok, message)
     return {"success": ok, "message": message}
 

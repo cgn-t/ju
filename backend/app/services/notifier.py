@@ -325,9 +325,11 @@ def _render_cert_mail_html(cert: Certificate, days_left: int, p: dict, *, expire
     return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=doc_links)
 
 
-def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], team_list: list[str]) -> str:
+def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], team_list: list[str],
+                            reason: str | None = None) -> str:
     return (
-        f"'{cert.name}' sertifikası {actor} tarafından pasife alındı.\n\n"
+        (f"{reason}\n\n" if reason else "")
+        + f"'{cert.name}' sertifikası {actor} tarafından pasife alındı.\n\n"
         f"Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:\n"
         + "".join(f"  - {d}\n" for d in bound)
         + "\nİlgili SY ekipleri: " + (", ".join(team_list) if team_list else "—") + "\n\n"
@@ -336,10 +338,12 @@ def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], tea
     )
 
 
-def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], team_list: list[str]) -> str:
+def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], team_list: list[str],
+                              reason: str | None = None) -> str:
     """Diğer mail türleriyle aynı iskelet: banner + 'SSL Sertifika Detayı' tablosu (_cert_rows)."""
     body = (
-        _banner(f"'{cert.name}' sertifikası {actor} tarafından PASİFE ALINDI — hâlâ "
+        (_warn_line(reason) if reason else "")
+        + _banner(f"'{cert.name}' sertifikası {actor} tarafından PASİFE ALINDI — hâlâ "
                f"{len(bound)} domain'e bağlı görünüyor!")
         + _section("SSL Sertifika Detayı") + _kv_table(_cert_rows(cert))
         + _section("Hâlâ Bağlı Olduğu Domainler")
@@ -408,23 +412,56 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
                 "mail_sent": False, "message": "Sertifika pasife alındı."}
 
     subject = f"[JUMBO] Sertifika pasife alındı: {cert.name} — {len(bound)} domain etkilendi"
-    body = _mail_text_wrap("Merhabalar,", _deactivation_body_text(cert, actor, bound, team_list))
-    html_body = _render_deactivation_html(cert, actor, bound, team_list)
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    smtp_on = bool(cfg.get("enabled") and cfg.get("host"))
+    # Alıcı yoksa (bağlı domainlerin SY ekibinde e-posta tanımsız) mail yedek adrese gider —
+    # sahip kararı: "alıcısı olmayan mail yedek adrese gider".
+    reason = None
+    fb = split_emails(cfg.get("fallback_address")) if not to_addr else []
+    if fb:
+        reason = ("Bu bilgilendirme bağlı domainlerin SY ekibine gidecekti; ekipte e-posta adresi "
+                  "tanımlı olmadığı için yedek adrese iletildi.")
+    body = _mail_text_wrap("Merhabalar,", _deactivation_body_text(cert, actor, bound, team_list, reason))
+    html_body = _render_deactivation_html(cert, actor, bound, team_list, reason)
+    send_to = to_addr or fb
 
     mail_sent = False
     mail_queue_id = None
-    cfg = get_category(db, "smtp", mask_secrets=False)
-    if to_addr and cfg.get("enabled") and cfg.get("host"):
-        mail_sent, _note, mail_queue_id = _deliver(db, cfg, to_addr, subject, body, html_body,
-                                                    certificate_id=cert.id, stakeholder="deactivation",
-                                                    days_left=None)
+    note = None
+    if send_to and smtp_on:
+        mail_sent, note, mail_queue_id = _deliver(db, cfg, send_to, subject, body, html_body,
+                                                   certificate_id=cert.id,
+                                                   stakeholder="yedek adres" if fb else "deactivation",
+                                                   days_left=None)
+    if not mail_sent:
+        # Mail GİTMEDİ (alıcı yok / SMTP kapalı / gönderim başarısız): kayıt yine tutulur ama
+        # Mail Gönderim Geçmişi'nde 'Gönderildi' görünmesin — nedenini taşıyan 'failed' kuyruk
+        # satırına bağlanır (eskiden bu durumlar da yeşil 'Gönderildi' görünüyordu). Alıcısı
+        # belliyse adres/SMTP düzeltilince 'Yeniden dene' ile gönderilebilir.
+        if not send_to:
+            why = ("Bağlı domainlerin SY ekibinde e-posta tanımlı değil ve yedek adres yok — "
+                   "mail gönderilmedi")
+        elif not smtp_on:
+            why = "E-posta bildirimleri kapalı (veya SMTP sunucusu tanımsız) — mail gönderilmedi"
+        else:
+            why = note or "gönderilemedi"
+        mq = MailQueue(to_addresses=", ".join(send_to) if send_to else "(tanımlı alıcı yok)",
+                       subject=subject, body_text=body, body_html=html_body,
+                       certificate_id=cert.id, stakeholder="deactivation", days_left=None,
+                       status="failed", last_error=why[:1000], attempts=1 if (send_to and smtp_on) else 0)
+        db.add(mq)
+        db.flush()
+        mail_queue_id = mq.id
 
     db.add(Notification(certificate_id=cert.id,
-                        recipient=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
-                        subject=subject, days_left=None, mail_queue_id=mail_queue_id))
+                        recipient=", ".join(send_to) if send_to else "(tanımlı alıcı yok)",
+                        subject=f"{subject} → yedek adres" if (fb and mail_sent) else subject,
+                        days_left=None, mail_queue_id=mail_queue_id))
     db.commit()
 
-    if not to_addr:
+    if not to_addr and fb and mail_sent:
+        note = "bağlı domainlerde tanımlı alıcı yok — yedek adrese bildirildi"
+    elif not to_addr:
         note = "bağlı domainlerde tanımlı alıcı yok — kayıt tutuldu"
     elif mail_sent:
         note = f"{len(to_addr)} alıcı bilgilendirildi (mail gönderildi/kuyruğa alındı)"
@@ -579,6 +616,9 @@ def _refused_note(refused: dict) -> str:
                      for a, (code, msg) in refused.items())
 
 
+FALLBACK_NOTE_PREFIX = "birincil başarısız → yedek adrese gönderildi"
+
+
 def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: str,
                         html_body: str | None) -> tuple[bool, str, dict]:
     """Birincil alıcılara gönderir; SMTP hatası olursa `fallback_address`'e İKİNCİ deneme yapar.
@@ -598,7 +638,7 @@ def _send_with_fallback(cfg: dict, to_addresses: list[str], subject: str, body: 
                 _send_mail(cfg, fb, f"[YEDEK] {subject}",
                            f"Bu bildirim asıl alıcıya ({', '.join(to_addresses)}) gönderilemedi; "
                            f"yedek adrese iletildi.\n\n{body}", html_body)
-                return True, f"birincil başarısız → yedek adrese gönderildi ({', '.join(fb)})", {}
+                return True, f"{FALLBACK_NOTE_PREFIX} ({', '.join(fb)})", {}
             except Exception as exc2:
                 logger.exception("Yedek mail de gönderilemedi")
                 return False, f"birincil ve yedek başarısız: {exc2}", {}
@@ -656,6 +696,18 @@ def _deliver(db: Session, cfg: dict, to_addresses: list[str], subject: str, body
     _record_refused(db, refused, note, subject=subject, body=body, html_body=html_body,
                     certificate_id=certificate_id, domain_id=domain_id,
                     stakeholder=stakeholder, days_left=days_left)
+    if ok and note.startswith(FALLBACK_NOTE_PREFIX):
+        # Asıl alıcıya gitmedi, YEDEK adrese gitti: geçmişte yalnız "Gönderildi" görünmesin —
+        # açıklamayı taşıyan 'sent' kuyruk satırı yazılır, çağıranın Notification'ı ona bağlanır
+        # (geçmiş listesinde not olarak, detayda içerikle birlikte görünür).
+        now = utcnow()
+        mq = MailQueue(to_addresses=", ".join(to_addresses), subject=subject, body_text=body,
+                       body_html=html_body, certificate_id=certificate_id, domain_id=domain_id,
+                       stakeholder=stakeholder, days_left=days_left, status="sent",
+                       created_at=now, sent_at=now, attempts=1, last_error=note[:1000])
+        db.add(mq)
+        db.flush()
+        return ok, note, mq.id
     return ok, note, None
 
 
@@ -1232,13 +1284,14 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
     ]
 
 
-def _proposal_reminder_text(props: list, cfg: dict) -> str:
+def _proposal_reminder_text(props: list, cfg: dict, reason: str | None = None) -> str:
     blocks: list[str] = []
     for i, p in enumerate(props, start=1):
         blocks.append(f"\nDeğişiklik Talebi {i}/{len(props)}: {_proposal_label(p)}\n"
                      + "".join(f"  {k}: {_fmt(v)}\n" for k, v in _proposal_rows(p)))
     body = (
-        f"JUMBO'da onayınızı bekleyen {len(props)} değişiklik talebi var:\n"
+        (f"{reason}\n\n" if reason else "")
+        + f"JUMBO'da onayınızı bekleyen {len(props)} değişiklik talebi var:\n"
         + "".join(blocks)
         + "\nLütfen JUMBO 'Değişiklik Talepleri' ekranından bu talepleri gözden geçirip ONAYLAYIN veya\n"
         "REDDEDİN. Onaylanan talepler yeni sertifikayı devreye alır; reddedilenler kapanır ve\n"
@@ -1247,8 +1300,8 @@ def _proposal_reminder_text(props: list, cfg: dict) -> str:
     return _mail_text_wrap("Merhabalar,", body, doc_links=cfg.get("doc_links") or "")
 
 
-def _render_proposal_reminder_html(props: list, cfg: dict) -> str:
-    parts: list[str] = [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} değişiklik talebi</b> var:</p>",
+def _render_proposal_reminder_html(props: list, cfg: dict, reason: str | None = None) -> str:
+    parts: list[str] = ([_warn_line(reason)] if reason else []) + [f"<p>JUMBO'da <b>onayınızı bekleyen {len(props)} değişiklik talebi</b> var:</p>",
                         _banner(f"{len(props)} değişiklik talebi onayınızı bekliyor — karar "
                                "verilene kadar hatırlatma tekrarlanır.")]
     for i, p in enumerate(props, start=1):
@@ -1290,17 +1343,41 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
     for team_id, props in by_team.items():
         try:
             team = db.get(Team, team_id)
+            team_name = team.name if team else f"team_id={team_id}"
             emails = _team_emails(team)
-            if not emails:
-                skipped += len(props)
-                continue
+            label, reason = team_name, None
             subject = f"[JUMBO] Onayınızı bekleyen {len(props)} değişiklik talebi"
-            body_text = _proposal_reminder_text(props, cfg)
-            body_html = _render_proposal_reminder_html(props, cfg)
+            if not emails:
+                # Ekibin e-postası yok → yedek adres (sahip kararı); o da yoksa geçmişte 'Başarısız'
+                # görünsün (eskiden sessizce atlanıyordu).
+                emails = split_emails(cfg.get("fallback_address"))
+                reason = (f"Bu hatırlatma '{team_name}' ekibine gidecekti; ekibin e-posta adresi "
+                          "tanımlı olmadığı için yedek adrese iletildi.")
+                label = f"yedek adres ({team_name} e-postası yok)"
+                if not emails:
+                    skipped += len(props)
+                    failed += 1
+                    db.add(MailQueue(
+                        to_addresses="(ekip e-postası ve yedek adres tanımlı değil)", subject=subject,
+                        body_text=_proposal_reminder_text(props, cfg),
+                        body_html=_render_proposal_reminder_html(props, cfg), stakeholder=team_name,
+                        status="failed", attempts=0,
+                        last_error=(f"'{team_name}' ekibinin e-posta adresi tanımlı değil ve yedek adres "
+                                    "yok — hatırlatma gönderilemedi")[:1000]))
+                    db.commit()
+                    continue
+            body_text = _proposal_reminder_text(props, cfg, reason)
+            body_html = _render_proposal_reminder_html(props, cfg, reason)
             ok, note, _mqid = _deliver(db, cfg, emails, subject, body_text, body_html,
-                                       certificate_id=None, stakeholder=(team.name if team else None),
-                                       days_left=None)
+                                       certificate_id=None, stakeholder=label, days_left=None)
             if ok:
+                # Mail Gönderim Geçmişi'nde görünsün: diğer mail türleri gibi Notification satırı
+                # (kuyruğa alındıysa mail_queue_id ile GERÇEK teslim durumuna bağlı). Eskiden yazılmadığı
+                # için başarılı hatırlatmalar geçmişte HİÇ görünmüyordu (kuyruk açıksa yalnız
+                # gönderilene dek 'Kuyrukta' görünüp sonra kayboluyordu).
+                db.add(Notification(recipient=", ".join(emails),
+                                    subject=f"{subject} → {label}",
+                                    days_left=None, channel="email", mail_queue_id=_mqid))
                 # kuyruk satırı (queue_enabled) / kısmi-red kaydı burada kalıcılaşır — zamanlanmış
                 # job'ın kendi commit'i yok; commit edilmezse kuyruğa alınan hatırlatma KAYBOLUR.
                 db.commit()
@@ -1308,14 +1385,13 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             else:
                 skipped += len(props)
                 failed += 1
-                logger.warning("Değişiklik talebi hatırlatması gönderilemedi: %s (%s)",
-                               team.name if team else team_id, note)
+                logger.warning("Değişiklik talebi hatırlatması gönderilemedi: %s (%s)", label, note)
                 # queue KAPALIYKEN doğrudan gönderim başarısız → Mail Gönderim Geçmişi'nde
                 # görünsün diye 'failed' yaz (bkz. _dispatch_cert_mails'teki aynı desen).
                 if not cfg.get("queue_enabled"):
                     db.add(MailQueue(to_addresses=", ".join(emails), subject=subject,
                                      body_text=body_text, body_html=body_html,
-                                     stakeholder=team.name if team else None,
+                                     stakeholder=label,
                                      status="failed", last_error=(note or "")[:1000], attempts=1))
                     db.commit()
         except Exception as exc:
@@ -1339,6 +1415,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, body_html,
                                            certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:
+                    db.add(Notification(recipient=", ".join(fb), subject=f"{subject} → admin onayı",
+                                        days_left=None, channel="email", mail_queue_id=_mqid))
                     db.commit()
                     sent += 1
                 else:
@@ -1523,6 +1601,8 @@ def drain_mail_queue(db: Session) -> dict:
         item.attempts = (item.attempts or 0) + 1
         if ok:
             item.status, item.sent_at = "sent", utcnow()
+            # Temiz teslimde eski deneme hatası kalmasın; yedeğe gittiyse açıklama kalsın.
+            item.last_error = note[:1000] if note.startswith(FALLBACK_NOTE_PREFIX) else None
             if refused:
                 item.last_error = note[:1000]
                 _record_refused(db, refused, note, subject=item.subject or "",
