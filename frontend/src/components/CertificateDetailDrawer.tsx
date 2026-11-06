@@ -50,7 +50,7 @@ import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { CertificateImpactTab, CertificateMailsTab } from './CertificateExtraTabs'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
-import CertificateLinksTab, { type LinksVariant } from './CertificateLinksTab'
+import CertificateLinksTab from './CertificateLinksTab'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { EditFooter, FormSection } from './FormKit'
 import {
@@ -70,10 +70,6 @@ interface Props {
 }
 
 const SHRINK = { inputLabel: { shrink: true } }
-// GEÇİCİ (seçenek karşılaştırması): sahip seçince tek görünüm kalır
-const linksVariant = (): LinksVariant => {
-  try { const v = localStorage.getItem('jumbo.links.variant'); return v === 'b' || v === 'c' ? v : 'a' } catch { return 'a' }
-}
 const ADMIN_ONLY = 'Sertifikadan okunur; yalnız admin değiştirebilir'
 
 interface EditForm {
@@ -358,7 +354,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
             {tab === 'links' && (
               <Stack spacing={2}>
-                <CertificateLinksTab domains={cert.domains} onOpen={openDomain} variant={linksVariant()} />
+                <CertificateLinksTab domains={cert.domains} onOpen={openDomain} />
                 {!editing && editable && cert.is_active && (
                   <SectionBox title="Değişiklik Talebi Oluştur">
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
