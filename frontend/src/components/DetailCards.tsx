@@ -234,9 +234,11 @@ export const CARD_SX = {
   bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: '14px',
 } as const
 
-export function InfoCard({ title, value, sub, chip, color = 'default', icon, onClick }: {
+export function InfoCard({ title, value, sub, chip, color = 'default', icon, onClick, multiline }: {
   title: string; value: ReactNode; sub?: string; chip?: { label: string; color: Tone }; color?: Tone
   icon?: ReactNode; onClick?: () => void
+  /** Serbest metin (Detay / Notlar): yazılan satır sonları korunur, metin normal kalınlıkta gösterilir. */
+  multiline?: boolean
 }) {
   return (
     <ButtonBase component="div" disabled={!onClick} onClick={onClick}
@@ -248,7 +250,8 @@ export function InfoCard({ title, value, sub, chip, color = 'default', icon, onC
       {icon && <IconBadge tone={color}>{icon}</IconBadge>}
       <Box sx={{ minWidth: 0, flexGrow: 1 }}>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 500, lineHeight: 1.5 }}>{title}</Typography>
-        <Box sx={(t) => ({ typography: 'body1', fontWeight: 650, lineHeight: 1.35, wordBreak: 'break-word', mt: 0.25,
+        <Box sx={(t) => ({ typography: 'body1', fontWeight: multiline ? 400 : 650, lineHeight: multiline ? 1.5 : 1.35,
+                   wordBreak: 'break-word', mt: 0.25, ...(multiline ? { whiteSpace: 'pre-wrap' } : {}),
                    color: color !== 'default' ? toneText(t, color) : 'text.primary' })}>{value}</Box>
         {chip && <Box sx={{ mt: 0.75 }}><StatusPill size="small" tone={chip.color} label={chip.label} /></Box>}
         {sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, wordBreak: 'break-word', lineHeight: 1.4 }}>{sub}</Typography>}

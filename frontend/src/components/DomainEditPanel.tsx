@@ -11,6 +11,7 @@ import { useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
 import type { Domain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { DOMAIN_YESNO_TONE, isLegacyYesNo, YesNoSwitch } from './YesNoKit'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { EditFooter, FormSection } from './FormKit'
 
@@ -20,7 +21,6 @@ import { EditFooter, FormSection } from './FormKit'
  * onay penceresi açar). Sahiplik (SY Takımı) yalnız admin tarafından değiştirilir — sunucu da
  * aynı kuralı uygular. Canlı zincir sorgusu/aktarımı bu panelde yok (Canlı Doğrulama sekmesi).
  */
-const YESNO = ['Evet', 'Hayır']
 const LABEL_SHRINK = { inputLabel: { shrink: true } }
 
 function initial(d: Domain): Record<string, string> {
@@ -106,7 +106,9 @@ export default function DomainEditPanel({ domain, onDone }: { domain: Domain; on
   )
   const yesNo = (key: string, label: string, required = false) => {
     const val = form[key] ?? ''
-    const legacy = val && !YESNO.includes(val) ? val : null
+    const legacy = isLegacyYesNo(val) ? val : null
+    if (!legacy) return <YesNoSwitch key={key} label={label} value={val} required={required} tone={DOMAIN_YESNO_TONE[key]}
+                                     changed={changed.includes(key)} onChange={(v) => setForm((f) => ({ ...f, [key]: v }))} />
     return (
       <TextField key={key} select fullWidth size="small" label={label} value={val} onChange={set(key)}
                  required={required} error={required && !val} sx={changedSx(key)}
