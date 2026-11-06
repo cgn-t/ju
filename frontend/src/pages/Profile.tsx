@@ -8,14 +8,16 @@ import LocationOnIcon from '@mui/icons-material/LocationOn'
 import NotesIcon from '@mui/icons-material/Notes'
 import PersonIcon from '@mui/icons-material/Person'
 import PhoneIcon from '@mui/icons-material/Phone'
+import KeyIcon from '@mui/icons-material/Key'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import WorkIcon from '@mui/icons-material/Work'
 import { Alert, Avatar, Box, Button, Chip, Skeleton, Stack, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { AppUser, DirectoryPerson, DirectoryProfile } from '../api/types'
+import ChangePasswordDialog from '../components/ChangePasswordDialog'
 import { CARD_SX, InfoCard, Section, StatusPill, type Tone } from '../components/DetailCards'
 import PageHeader from '../components/PageHeader'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
@@ -61,17 +63,23 @@ export default function Profile() {
   })
   const account = other ? users.data?.find((u) => String(u.id) === userId) : me.data
   const d = dir.data
+  const [pwOpen, setPwOpen] = useState(false)
 
   return (
     <Box>
       <PageHeader title={other ? 'Kullanıcı Profili' : 'Profilim'}
                   subtitle="Jumbo hesabı ve LDAP / Active Directory'deki bilgiler"
-                  actions={d?.status !== 'local' &&
+                  actions={!other && me.data?.local_account
+                    ? <Button variant="outlined" startIcon={<KeyIcon />} onClick={() => setPwOpen(true)}>
+                        Şifre Değiştir
+                      </Button>
+                    : d?.status !== 'local' &&
                     <Button variant="outlined" startIcon={<RefreshIcon />} disabled={dir.isFetching}
                             onClick={() => dir.refetch()}>
                       LDAP'tan yeniden oku
                     </Button>
                   } />
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
       {dir.isLoading ? (
         <Stack spacing={2}><Skeleton variant="rounded" height={140} /><Skeleton variant="rounded" height={320} /></Stack>
       ) : (

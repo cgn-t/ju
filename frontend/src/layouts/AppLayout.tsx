@@ -10,6 +10,7 @@ import GroupsIcon from '@mui/icons-material/Groups'
 import HistoryIcon from '@mui/icons-material/History'
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import LanguageIcon from '@mui/icons-material/Language'
+import KeyIcon from '@mui/icons-material/Key'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import LogoutIcon from '@mui/icons-material/Logout'
 import MenuIcon from '@mui/icons-material/Menu'
@@ -32,11 +33,12 @@ import { Fragment, useState, type ComponentType } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import { useAiStatus } from '../hooks/useAiStatus'
-import type { DirectoryProfile } from '../api/types'
+import type { AppUser, DirectoryProfile } from '../api/types'
 import { useThemeMode } from '../App'
 import { useAuth } from '../auth/AuthContext'
 import { BRAND_GRADIENT } from '../theme'
 import AiAssistant from '../components/AiAssistant'
+import ChangePasswordDialog from '../components/ChangePasswordDialog'
 import { usePageAccess } from '../hooks/usePageAccess'
 import { useDiscoveredCount } from '../pages/Discovery'
 import { usePolicyViolationCount } from '../pages/Policy'
@@ -141,6 +143,9 @@ export default function AppLayout() {
   const subLabel = teams.length ? teams.join(', ') : roleLabel
   const initial = (fullName || username || '?')[0]?.toUpperCase()
   const access = usePageAccess()
+  // Şifre Değiştir yalnız Jumbo'nun yerel hesabına (ör. admin) görünür; AD hesabının şifresi AD'de.
+  const { data: me } = useQuery<AppUser>({ queryKey: ['auth-me'], queryFn: async () => (await api.get('/auth/me')).data })
+  const [pwOpen, setPwOpen] = useState(false)
   const pendingCount = usePendingProposalCount()
   const shadowCount = useDiscoveredCount()
   const violationCount = usePolicyViolationCount()
@@ -342,6 +347,12 @@ export default function AppLayout() {
           <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Profilim</ListItemText>
         </MenuItem>
+        {me?.local_account && (
+          <MenuItem onClick={() => { setAnchor(null); setDrawerOpen(false); setPwOpen(true) }}>
+            <ListItemIcon><KeyIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Şifre Değiştir</ListItemText>
+          </MenuItem>
+        )}
         {/* Ayarlar HERKESE görünür: admin tüm sekmeleri, diğerleri yalnız Etiketler'i görür */}
         <MenuItem onClick={() => { setAnchor(null); setDrawerOpen(false); navigate('/settings') }}>
           <ListItemIcon><SettingsIcon fontSize="small" /></ListItemIcon>
@@ -366,6 +377,7 @@ export default function AppLayout() {
       </Container>
       </Box>
       <AiAssistant />
+      <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
     </Box>
   )
 }

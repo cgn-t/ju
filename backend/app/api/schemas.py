@@ -34,6 +34,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -65,6 +70,8 @@ class UserOut(ORMModel):
     # Üst navigasyon linki görünürlüğü — page_access'ten FARKI: SY üyeliği carve-out'u yok
     # (bkz. security.nav_visible). Route erişimi/onay iş akışı page_access ile değişmez.
     nav_page_access: dict[str, bool] = {}
+    # Yalnız /auth/me doldurur: Jumbo'nun yerel şifresi var mı (şifre değiştir menüsü yalnız buna açılır)
+    local_account: bool = False
 
 
 # Doğrudan atanabilen roller: admin(global tam), editor(takım-kapsamlı düzenle), viewer(takım-kapsamlı

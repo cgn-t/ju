@@ -5,15 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.api.schemas import LoginRequest, TokenResponse, UserOut
+from app.api.schemas import ChangePasswordRequest, LoginRequest, TokenResponse, UserOut
 from app.core.security import (PAGE_SETTING_KEY, create_access_token, effective_role,
-                                get_current_user, is_local_password, nav_visible, page_visible,
+                                get_current_user, hash_password, is_local_password, nav_visible, page_visible,
                                 verify_password)
 from app.db.models import Team, User, UserTeam
 from app.db.session import get_db
 from app.core.textmatch import ci_equals
 from app.services import ldap_auth
-from app.services.audit import log_action, log_standalone
+from app.services.audit import MASK, log_action, log_standalone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -121,7 +121,39 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     # Üst navigasyon linki görünürlüğü — page_access'ten FARKI: SY üyeliği carve-out'u yok
     # (bkz. nav_visible). Route erişimi/onay iş akışı page_access ile değişmeden çalışır.
     out.nav_page_access = {page: nav_visible(db, user, page) for page in PAGE_SETTING_KEY}
+    out.local_account = is_local_password(user.password_hash)
     return out
+
+
+MIN_PASSWORD_LEN = 8
+
+
+@router.post("/change-password")
+def change_password(request: Request, body: ChangePasswordRequest,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Giriş yapmış YEREL hesabın (ör. admin) kendi şifresini değiştirmesi. Mevcut şifre doğrulanır.
+    AD/LDAP hesaplarının şifresi Jumbo'da tutulmaz → reddedilir. Şifreler ASLA kaydedilmez/loglanmaz."""
+    if not is_local_password(user.password_hash):
+        raise HTTPException(status_code=400,
+                            detail="Bu hesap Active Directory hesabı; şifresi Jumbo'dan değiştirilemez.")
+    if not verify_password(body.current_password, user.password_hash):
+        log_standalone(user.username, "pwd_change_failed", "users", user.id,
+                       {"reason": "Mevcut şifre hatalı"}, request)
+        raise HTTPException(status_code=400, detail="Mevcut şifre hatalı.")
+    new = body.new_password
+    if len(new) < MIN_PASSWORD_LEN:
+        raise HTTPException(status_code=400,
+                            detail=f"Yeni şifre en az {MIN_PASSWORD_LEN} karakter olmalı.")
+    if new.strip() != new or not new.strip():
+        raise HTTPException(status_code=400, detail="Yeni şifre boşlukla başlayamaz veya bitemez.")
+    if verify_password(new, user.password_hash):
+        raise HTTPException(status_code=400, detail="Yeni şifre mevcut şifreyle aynı olamaz.")
+    user.password_hash = hash_password(new)
+    log_action(db, user.username, "password_change", "users", user.id,
+               {"username": user.username,
+                "changes": {"password": {"old": MASK, "new": MASK, "masked": True}}}, request)
+    db.commit()
+    return {"message": "Şifreniz değiştirildi."}
 
 
 def directory_for(db: Session, user: User) -> dict:
