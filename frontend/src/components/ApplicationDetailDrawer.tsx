@@ -21,7 +21,7 @@ function Field({ label, value, mono }: { label: string; value?: string | null; m
       <Typography variant="caption" color="text.secondary">{label}</Typography>
       <Typography variant="body2"
                   sx={mono ? { fontFamily: MONO_FONT, fontSize: 12, wordBreak: 'break-all' }
-                           : { wordBreak: 'break-word' }}>
+                           : { wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
         {value || '—'}
       </Typography>
     </Box>

@@ -579,7 +579,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                               onClick={parentNow ? () => onSelectCert?.(parentNow.id) : undefined} />
                     <InfoCard title="Internal" icon={<LockOutlinedIcon />} value={cert.is_internal ? 'Evet' : 'Hayır'} />
                     <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
-                      <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={cert.notes || '—'} />
+                      <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={cert.notes || '—'} multiline />
                     </Box>
                   </Box>
                   {editable && (

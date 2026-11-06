@@ -446,7 +446,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                           value={domain.expire_date ? fmtDate(domain.expire_date) : '—'}
                           sub={domain.expire_date ? undefined : 'Bağlı sertifikadan'} />
                 <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
-                  <InfoCard title="Detay" icon={<NotesOutlinedIcon />} value={domain.info || '—'} />
+                  <InfoCard title="Detay" icon={<NotesOutlinedIcon />} value={domain.info || '—'} multiline />
                 </Box>
               </Box>
               {editable && (

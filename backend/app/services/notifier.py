@@ -100,9 +100,16 @@ def _fmt(value) -> str:
     return str(value)
 
 
+def _cell(value) -> str:
+    """Tablo hücresi HTML'i: kaçışlı metin; çok satırlı serbest metinde (ör. Detay) yazılan satır
+    sonları <br> olarak korunur — yoksa e-postada hepsi tek satıra birleşir."""
+    text = _esc(_fmt(value))
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def _kv_table(rows: list[tuple]) -> str:
     trs = "".join(
-        f'<tr><td style="{_TH}">{_esc(k)}</td><td style="{_TD}">{_esc(_fmt(v))}</td></tr>'
+        f'<tr><td style="{_TH}">{_esc(k)}</td><td style="{_TD}">{_cell(v)}</td></tr>'
         for k, v in rows)
     return f'<table cellspacing="0" style="border-collapse:collapse;width:100%">{trs}</table>'
 
@@ -163,7 +170,7 @@ def _domain_table_html(dom) -> str:
             td = _TD + f";background:{_ACTION_BG}"
         else:
             th, td = _TH, _TD
-        trs += f'<tr><td style="{th}">{_esc(k)}</td><td style="{td}">{_esc(_fmt(v))}</td></tr>'
+        trs += f'<tr><td style="{th}">{_esc(k)}</td><td style="{td}">{_cell(v)}</td></tr>'
     return f'<table cellspacing="0" style="border-collapse:collapse;width:100%">{trs}</table>'
 
 
