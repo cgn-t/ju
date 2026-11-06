@@ -402,6 +402,7 @@ export interface AppUser {
   page_access?: Record<string, boolean>
   // Üst navigasyon linki görünürlüğü — page_access'ten farkı: SY üyeliği carve-out'u yok
   nav_page_access?: Record<string, boolean>
+  local_account?: boolean       // yalnız /auth/me: Jumbo yerel hesabı (Şifre Değiştir görünür)
 }
 
 export interface TeamMember {
