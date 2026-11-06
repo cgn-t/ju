@@ -22,6 +22,9 @@ export interface MappedDomain {
   domain_id: number
   domain: string
   mapping_type: 'server' | 'client'
+  team?: string | null      // yalnız tekil sertifika GET'i doldurur
+  can_view?: boolean        // false → domain başka SY ekibine ait, detay açılamaz
+  live_check_status?: string | null
 }
 
 export interface Certificate {
@@ -802,7 +805,7 @@ export interface TeamDetail extends TeamSummaryRow {
 /** Sertifika detayı 'Etkilenenler' sekmesi (GET /certificates/{id}/impact). */
 export interface CertificateImpact {
   certificate_id: number
-  domains: { domain_id: number; domain: string; mapping_type?: string | null; team?: string | null }[]
+  domains: { domain_id: number; domain: string; mapping_type?: string | null; team?: string | null; can_view?: boolean }[]
   applications: { app_id: number; app_name: string; relation: string; via?: string | null; team?: string | null; active: boolean }[]
   recipients: { label: string; emails: string[]; reasons: string[]; effective_days: number; starts_on?: string | null }[]
   fallback: boolean

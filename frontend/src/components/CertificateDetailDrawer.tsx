@@ -45,10 +45,12 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
+import { NoAccessDialog, RecordUnavailable } from './RecordUnavailable'
 import type { Certificate, CertificateChain, Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { CertificateImpactTab, CertificateMailsTab } from './CertificateExtraTabs'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
+import CertificateLinksTab from './CertificateLinksTab'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
 import { EditFooter, FormSection } from './FormKit'
 import {
@@ -88,7 +90,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const [form, setForm] = useState<EditForm>(
     { name: '', purchased_by: '', creator: '', environment: '', notes: '', is_internal: false, cert_type: 'leaf', parent: null })
 
-  const { data: cert, isLoading } = useQuery<Certificate>({
+  const { data: cert, isLoading, isError, error, refetch } = useQuery<Certificate>({
     queryKey: ['certificate', certId],
     queryFn: async () => (await api.get(`/certificates/${certId}`)).data,
     enabled: certId !== null,
@@ -108,9 +110,15 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
   // Manuel devir: halef sertifika seçimi için aktif sertifika listesi
   const [successor, setSuccessor] = useState<PickerCert | null>(null)
+  // Başka SY ekibinin domainine tıklanınca: detay yerine "yetkiniz yok" uyarısı
+  const [blocked, setBlocked] = useState<{ name: string; team?: string | null } | null>(null)
+  const openDomain = (d: { domain_id: number; domain: string; team?: string | null; can_view?: boolean }) => {
+    if (d.can_view === false) setBlocked({ name: d.domain, team: d.team })
+    else navigate(`/domains?domain=${d.domain_id}`)
+  }
 
   // Sertifika değişince / panel kapanınca düzenleme modundan çık, halef seçimini sıfırla
-  useEffect(() => { setEditing(false); setSuccessor(null); setTab('summary') }, [certId])
+  useEffect(() => { setEditing(false); setSuccessor(null); setTab('summary'); setBlocked(null) }, [certId])
   // Düzenleme yetkisi: rol + sertifikanın sahibi ekip (sunucunun PUT kuralıyla aynı)
   const editable = canEdit && cert?.can_edit !== false
   const parentNow = chain?.ancestors.length ? chain.ancestors[chain.ancestors.length - 1] : null
@@ -199,9 +207,11 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const chainList = chain ? [...chain.ancestors].reverse() : []   // uçtan köke: önce üst, sonra kök
 
   return (
-    <Dialog open={certId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
+    <Dialog open={certId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth={isError && !cert ? 'xs' : 'lg'} fullWidth
             slotProps={{ paper: { sx: DIALOG_PAPER_SX } }}>
-      {isLoading || !cert ? (
+      {isError && !cert ? (
+        <RecordUnavailable kind="certificate" error={error} onClose={onClose} onRetry={() => refetch()} />
+      ) : isLoading || !cert ? (
         <Box sx={{ p: 3 }}><Skeleton variant="rounded" height={500} /></Box>
       ) : (
         <>
@@ -344,19 +354,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
             {tab === 'links' && (
               <Stack spacing={2}>
-                <SectionBox title={`Bağlı Domainler (${cert.domains.length})`}>
-                  {cert.domains.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">Bu sertifika hiçbir domain'e bağlı değil</Typography>
-                  ) : (
-                    <Box sx={GRID3}>
-                      {cert.domains.map((d) => (
-                        <InfoCard key={`${d.domain_id}-${d.mapping_type}`} title={d.mapping_type === 'server' ? 'Server' : 'Trusted'}
-                                  icon={<LanguageIcon />} value={d.domain} color={d.mapping_type === 'server' ? 'default' : 'info'}
-                                  onClick={() => navigate(`/domains?domain=${d.domain_id}`)} />
-                      ))}
-                    </Box>
-                  )}
-                </SectionBox>
+                <CertificateLinksTab domains={cert.domains} onOpen={openDomain} />
                 {!editing && editable && cert.is_active && (
                   <SectionBox title="Değişiklik Talebi Oluştur">
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
@@ -487,7 +485,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
             )}
 
             {tab === 'mails' && <CertificateMailsTab certId={cert.id} />}
-            {tab === 'impact' && <CertificateImpactTab certId={cert.id} onOpenDomain={(id) => navigate(`/domains?domain=${id}`)} />}
+            {tab === 'impact' && <CertificateImpactTab certId={cert.id} onOpenDomain={openDomain} />}
 
             {tab === 'corporate' && (
               editing ? (
@@ -599,6 +597,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
           </DialogContent>
         </>
       )}
+      <NoAccessDialog open={blocked !== null} kind="domain" name={blocked?.name} team={blocked?.team}
+                      onClose={() => setBlocked(null)} />
     </Dialog>
   )
 }

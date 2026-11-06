@@ -5,6 +5,7 @@ import {
 } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
+import { RecordUnavailable } from './RecordUnavailable'
 import type { DiscoveredCertificate, DiscoveryStatus } from '../api/types'
 import { MONO_FONT, daysLeftColor, daysLeftLabel } from '../theme'
 
@@ -32,7 +33,7 @@ export default function DiscoveredCertificateDetailDrawer({ findingId, onClose }
   findingId: number | null
   onClose: () => void
 }) {
-  const { data: f, isLoading } = useQuery<DiscoveredCertificate>({
+  const { data: f, isLoading, isError, error, refetch } = useQuery<DiscoveredCertificate>({
     queryKey: ['discovered-certificate', findingId],
     queryFn: async () => (await api.get(`/discovery/findings/${findingId}`)).data,
     enabled: findingId !== null,
@@ -42,7 +43,9 @@ export default function DiscoveredCertificateDetailDrawer({ findingId, onClose }
     <Drawer anchor="right" open={findingId !== null} onClose={onClose}
             slotProps={{ paper: { sx: { width: { xs: '100%', sm: 560 } } } }}>
       <Box sx={{ p: 3 }}>
-        {isLoading || !f ? (
+        {isError && !f ? (
+          <RecordUnavailable kind="finding" error={error} onClose={onClose} onRetry={() => refetch()} />
+        ) : isLoading || !f ? (
           <Skeleton variant="rounded" height={500} />
         ) : (
           <Stack spacing={2}>

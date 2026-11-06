@@ -44,6 +44,7 @@ import { useSnackbar } from 'notistack'
 import { useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
+import { RecordUnavailable } from './RecordUnavailable'
 import type { Application, Certificate, ChainImportResult, Domain, MappedCert } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, sourceLabel, TRANSFER_TOAST_MS } from '../theme'
@@ -107,7 +108,7 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
 
-  const { data: domain, isLoading } = useQuery<Domain>({
+  const { data: domain, isLoading, isError, error, refetch } = useQuery<Domain>({
     queryKey: ['domain', domainId],
     queryFn: async () => (await api.get(`/domains/${domainId}`)).data,
     enabled: domainId !== null,
@@ -230,9 +231,11 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
   const linkedApps = apps ?? []
 
   return (
-    <Dialog open={domainId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth="lg" fullWidth
+    <Dialog open={domainId !== null} onClose={onClose} fullScreen={fullScreen} maxWidth={isError && !domain ? 'xs' : 'lg'} fullWidth
             slotProps={{ paper: { sx: DIALOG_PAPER_SX } }}>
-      {isLoading || !domain ? (
+      {isError && !domain ? (
+        <RecordUnavailable kind="domain" error={error} onClose={onClose} onRetry={() => refetch()} />
+      ) : isLoading || !domain ? (
         <Box sx={{ p: 3 }}><Skeleton variant="rounded" height={500} /></Box>
       ) : (
         <>

@@ -27,7 +27,7 @@ from app.api.schemas import (
 )
 from app.api.paging import MAX_PAGE_SIZE, contains, count_by, fold_search, page_slice, validity_bucket
 from app.core.certtype import cert_type_filter, normalize_cert_type
-from app.core.security import ROLE_LEVELS, require_role, user_team_ids
+from app.core.security import ROLE_LEVELS, domain_scope_team_ids, require_role, user_team_ids
 from app.db.models import (
     AppDependency, Application, ApplicationTrustedCert, Certificate, CertificateDomainMap, Domain,
     Team, TransferProposal, User,
@@ -302,6 +302,15 @@ def get_certificate(cert_id: int, db: Session = Depends(get_db), user: User = De
     if cert is None:
         raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
     out = _to_out(cert)
+    # Bağlantılar sekmesi: her domainin ekibi + kullanıcı detayını açabilir mi (GET /domains/{id}
+    # ile aynı kapsam kuralı). Kapsam dışı domaine tıklayınca boş/gri pencere yerine uyarı çıkar.
+    scope = domain_scope_team_ids(db, user)
+    by_id = {m.domain_id: m.domain for m in cert.domain_mappings if m.domain is not None}
+    for d in out.domains:
+        dom = by_id.get(d.domain_id)
+        d.team = dom.sy_team.name if dom is not None and dom.sy_team else None
+        d.can_view = scope is None or (dom is not None and dom.sy_team_id in scope)
+        d.live_check_status = dom.live_check_status if dom is not None and d.can_view else None
     # Düzenleme penceresi yalnız PUT'un kabul edeceği kullanıcıya açılsın (aynı kural)
     if ROLE_LEVELS.get(user.role, -1) < ROLE_LEVELS["editor"]:
         out.can_edit = False

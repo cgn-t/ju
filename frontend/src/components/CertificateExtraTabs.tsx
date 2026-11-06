@@ -78,7 +78,9 @@ export function CertificateMailsTab({ certId }: { certId: number }) {
 }
 
 /** Sertifika biterse etkilenecek domainler, uygulamalar ve uyarı alacak kişiler. */
-export function CertificateImpactTab({ certId, onOpenDomain }: { certId: number; onOpenDomain: (id: number) => void }) {
+export function CertificateImpactTab({ certId, onOpenDomain }: {
+  certId: number; onOpenDomain: (d: CertificateImpact['domains'][number]) => void
+}) {
   const { data, isLoading } = useQuery<CertificateImpact>({
     queryKey: ['certificate', certId, 'impact'],
     queryFn: async () => (await api.get(`/certificates/${certId}/impact`)).data,
@@ -91,7 +93,7 @@ export function CertificateImpactTab({ certId, onOpenDomain }: { certId: number;
           {data.domains.length === 0 ? (
             <Typography variant="body2" color="text.secondary">Bu sertifika hiçbir domain'e bağlı değil.</Typography>
           ) : data.domains.map((d, i) => (
-            <Box key={`${d.domain_id}-${d.mapping_type}`} onClick={() => onOpenDomain(d.domain_id)}
+            <Box key={`${d.domain_id}-${d.mapping_type}`} onClick={() => onOpenDomain(d)}
                  sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1, cursor: 'pointer',
                        borderTop: i ? 1 : 0, borderColor: 'divider', '&:hover': { color: 'primary.main' } }}>
               <IconBadge size={30}><LanguageIcon /></IconBadge>
@@ -99,6 +101,7 @@ export function CertificateImpactTab({ certId, onOpenDomain }: { certId: number;
                 <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{d.domain}</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {d.mapping_type === 'server' ? 'Server' : 'Trusted'}{d.team ? ` · ${d.team}` : ' · ekibi yok'}
+                  {d.can_view === false && ' · görüntüleme yetkiniz yok'}
                 </Typography>
               </Box>
             </Box>
