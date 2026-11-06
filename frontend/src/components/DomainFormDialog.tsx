@@ -10,6 +10,7 @@ import { api, apiErrorMessage } from '../api/client'
 import type { AppUser, ChainImportResult, ChainProbeResult, Domain, Team } from '../api/types'
 import { chainImportInactiveWarning, chainImportProposalCount, chainImportSummary } from '../utils/chainImport'
 import ConfirmSaveDialog from './ConfirmSaveDialog'
+import { DOMAIN_YESNO_TONE, isLegacyYesNo, YesNoSwitch } from './YesNoKit'
 import { useAuth } from '../auth/AuthContext'
 import { daysLeftColor, daysLeftLabel, nodeColors, TRANSFER_TOAST_MS } from '../theme'
 import SkiText from './SkiText'
@@ -29,7 +30,6 @@ const EMPTY = {
 
 // Zorunlu alanlar (yeni ekleme + düzenleme)
 const REQUIRED = ['domain', 'lb_update', 'waf_update'] as const
-const YESNO = ['Evet', 'Hayır']
 
 // Outlined etiketi HER alanda kalıcı yukarıda tutar (notch mount'tan itibaren açık).
 // Aksi hâlde etiket yalnız odak/değer ile "shrink" olur; Retina'da odak geçişi sırasında
@@ -192,7 +192,9 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
   // Evet/Hayır seçici — mevcut serbest-metin veri varsa kaybolmaması için "(mevcut)" olarak korunur
   const yesNo = (key: string, label: string, required: boolean) => {
     const val = form[key] ?? ''
-    const legacy = val && !YESNO.includes(val) ? val : null
+    const legacy = isLegacyYesNo(val) ? val : null
+    if (!legacy) return <YesNoSwitch label={label} value={val} required={required} tone={DOMAIN_YESNO_TONE[key]}
+                                     onChange={(v) => setForm((f) => ({ ...f, [key]: v }))} />
     const err = required && !val
     return (
       <TextField select required={required} label={label} fullWidth size="small"

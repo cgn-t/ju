@@ -36,6 +36,7 @@ import {
   IconButton, MenuItem, Skeleton, Stack, TextField, Tooltip, Typography,
   useMediaQuery, useTheme,
 } from '@mui/material'
+import { YesNoChecklist } from './YesNoKit'
 import { alpha } from '@mui/material/styles'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
@@ -431,11 +432,13 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                 <InfoCard title="Sertifika Sahibi" icon={<PersonOutlineOutlinedIcon />} value={domain.cert_owner || '—'} />
                 <InfoCard title="Mail Adresleri" icon={<MailOutlineOutlinedIcon />} value={domain.mail_addresses || '—'} />
                 <InfoCard title="Dış Adres" icon={<PublicOutlinedIcon />} value={domain.external_address || '—'} />
-                <InfoCard title="LoadBalancer Güncelleme" icon={<HubOutlinedIcon />} value={domain.lb_update || '—'} />
-                <InfoCard title="WAF Güncelleme" icon={<ShieldOutlinedIcon />} value={domain.waf_update || '—'} />
+                <YesNoChecklist title="Sertifika yenilemede yapılacaklar" rows={[
+                  { label: 'LoadBalancer Güncelleme', icon: <HubOutlinedIcon />, value: domain.lb_update, hint: 'Yenilemede LB güncellenecek' },
+                  { label: 'WAF Güncelleme', icon: <ShieldOutlinedIcon />, value: domain.waf_update, hint: 'Yenilemede WAF güncellenecek' },
+                  { label: 'Aksiyon Alma', icon: <TaskAltOutlinedIcon />, value: domain.action_required, tone: 'warning', hint: 'Dikkat: aksiyon gerekiyor' },
+                  { label: 'SSL Pinning', icon: <PushPinOutlinedIcon />, value: domain.ssl_pinning, tone: 'warning', hint: 'Dikkat: uygulamada pin var' },
+                ]} />
                 <InfoCard title="Ortam Güncelleme" icon={<SyncOutlinedIcon />} value={domain.env_update || '—'} />
-                <InfoCard title="Aksiyon Alma" icon={<TaskAltOutlinedIcon />} value={domain.action_required || '—'} />
-                <InfoCard title="SSL Pinning" icon={<PushPinOutlinedIcon />} value={domain.ssl_pinning || '—'} />
                 <InfoCard title="Dış Firma" icon={<BusinessOutlinedIcon />} value={domain.external_company || '—'} />
                 <InfoCard title="Bildirim Gün Sayısı" icon={<NotificationsActiveOutlinedIcon />}
                           value={domain.notify_days ? `${domain.notify_days} gün` : '30 gün'}

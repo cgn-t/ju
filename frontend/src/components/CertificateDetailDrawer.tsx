@@ -38,6 +38,7 @@ import {
   Box, Button, Chip, Dialog, DialogContent, FormControlLabel, IconButton, MenuItem, Skeleton, Stack,
   Switch, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from '@mui/material'
+import { YesNoValue } from './YesNoKit'
 import { alpha } from '@mui/material/styles'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
@@ -397,7 +398,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   <InfoCard title="Public Key" icon={<KeyOutlinedIcon />} value={keyText(cert)} />
                   <InfoCard title="Signature Algorithm" icon={<DrawOutlinedIcon />} value={ex?.signature_algorithm ?? cert.signature_hash ?? '—'} />
                   <InfoCard title="ExtendedKeyUsage" icon={<TuneOutlinedIcon />} value={cert.extended_key_usage || '—'} />
-                  <InfoCard title="Internal" icon={<LockOutlinedIcon />} value={cert.is_internal ? 'Evet' : 'Hayır'} />
+                  <InfoCard title="Internal" icon={<LockOutlinedIcon />} color={cert.is_internal ? 'info' : 'default'}
+                              value={<YesNoValue value={cert.is_internal ? 'Evet' : 'Hayır'} />} />
                   <InfoCard title="Otomatik Yenileme" icon={<AutorenewIcon />} value={cert.auto_renew ? 'Açık' : 'Kapalı'} />
                   <InfoCard title="Key Usage" icon={<TuneOutlinedIcon />} value={ex?.key_usage.length ? ex.key_usage.join(', ') : '—'} />
                   <InfoCard title="Basic Constraints" icon={<RuleIcon />} value={basicConstraintsText(ex)} />
@@ -577,7 +579,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     <InfoCard title="Type" icon={<CategoryOutlinedIcon />} value={CERT_TYPE_FULL[cert.cert_type] ?? cert.cert_type} />
                     <InfoCard title="Üst sertifika (Issuer)" icon={<AccountTreeIcon />} value={parentNow?.name ?? '—'}
                               onClick={parentNow ? () => onSelectCert?.(parentNow.id) : undefined} />
-                    <InfoCard title="Internal" icon={<LockOutlinedIcon />} value={cert.is_internal ? 'Evet' : 'Hayır'} />
+                    <InfoCard title="Internal" icon={<LockOutlinedIcon />} color={cert.is_internal ? 'info' : 'default'}
+                              value={<YesNoValue value={cert.is_internal ? 'Evet' : 'Hayır'} />} />
                     <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
                       <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={cert.notes || '—'} multiline />
                     </Box>
