@@ -126,22 +126,50 @@ export function ValidityCard({ cert, emptyText, warnDays = 30, warnDaysNote }: {
           </Typography>
         )}
 
-        {span !== null && warnAt !== null && (
+        {span !== null && warnAt !== null && (() => {
+          const elapsedDays = Math.max(0, Math.round((Math.min(now, to!) - from!) / DAY))
+          const safeDays = state === 'ok' ? Math.max(0, Math.ceil((warnAt - now) / DAY)) : 0
+          const warnLeft = state === 'warn' ? Math.max(0, days ?? 0) : warnDays
+          const nowPct = pos(now)
+          const greyDays = state === 'warn' ? Math.max(0, elapsedDays - (warnDays - warnLeft)) : elapsedDays
+          return (
           <Box sx={{ mt: 2.5 }}>
-            {/* Zaman çizelgesi: geçen süre (koyu), kalan güvenli süre, uyarı dönemi (taralı) */}
-            <Box sx={{ position: 'relative', height: 10, borderRadius: 5, bgcolor: 'action.hover', overflow: 'visible' }}>
-              <Box sx={{ position: 'absolute', left: `${pos(warnAt)}%`, right: 0, top: 0, bottom: 0,
-                         borderTopRightRadius: 5, borderBottomRightRadius: 5,
-                         backgroundImage: (t) => `repeating-linear-gradient(135deg, ${t.palette.warning.main}55 0 6px, transparent 6px 12px)` }} />
+            {/* "Bugün" etiketi çubuğun üstünde, işaretin hizasında */}
+            {state !== 'expired' && (
+              <Box sx={{ position: 'relative', height: 18 }}>
+                <Typography variant="caption" sx={{ position: 'absolute', left: `${nowPct}%`, fontWeight: 700, whiteSpace: 'nowrap',
+                                                    transform: nowPct < 8 ? 'none' : nowPct > 92 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+                  Bugün
+                </Typography>
+              </Box>
+            )}
+            {/* Zaman çizelgesi: geçen süre (gri), kalan güvenli süre (yeşil), uyarı dönemi (turuncu taralı) */}
+            <Box data-testid="validity-bar" sx={{ position: 'relative', height: 12, borderRadius: 6, bgcolor: 'action.hover', overflow: 'visible' }}>
+              <Tooltip title={`Uyarı dönemi: son ${warnDays} gün, bu sürede uyarı maili gönderilir`}>
+                <Box sx={{ position: 'absolute', left: `${pos(warnAt)}%`, right: 0, top: 0, bottom: 0,
+                           borderTopRightRadius: 6, borderBottomRightRadius: 6,
+                           backgroundImage: (t) => `repeating-linear-gradient(135deg, ${t.palette.warning.main}aa 0 6px, ${t.palette.warning.main}33 6px 12px)` }} />
+              </Tooltip>
               {state === 'ok' && (
-                <Box sx={{ position: 'absolute', left: `${pos(now)}%`, width: `${Math.max(0, pos(warnAt) - pos(now))}%`,
-                           top: 0, bottom: 0, bgcolor: 'success.main', opacity: 0.35 }} />
+                <Tooltip title={`Güvenli süre: uyarı başlayana kadar ${safeDays} gün`}>
+                  <Box sx={{ position: 'absolute', left: `${nowPct}%`, width: `${Math.max(0, pos(warnAt) - nowPct)}%`,
+                             top: 0, bottom: 0, bgcolor: 'success.main', opacity: 0.75 }} />
+                </Tooltip>
               )}
-              <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pos(now)}%`,
-                         borderRadius: 5, bgcolor: state === 'expired' ? 'error.main' : 'text.disabled' }} />
+              <Tooltip title={state === 'expired' ? 'Süresi doldu' : `Geçen süre: ${greyDays} gün`}>
+                <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0,
+                           width: `${state === 'warn' ? pos(warnAt) : nowPct}%`,
+                           borderRadius: state === 'expired' ? 6 : '6px 0 0 6px', bgcolor: state === 'expired' ? 'error.main' : 'text.disabled' }} />
+              </Tooltip>
+              {state === 'warn' && (
+                <Tooltip title={`Uyarı dönemi başladı: ${fmtDay(warnAt)}`}>
+                  <Box sx={{ position: 'absolute', left: `${pos(warnAt)}%`, width: `${Math.max(0, nowPct - pos(warnAt))}%`,
+                             top: 0, bottom: 0, bgcolor: 'warning.main' }} />
+                </Tooltip>
+              )}
               {state !== 'expired' && (
                 <Tooltip title={`Bugün · %${Math.round(100 - remainingPct)} kullanıldı`}>
-                  <Box sx={{ position: 'absolute', left: `${pos(now)}%`, top: -5, width: 4, height: 20,
+                  <Box sx={{ position: 'absolute', left: `${nowPct}%`, top: -5, width: 4, height: 22,
                              ml: '-2px', borderRadius: 2, bgcolor: 'text.primary', border: 2, borderColor: 'background.paper' }} />
                 </Tooltip>
               )}
@@ -149,17 +177,29 @@ export function ValidityCard({ cert, emptyText, warnDays = 30, warnDaysNote }: {
             <Box sx={{ position: 'relative', height: 40, mt: 0.75 }}>
               <TimelineLabel align="left" title="ValidFrom" value={fmtDay(from!)} />
               {pos(warnAt) > 18 && pos(warnAt) < 82 && (
-                <TimelineLabel align="center" at={pos(warnAt)} title={`Uyarı (${warnDays} gün önce)`} value={fmtDay(warnAt)} />
+                <TimelineLabel align="center" at={pos(warnAt)} title={`Uyarı başlangıcı (${warnDays} gün önce)`} value={fmtDay(warnAt)} />
               )}
               <TimelineLabel align="right" title="ValidTo" value={fmtDay(to!)} />
             </Box>
-            <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', columnGap: 3, rowGap: 0.5, mt: 0.5 }}>
-              <Stat label="Toplam ömür" value={`${total} gün`} />
-              <Stat label="Geçen" value={`${Math.max(0, Math.round((Math.min(now, to!) - from!) / DAY))} gün`} />
-              <Stat label="Kullanılan" value={`%${Math.round(100 - remainingPct)}`} />
+            {/* Renk açıklaması: her renk ne demek, kaç gün */}
+            <Stack data-testid="validity-legend" direction="row" useFlexGap sx={{ flexWrap: 'wrap', columnGap: 2.5, rowGap: 0.75, mt: 1 }}>
+              {state === 'expired'
+                ? <LegendItem swatch="error" label="Süresi doldu" value={`${Math.abs(days ?? 0)} gün önce`} />
+                : <LegendItem swatch="elapsed" label="Geçen süre" value={`${greyDays} gün`} />}
+              {state === 'ok' && <LegendItem swatch="safe" label="Güvenli süre" value={`${safeDays} gün`} />}
+              {state === 'warn' && <LegendItem swatch="warnPast" label="Uyarı dönemi, geçen" value={`${Math.max(0, warnDays - warnLeft)} gün`} />}
+              {state !== 'expired' && (
+                <LegendItem swatch="warn" label={state === 'warn' ? 'Uyarı dönemi, kalan' : 'Uyarı dönemi'}
+                            value={state === 'warn' ? `${warnLeft} gün` : `son ${warnDays} gün, mail gönderilir`} />
+              )}
+              {state !== 'expired' && <LegendItem swatch="today" label="Bugün" value={`%${Math.round(100 - remainingPct)} kullanıldı`} />}
             </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+              Toplam ömür: <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{total} gün</Box>
+            </Typography>
           </Box>
-        )}
+          )
+        })()}
       </Box>
     </Box>
   )
@@ -178,11 +218,25 @@ function TimelineLabel({ align, at, title, value }: { align: 'left' | 'center' |
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+// Ömür çubuğu renk açıklaması: küçük renk örneği + ad + gün.
+function LegendItem({ swatch, label, value }: { swatch: 'elapsed' | 'safe' | 'warn' | 'warnPast' | 'error' | 'today'; label: string; value: string }) {
   return (
-    <Typography variant="caption" color="text.secondary">
-      {label}: <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{value}</Box>
-    </Typography>
+    <Stack direction="row" sx={{ alignItems: 'center', gap: 0.75 }}>
+      <Box sx={(t) => ({
+        flexShrink: 0,
+        ...(swatch === 'today'
+          ? { width: 4, height: 14, borderRadius: 2, bgcolor: 'text.primary' }
+          : { width: 14, height: 10, borderRadius: 3 }),
+        ...(swatch === 'elapsed' ? { bgcolor: 'text.disabled' } : {}),
+        ...(swatch === 'safe' ? { bgcolor: 'success.main', opacity: 0.75 } : {}),
+        ...(swatch === 'error' ? { bgcolor: 'error.main' } : {}),
+        ...(swatch === 'warnPast' ? { bgcolor: 'warning.main' } : {}),
+        ...(swatch === 'warn' ? { backgroundImage: `repeating-linear-gradient(135deg, ${t.palette.warning.main}aa 0 3px, ${t.palette.warning.main}33 3px 6px)` } : {}),
+      })} />
+      <Typography variant="caption" color="text.secondary">
+        {label}: <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>{value}</Box>
+      </Typography>
+    </Stack>
   )
 }
 
