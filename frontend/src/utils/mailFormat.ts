@@ -8,6 +8,7 @@ export const MAIL_TYPE: Record<MailType, { label: string; color: string }> = {
   revoked: { label: 'İptal edilmiş sertifika', color: 'error.main' },
   deactivated: { label: 'Pasife alma', color: 'text.secondary' },
   proposal: { label: 'Değişiklik talebi hatırlatması', color: 'info.main' },
+  test: { label: 'SMTP test maili', color: 'text.secondary' },
   other: { label: 'Diğer', color: 'text.disabled' },
 }
 

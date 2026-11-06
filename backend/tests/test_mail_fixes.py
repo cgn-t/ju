@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.core.emails import normalize_email_list, split_emails
-from app.db.models import Certificate, MailQueue
+from app.db.models import Certificate, MailQueue, Notification
 from app.db.session import SessionLocal
 from app.services import notifier
 from tests import certgen
@@ -366,6 +366,8 @@ def test_scheduled_proposal_reminder_queue_row_is_committed(client, auth_headers
             rows = db.query(MailQueue).filter(MailQueue.to_addresses == "fix7-team@test").all()
             assert len(rows) == 1 and rows[0].status == "pending", "kuyruk satırı kaybolmamalı"
             for r in rows:
+                # bağlı geçmiş satırı da silinir (SQLite silinen id'yi yeniden kullanır → sarkan bağ kalmasın)
+                db.query(Notification).filter(Notification.mail_queue_id == r.id).delete()
                 db.delete(r)
             db.commit()
         finally:

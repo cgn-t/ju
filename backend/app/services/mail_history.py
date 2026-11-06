@@ -29,6 +29,7 @@ TYPE_RULES: list[tuple[str, tuple[str, ...]]] = [
                 "Domain bitiş tarihi yaklaşıyor", "Domain bitis tarihi yaklasiyor")),
     ("deactivated", ("pasife alındı",)),
     ("proposal", ("değişiklik talebi", "devir önerisi")),  # eski kayıtlar: "devir önerisi"
+    ("test", ("SMTP test maili",)),
 ]
 MAIL_TYPES = [t for t, _ in TYPE_RULES] + ["other"]
 STATUSES = ("sent", "pending", "failed")

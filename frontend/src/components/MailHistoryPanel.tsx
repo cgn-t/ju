@@ -44,6 +44,9 @@ function useDebounced<T>(value: T, ms = 350): T {
 function recordOf(r: MailHistoryEntry): { label: string; kind: 'cert' | 'domain' | null } {
   if (r.certificate_name) return { label: r.certificate_name, kind: 'cert' }
   if (r.domain_name) return { label: r.domain_name, kind: 'domain' }
+  // Sertifikaya/domaine bağlı olmayan mailler: kayıt sütunu boş kalmasın
+  if (r.mail_type === 'proposal') return { label: 'Değişiklik talepleri', kind: null }
+  if (r.mail_type === 'test') return { label: 'E-posta ayarları', kind: null }
   return { label: '—', kind: null }
 }
 

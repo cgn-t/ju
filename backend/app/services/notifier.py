@@ -414,10 +414,30 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
     mail_sent = False
     mail_queue_id = None
     cfg = get_category(db, "smtp", mask_secrets=False)
-    if to_addr and cfg.get("enabled") and cfg.get("host"):
-        mail_sent, _note, mail_queue_id = _deliver(db, cfg, to_addr, subject, body, html_body,
-                                                    certificate_id=cert.id, stakeholder="deactivation",
-                                                    days_left=None)
+    smtp_on = bool(cfg.get("enabled") and cfg.get("host"))
+    note = None
+    if to_addr and smtp_on:
+        mail_sent, note, mail_queue_id = _deliver(db, cfg, to_addr, subject, body, html_body,
+                                                   certificate_id=cert.id, stakeholder="deactivation",
+                                                   days_left=None)
+    if not mail_sent:
+        # Mail GİTMEDİ (alıcı yok / SMTP kapalı / gönderim başarısız): kayıt yine tutulur ama
+        # Mail Gönderim Geçmişi'nde 'Gönderildi' görünmesin — nedenini taşıyan 'failed' kuyruk
+        # satırına bağlanır (eskiden bu durumlar da yeşil 'Gönderildi' görünüyordu). Alıcısı
+        # belliyse adres/SMTP düzeltilince 'Yeniden dene' ile gönderilebilir.
+        if not to_addr:
+            reason = "Bağlı domainlerin SY ekibinde e-posta tanımlı değil — mail gönderilmedi"
+        elif not smtp_on:
+            reason = "E-posta bildirimleri kapalı (veya SMTP sunucusu tanımsız) — mail gönderilmedi"
+        else:
+            reason = note or "gönderilemedi"
+        mq = MailQueue(to_addresses=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
+                       subject=subject, body_text=body, body_html=html_body,
+                       certificate_id=cert.id, stakeholder="deactivation", days_left=None,
+                       status="failed", last_error=reason[:1000], attempts=1 if (to_addr and smtp_on) else 0)
+        db.add(mq)
+        db.flush()
+        mail_queue_id = mq.id
 
     db.add(Notification(certificate_id=cert.id,
                         recipient=", ".join(to_addr) if to_addr else "(tanımlı alıcı yok)",
@@ -1301,6 +1321,13 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                                        certificate_id=None, stakeholder=(team.name if team else None),
                                        days_left=None)
             if ok:
+                # Mail Gönderim Geçmişi'nde görünsün: diğer mail türleri gibi Notification satırı
+                # (kuyruğa alındıysa mail_queue_id ile GERÇEK teslim durumuna bağlı). Eskiden yazılmadığı
+                # için başarılı hatırlatmalar geçmişte HİÇ görünmüyordu (kuyruk açıksa yalnız
+                # gönderilene dek 'Kuyrukta' görünüp sonra kayboluyordu).
+                db.add(Notification(recipient=", ".join(emails),
+                                    subject=f"{subject} → {team.name if team else team_id}",
+                                    days_left=None, channel="email", mail_queue_id=_mqid))
                 # kuyruk satırı (queue_enabled) / kısmi-red kaydı burada kalıcılaşır — zamanlanmış
                 # job'ın kendi commit'i yok; commit edilmezse kuyruğa alınan hatırlatma KAYBOLUR.
                 db.commit()
@@ -1339,6 +1366,8 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
                 ok, note, _mqid = _deliver(db, cfg, fb, subject, body_text, body_html,
                                            certificate_id=None, stakeholder="ownerless", days_left=None)
                 if ok:
+                    db.add(Notification(recipient=", ".join(fb), subject=f"{subject} → admin onayı",
+                                        days_left=None, channel="email", mail_queue_id=_mqid))
                     db.commit()
                     sent += 1
                 else:
