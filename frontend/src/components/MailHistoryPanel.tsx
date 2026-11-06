@@ -290,7 +290,8 @@ export default function MailHistoryPanel() {
                   </TableCell>
                   <TableCell>
                     {r.error ? (
-                      <Typography variant="body2" color="error.main" sx={{ display: '-webkit-box', WebkitLineClamp: 2,
+                      <Typography variant="body2" color={r.status === 'sent' ? 'warning.main' : 'error.main'}
+                                  sx={{ display: '-webkit-box', WebkitLineClamp: 2,
                                   WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word' }}>
                         {r.error}
                       </Typography>

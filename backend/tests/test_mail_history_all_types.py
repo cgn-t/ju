@@ -133,3 +133,105 @@ def test_deactivation_mail_status_is_truthful(client, auth_headers, monkeypatch)
             db.close()
     finally:
         _off(client, h)
+
+
+# --- v3.9.36 ek: yedek adres durumları -------------------------------------------------------
+
+def _fallback_only_sender(monkeypatch, fail_addr):
+    """fail_addr'a gönderim hata verir, diğerleri (yedek adres) başarılı."""
+    sent: list[dict] = []
+
+    def fake(cfg, to, subject, body, html=None):
+        if fail_addr in to:
+            raise OSError("550 alıcı yok")
+        sent.append({"to": list(to), "subject": subject, "body": body})
+        return {}
+    monkeypatch.setattr(notifier, "_send_mail", fake)
+    return sent
+
+
+def test_fallback_delivery_is_visible(client, auth_headers, monkeypatch):
+    """Asıl alıcıya gidemeyip yedek adrese giden mail 'Gönderildi' + açıklama notuyla görünür."""
+    h = auth_headers
+    _pending_for_team(client, h, team_email="mh-fbprim@test", domain="mh-fb.test", cn="mh-fb.test")
+    _set_smtp(client, h, fallback_address="mh-yedek@test")
+    sent = _fallback_only_sender(monkeypatch, "mh-fbprim@test")
+    try:
+        _run(force=True)
+        assert any("mh-yedek@test" in m["to"] for m in sent)
+        rows = _hist(client, h, recipient="mh-fbprim@test")
+        assert len(rows) == 1 and rows[0]["status"] == "sent"
+        assert "yedek adrese gönderildi" in rows[0]["error"] and "mh-yedek@test" in rows[0]["error"]
+        det = client.get(f"/api/notifications/history/notification/{rows[0]['id']}", headers=h).json()
+        assert det["error"] and det["body_text"]
+    finally:
+        _off(client, h)
+        _set_smtp(client, h, enabled=False, fallback_address="", auto_proposal_reminder_enabled=False)
+
+
+def test_queue_drain_fallback_note_and_clean_success(client, auth_headers, monkeypatch):
+    db = SessionLocal()
+    try:
+        _set_smtp(client, auth_headers, queue_enabled=True, fallback_address="mh-yedek2@test")
+        a = MailQueue(to_addresses="mh-qfb@test", subject="MHQ yedek", body_text="x", status="pending")
+        b = MailQueue(to_addresses="mh-qok@test", subject="MHQ temiz", body_text="x", status="pending",
+                      attempts=1, last_error="eski hata")
+        db.add_all([a, b]); db.commit()
+        _fallback_only_sender(monkeypatch, "mh-qfb@test")
+        notifier.drain_mail_queue(db)
+        db.refresh(a); db.refresh(b)
+        assert a.status == "sent" and "yedek adrese gönderildi" in a.last_error
+        assert b.status == "sent" and b.last_error is None, "temiz teslimde eski hata kalmamalı"
+    finally:
+        db.close()
+        _off(client, auth_headers)
+        _set_smtp(client, auth_headers, enabled=False, fallback_address="", auto_proposal_reminder_enabled=False)
+
+
+def test_proposal_team_without_email_goes_to_fallback_or_shows_failed(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _pending_for_team(client, h, team_email="gecici@test", domain="mh-noemail.test", cn="mh-noemail.test")
+    assert client.put(f"/api/teams/{tid}", headers=h, json={"email": ""}).status_code == 200
+    try:
+        # yedek adres var → oraya gider, geçmişte görünür
+        _set_smtp(client, h, fallback_address="mh-yedek3@test")
+        sent = _capture(monkeypatch)
+        _run(force=True)
+        mine = [m for m in sent if "mh-yedek3@test" in m["to"] and "SY-mh-noemail.test" in m["body"]]
+        assert mine and "e-posta adresi tanımlı olmadığı için yedek adrese" in mine[0]["body"]
+        rows = [r for r in _hist(client, h, recipient="mh-yedek3@test") if r["mail_type"] == "proposal"
+                and "SY-mh-noemail.test" in (r["stakeholder"] or "")]
+        assert len(rows) == 1 and rows[0]["status"] == "sent"
+
+        # yedek adres de yok → 'Başarısız' satırı, sonuçta failed
+        _set_smtp(client, h, fallback_address="")
+        res = _run(force=True)
+        assert res["failed"] >= 1
+        rows = [r for r in _hist(client, h, status="failed", subject="değişiklik talebi")
+                if r["stakeholder"] == "SY-mh-noemail.test"]
+        assert rows and "e-posta adresi tanımlı değil" in rows[0]["error"]
+        assert rows[0]["retryable"] is False
+    finally:
+        _off(client, h)
+        # bu ekibin bekleyen talebi diğer testleri etkilemesin
+        client.put(f"/api/teams/{tid}", headers=h, json={"email": "mh-noemail-sonra@test"})
+
+
+def test_deactivation_without_recipient_goes_to_fallback(client, auth_headers, monkeypatch):
+    h = auth_headers
+    tid = _sy_team(client, h, "MH-Epostasiz")
+    dom = _domain(client, h, "mh-pasif-fb.test", sy_team_id=tid)
+    leaf = _import_leaf(client, h, "mh-pasif-fb.test")
+    _attach(client, h, dom, leaf, "client")
+    _set_smtp(client, h, fallback_address="mh-yedek4@test")
+    sent = _capture(monkeypatch)
+    try:
+        body = client.post(f"/api/certificates/{leaf}/deactivate", headers=h).json()
+        assert body["mail_sent"] is True and "yedek adrese" in body["message"]
+        assert any("mh-yedek4@test" in m["to"] for m in sent)
+        rows = [r for r in _hist(client, h, record="mh-pasif-fb.test") if r["mail_type"] == "deactivated"]
+        assert len(rows) == 1 and rows[0]["status"] == "sent"
+        assert rows[0]["recipients"] == ["mh-yedek4@test"] and rows[0]["stakeholder"] == "yedek adres"
+    finally:
+        _off(client, h)
+        _set_smtp(client, h, enabled=False, fallback_address="", auto_proposal_reminder_enabled=False)
