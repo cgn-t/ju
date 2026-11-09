@@ -16,6 +16,7 @@ from app.api import (
     auth,
     certificates,
     dashboard,
+    db_console,
     deployments,
     discovery,
     domains,
@@ -37,6 +38,7 @@ from app.db import models  # noqa: F401 — model kayıtları için
 from app.db.session import Base, SessionLocal, engine
 from app.services import job_lock
 from app.services.notifier import start_scheduler
+from app.services import cert_naming  # noqa: F401  (yeni sertifikaya Standart Ad, before_flush)
 from app.services import regression_lab
 
 setup_logging()  # tek biçimli log (bkz. core/logging_config) — basicConfig yerine
@@ -677,6 +679,7 @@ app.include_router(deployments.router)
 app.include_router(summary.router)
 app.include_router(ai.router)
 app.include_router(regression.router)
+app.include_router(db_console.router)
 
 
 @app.exception_handler(IntegrityError)

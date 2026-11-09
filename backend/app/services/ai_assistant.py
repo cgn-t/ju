@@ -192,7 +192,7 @@ def _call(fn, *args, **kwargs):
 
 
 def _cert_row(c) -> dict:
-    return {"id": c.id, "ad": c.name, "tur": c.cert_type, "issuer": c.issuer,
+    return {"id": c.id, "ad": getattr(c, "standard_name", None) or c.name, "cn_adi": c.name, "tur": c.cert_type, "issuer": c.issuer,
             "valid_to": _d(c.valid_to), "kalan_gun": c.days_left, "aktif": c.is_active,
             "ortam": c.environment, "olusturan_ekip": c.creator,
             "domainler": [d.domain for d in (c.domains or [])][:10],
@@ -343,11 +343,11 @@ def tool_policy(db: Session, user: User, metin: str | None = None, kural: str | 
     result = policy.evaluate_inventory(db)
     rows = []
     for cert, violations in result["violations"]:
-        if metin and fold(metin) not in fold(cert.name):
+        if metin and fold(metin) not in fold(cert.name) and fold(metin) not in fold(cert.display_name):
             continue
         if kural and kural not in [v["rule"] for v in violations]:
             continue
-        rows.append({"id": cert.id, "ad": cert.name, "issuer": cert.issuer, "valid_to": _d(cert.valid_to),
+        rows.append({"id": cert.id, "ad": cert.display_name, "issuer": cert.issuer, "valid_to": _d(cert.valid_to),
                      "onem": policy.max_severity(violations),
                      "ihlaller": [f"{v['rule']}: {v['detail']}" for v in violations],
                      "link": f"/certificates?cert={cert.id}"})

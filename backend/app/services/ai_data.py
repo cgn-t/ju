@@ -46,7 +46,8 @@ def _audit_filter(user: User) -> list:
 # tablo adı → (model, açıklama, {kolon: açıklama}, varsayılan sıralama (kolon, azalan), link, satır filtresi)
 TABLES: dict[str, tuple] = {
     "sertifikalar": (Certificate, "SSL sertifikaları (envanter)", {
-        "id": "", "name": "Sertifika adı (CN)", "cert_type": "leaf | intermediate | root",
+        "id": "", "name": "Sertifika adı (CN)", "standard_name": "Standart Ad (CA_Tür_alanadı_bitiş_ortam)",
+        "cert_type": "leaf | intermediate | root",
         "issuer": "Issuer", "subject": "Subject", "serial_number": "Serial Number", "san": "SAN listesi",
         "valid_from": "ValidFrom", "valid_to": "ValidTo (bitiş)", "is_active": "aktif mi (pasif = false)",
         "is_internal": "kurum içi CA mı", "environment": "Prod | Test", "creator": "Oluşturan Ekip (SY ekip adı)",
@@ -186,6 +187,15 @@ class QueryError(Exception):
     pass
 
 
+def _ready_fields(model, allowed: dict) -> dict:
+    """Veritabanında henüz olmayan kolonlar (Veritabanı Değişiklikleri sayfasından betiği
+    çalıştırılmamış) sorgulanmaz ve AI'a gösterilmez."""
+    from app.services import schema_state
+    if model is Certificate and "standard_name" in allowed and not schema_state.standard_name_ready():
+        return {k: v for k, v in allowed.items() if k != "standard_name"}
+    return allowed
+
+
 def _columns(model) -> dict:
     return {a.key: a.columns[0] for a in inspect(model).column_attrs}
 
@@ -282,7 +292,7 @@ def describe(tablo: str | None = None) -> dict:
         spec = TABLES.get(tablo)
         if spec is None:
             return {"hata": f"Bilinmeyen tablo: {tablo}", "tablolar": list(TABLES)}
-        model, desc, cols = spec[0], spec[1], spec[2]
+        model, desc, cols = spec[0], spec[1], _ready_fields(spec[0], spec[2])
         types = _columns(model)
         fields = {}
         for name, note in cols.items():
@@ -302,6 +312,7 @@ def query(db: Session, user: User, tablo: str, filtreler: list | None = None,
     if spec is None:
         raise QueryError(f"Bilinmeyen tablo: {tablo}. Tablolar: {', '.join(TABLES)}")
     model, _, allowed, (default_sort, default_desc), link, row_filter = spec
+    allowed = _ready_fields(model, allowed)
     cols = _columns(model)
 
     def column(name: str):

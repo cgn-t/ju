@@ -22,15 +22,15 @@ def _build_event(cert, kind: str) -> NotifyEvent:
     days_left = (cert.valid_to - utcnow()).days if cert.valid_to else 0
     end = f"{cert.valid_to:%Y-%m-%d}" if cert.valid_to else "—"
     if kind == "expired":
-        title = f"🔴 SÜRESİ GEÇMİŞ: {cert.name} ({-days_left} gün önce doldu)"
+        title = f"🔴 SÜRESİ GEÇMİŞ: {cert.display_name} ({-days_left} gün önce doldu)"
         text = (f"Sertifika JUMBO'da hâlâ AKTİF görünüyor. Seri: {cert.serial_number or '—'} · "
                 f"Bitiş: {end} UTC. Lütfen JUMBO envanterini güncelleyin.")
     else:
-        title = f"⚠️ Süre doluyor: {cert.name} ({days_left} gün kaldı)"
+        title = f"⚠️ Süre doluyor: {cert.display_name} ({days_left} gün kaldı)"
         text = (f"Seri: {cert.serial_number or '—'} · Bitiş: {end} UTC · Kalan: {days_left} gün. "
                 f"Yenileme sürecini başlatmanız önerilir.")
     return NotifyEvent(
-        kind=kind, cert_id=cert.id, cert_name=cert.name, days_left=days_left,
+        kind=kind, cert_id=cert.id, cert_name=cert.display_name, days_left=days_left,
         title=title, text=text,
         fields={"serial_number": cert.serial_number,
                 "valid_to": cert.valid_to.isoformat() if cert.valid_to else None},

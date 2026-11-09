@@ -45,7 +45,7 @@ ACTION_CATEGORY: dict[str, str] = {
     "notify_run": "system", "revocation_run": "system", "revocation_check": "system",
     "scan": "system", "duplicate_detected": "system", "notify": "system", "ai_ask": "system",
     "regression_start": "system", "regression_mark": "system", "regression_end": "system",
-    "regression_auto": "system",
+    "regression_auto": "system", "db_console_run": "system", "db_console_try": "system",
 }
 # Tabloya göre güvenlik sayılan değişiklikler (kullanıcı/rol/ayar)
 _SECURITY_TABLES = ("users", "user_teams", "teams", "app_settings")

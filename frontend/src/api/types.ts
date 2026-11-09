@@ -30,6 +30,8 @@ export interface MappedDomain {
 export interface Certificate {
   id: number
   name: string
+  standard_name?: string | null          // Standart Ad (v3.9.39); boşsa ekranda name gösterilir
+  can_edit_standard_name?: boolean | null // tekil GET: Standart Adı düzeltebilir mi
   serial_number?: string | null
   issuer?: string | null
   subject?: string | null
@@ -406,6 +408,7 @@ export interface AppUser {
   // Üst navigasyon linki görünürlüğü — page_access'ten farkı: SY üyeliği carve-out'u yok
   nav_page_access?: Record<string, boolean>
   local_account?: boolean       // yalnız /auth/me: Jumbo yerel hesabı (Şifre Değiştir görünür)
+  features?: { db_console?: boolean; standard_name?: boolean }
 }
 
 export interface TeamMember {
@@ -843,3 +846,12 @@ export interface SystemHealth {
     version: string
   }
 }
+
+// Standart Ad önerisi (POST /certificates/standard-name/suggest)
+export interface StandardNameSuggestion {
+  standard_name: string; ca: string; kind: string; main: string; date: string | null
+  env: string | null; unknown_ca: boolean; collision: boolean
+}
+
+// Ekranda gösterilecek sertifika adı: Standart Ad doluysa o, değilse NAME (CN)
+export const certLabel = (c: { name: string; standard_name?: string | null }) => c.standard_name || c.name

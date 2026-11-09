@@ -1140,6 +1140,68 @@ function PolicyTab() {
   )
 }
 
+// ---------- İsimlendirme (Sertifika Standart Adı, v3.9.39) ----------
+type AbbrRule = { match: string; abbr: string }
+function NamingTab() {
+  const { form, setForm, save } = useCategory('naming')
+  const rules: AbbrRule[] = Array.isArray(form.ca_abbreviations) ? (form.ca_abbreviations as AbbrRule[]) : []
+  const setRules = (r: AbbrRule[]) => setForm((s) => ({ ...s, ca_abbreviations: r }))
+  const move = (i: number, d: number) => {
+    const r = [...rules]; const j = i + d
+    if (j < 0 || j >= r.length) return
+    ;[r[i], r[j]] = [r[j], r[i]]; setRules(r)
+  }
+  return (
+    <Stack spacing={3}>
+      <Alert severity="info">
+        Sertifikaların Standart Adı bu kuralla oluşturulur:{' '}
+        <b>CA_Tür_alanadı_BitişTarihi_ortam</b> (ör. <code>Dgcrt_wildcard_aaaa.com_20260814_prod</code>).
+        CA kısaltması Issuer metninden bulunur: liste <b>yukarıdan aşağı</b> denenir, Issuer'da "Aranan metin"
+        geçen ilk satır kullanılır (büyük/küçük harf fark etmez). Kurum içi CA'nızın adını ekleyin (ör. "Firma Issuing CA" → Int).
+        Değişiklik yalnız bundan sonra oluşturulan adları etkiler.
+      </Alert>
+      <Box>
+        <Table size="small">
+          <TableHead><TableRow>
+            <TableCell>Aranan metin (Issuer içinde)</TableCell><TableCell>Kısaltma</TableCell><TableCell align="right" />
+          </TableRow></TableHead>
+          <TableBody>
+            {rules.map((r, i) => (
+              <TableRow key={i}>
+                <TableCell><TextField size="small" fullWidth value={r.match} placeholder="ör. DigiCert"
+                  onChange={(e) => setRules(rules.map((x, k) => (k === i ? { ...x, match: e.target.value } : x)))} /></TableCell>
+                <TableCell sx={{ width: 180 }}><TextField size="small" fullWidth value={r.abbr} placeholder="ör. Dgcrt"
+                  onChange={(e) => setRules(rules.map((x, k) => (k === i ? { ...x, abbr: e.target.value.replace(/[^A-Za-z0-9-]/g, '') } : x)))} /></TableCell>
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap', width: 130 }}>
+                  <IconButton size="small" aria-label="Yukarı" onClick={() => move(i, -1)} disabled={i === 0}><ArrowUpwardIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" aria-label="Aşağı" onClick={() => move(i, 1)} disabled={i === rules.length - 1}><ArrowDownwardIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" aria-label="Sil" onClick={() => setRules(rules.filter((_, k) => k !== i))}><DeleteIcon fontSize="small" /></IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <Button size="small" startIcon={<AddIcon />} sx={{ mt: 1 }} onClick={() => setRules([...rules, { match: '', abbr: '' }])}>
+          Satır ekle
+        </Button>
+      </Box>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="unknown_abbr" label="Listede olmayan CA" width={{ xs: 6, sm: 4 }}
+              helper='Hiçbir satır eşleşmezse (ör. "Diger")' />
+        <Text form={form} setForm={setForm} field="self_signed_abbr" label="Kendinden imzalı" width={{ xs: 6, sm: 4 }}
+              helper='Kendinden imzalı sunucu sertifikası (ör. "Self")' />
+      </Grid>
+      <FormControlLabel
+        control={<Switch checked={form.env_suffix !== false}
+                         onChange={(e) => setForm((s) => ({ ...s, env_suffix: e.target.checked }))} />}
+        label="Ortam eki ekle (Prod → _prod, Test → _test; ortam boşsa ek yok)" />
+      <Box>
+        <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
+      </Box>
+    </Stack>
+  )
+}
+
 // ---------- İptal Durumu (Revocation — OCSP/CRL) ----------
 function RevocationTab() {
   const { form, setForm, save } = useCategory('revocation')
@@ -1885,6 +1947,7 @@ const NAV_GROUPS: NavGroup[] = [
     { key: 'discovery', label: 'Keşif', desc: 'Ağ taramasıyla envanter-dışı sertifikaları bulur', wide: true, el: <DiscoveryTab /> },
     { key: 'ct', label: 'CT (crt.sh)', desc: 'Certificate Transparency loglarını izler', el: <CtTab /> },
     { key: 'policy', label: 'Uyum', desc: 'Sertifika uyum politikası kuralları', el: <PolicyTab /> },
+    { key: 'naming', label: 'İsimlendirme', desc: 'Sertifika Standart Adı kuralı ve CA kısaltmaları', wide: true, el: <NamingTab /> },
     { key: 'revocation', label: 'İptal (OCSP/CRL)', desc: 'İptal durumu denetimi (OCSP/CRL)', el: <RevocationTab /> },
     { key: 'live_check', label: 'Canlı Doğrulama', desc: 'TLS drift kontrolü ve zincir senkronizasyonu', el: <LiveCheckTab /> },
   ] },
