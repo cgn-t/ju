@@ -122,6 +122,9 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     # (bkz. nav_visible). Route erişimi/onay iş akışı page_access ile değişmeden çalışır.
     out.nav_page_access = {page: nav_visible(db, user, page) for page in PAGE_SETTING_KEY}
     out.local_account = is_local_password(user.password_hash)
+    from app.services import db_console, schema_state
+    out.features = {"db_console": user.role == "admin" and db_console.enabled(),
+                    "standard_name": schema_state.standard_name_ready()}
     return out
 
 

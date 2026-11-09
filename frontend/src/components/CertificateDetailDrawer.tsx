@@ -36,6 +36,7 @@ import AutorenewIcon from '@mui/icons-material/Autorenew'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DownloadIcon from '@mui/icons-material/Download'
 import EditIcon from '@mui/icons-material/Edit'
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline'
 import {
   Box, Button, Chip, Dialog, DialogContent, FormControlLabel, IconButton, MenuItem, Skeleton, Stack,
   Switch, TextField, Tooltip, Typography, useMediaQuery, useTheme,
@@ -48,7 +49,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../api/client'
 import { NoAccessDialog, RecordUnavailable } from './RecordUnavailable'
-import type { Certificate, CertificateChain, Team } from '../api/types'
+import { certLabel, type Certificate, type CertificateChain, type StandardNameSuggestion, type Team } from '../api/types'
+import { useFeatures } from '../hooks/useFeatures'
 import { useAuth } from '../auth/AuthContext'
 import { CertificateImpactTab, CertificateMailsTab } from './CertificateExtraTabs'
 import CertificatePicker, { type PickerCert } from './CertificatePicker'
@@ -75,7 +77,7 @@ const SHRINK = { inputLabel: { shrink: true } }
 const ADMIN_ONLY = 'Sertifikadan okunur; yalnız admin değiştirebilir'
 
 interface EditForm {
-  name: string; purchased_by: string; creator: string; environment: string; notes: string
+  name: string; standard_name: string; purchased_by: string; creator: string; environment: string; notes: string
   is_internal: boolean; cert_type: 'root' | 'intermediate' | 'leaf'; parent: PickerCert | null
 }
 
@@ -84,13 +86,14 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canEdit, isAdmin } = useAuth()
+  const features = useFeatures()
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<'summary' | 'chain' | 'links' | 'technical' | 'revocation' | 'corporate' | 'mails' | 'impact'>('summary')
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
   const [confirmOpen, setConfirmOpen] = useState(false)  // Kaydet → tarih kontrolü onay diyaloğu
   const [form, setForm] = useState<EditForm>(
-    { name: '', purchased_by: '', creator: '', environment: '', notes: '', is_internal: false, cert_type: 'leaf', parent: null })
+    { name: '', standard_name: '', purchased_by: '', creator: '', environment: '', notes: '', is_internal: false, cert_type: 'leaf', parent: null })
 
   const { data: cert, isLoading, isError, error, refetch } = useQuery<Certificate>({
     queryKey: ['certificate', certId],
@@ -140,10 +143,14 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
 
   const save = useMutation({
     mutationFn: async (f: EditForm) => {
-      const { parent, ...rest } = f
+      const { parent, standard_name, ...rest } = f
       // environment Literal["prod","test"]|None kabul eder, boş string DEĞİL — dönüştür.
       // Üst sertifika yalnız değiştiyse gönderilir (zincir kuralı sunucuda denetlenir).
       const body: Record<string, unknown> = { ...rest, environment: rest.environment || null }
+      // Standart Ad yalnız değiştiyse ve düzeltme yetkisi varsa gönderilir
+      if (cert?.can_edit_standard_name && standard_name.trim() !== (cert?.standard_name ?? '')) {
+        body.standard_name = standard_name.trim() || null
+      }
       if ((parent?.id ?? null) !== (cert?.parent_id ?? null)) body.parent_id = parent?.id ?? null
       if (rest.cert_type === cert?.cert_type) delete body.cert_type
       return api.put(`/certificates/${certId}`, body)
@@ -155,6 +162,20 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
       queryClient.invalidateQueries({ queryKey: ['certificates'] })
       queryClient.invalidateQueries({ queryKey: ['cert-map'] })
       setEditing(false)
+    },
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
+
+  // "İsimlendirme Kuralını Uygula": formda seçili ortamla kurala göre ad (kaydetmez)
+  const [suggestInfo, setSuggestInfo] = useState<string | undefined>()
+  const suggest = useMutation({
+    mutationFn: async () => (await api.post<StandardNameSuggestion>('/certificates/standard-name/suggest',
+      { id: certId, environment: form.environment || null })).data,
+    onSuccess: (r) => {
+      setForm((f) => ({ ...f, standard_name: r.standard_name }))
+      setSuggestInfo([r.unknown_ca ? 'CA kısaltma listesinde yok ("Diger" yazıldı); Ayarlar > İsimlendirme' : '',
+                      r.collision ? 'Aynı ad başka sertifikada var; sonuna numara eklendi' : '']
+        .filter(Boolean).join(' · ') || 'Kurala göre oluşturuldu; isterseniz değiştirin')
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
@@ -177,12 +198,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
   const startEdit = () => {
     if (!cert) return
     setForm({
-      name: cert.name ?? '', purchased_by: cert.purchased_by ?? '',
+      name: cert.name ?? '', standard_name: cert.standard_name ?? '', purchased_by: cert.purchased_by ?? '',
       creator: cert.creator ?? '', environment: cert.environment ?? '', notes: cert.notes ?? '',
       is_internal: !!cert.is_internal, cert_type: cert.cert_type,
       parent: parentNow ? { id: parentNow.id, name: parentNow.name, cert_type: parentNow.cert_type,
                             days_left: parentNow.days_left, subject_key_identifier: parentNow.subject_key_identifier } : null,
     })
+    setSuggestInfo(undefined)
     setEditing(true)
   }
 
@@ -219,7 +241,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
         <>
           <DetailHeader
             icon={<VerifiedUserOutlinedIcon />} iconColor={nodeColors[cert.cert_type]} tone={daysTone(cert.days_left)} onClose={onClose}
-            title={<span title={cert.name}>{cert.name}</span>}
+            title={<span title={cert.standard_name ? `${cert.standard_name} — CN: ${cert.name}` : cert.name}>{certLabel(cert)}</span>}
             titleExtra={!editing && (
               <>
                 {editable && (
@@ -493,6 +515,27 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               editing ? (
               <Box>
                 <Stack spacing={2}>
+                  {features.standard_name && (
+                    <FormSection icon={<DriveFileRenameOutlineIcon />} title="Standart Ad" columns={1}
+                                 hint="CA_Tür_alanadı_BitişTarihi_ortam (ör. Dgcrt_wildcard_aaaa.com_20260814_prod)">
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+                        <TextField size="small" fullWidth label="Standart Ad" value={form.standard_name} slotProps={SHRINK}
+                                   disabled={!cert.can_edit_standard_name}
+                                   placeholder="Boş: listede CN görünür"
+                                   helperText={!cert.can_edit_standard_name
+                                     ? 'Yalnız admin ya da sertifikanın sahibi ekip değiştirebilir (sahipsiz sertifikada yalnız admin)'
+                                     : suggestInfo}
+                                   onChange={(e) => setForm({ ...form, standard_name: e.target.value })}
+                                   sx={{ '& input': { fontFamily: MONO_FONT } }} />
+                        {cert.can_edit_standard_name && (
+                          <Button variant="outlined" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={suggest.isPending}
+                                  startIcon={<DriveFileRenameOutlineIcon />} onClick={() => suggest.mutate()}>
+                            İsimlendirme Kuralını Uygula
+                          </Button>
+                        )}
+                      </Box>
+                    </FormSection>
+                  )}
                   <FormSection icon={<BadgeOutlinedIcon />} title="Kimlik" hint="Ad, tür ve ortam">
                     <TextField size="small" fullWidth label="Sertifika Adı" value={form.name} required disabled={!isAdmin}
                                error={!form.name.trim()}
@@ -562,6 +605,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                   items={[
                     { label: 'İşlem', value: 'Sertifika güncelleme' },
                     { label: 'Sertifika', value: form.name || cert?.name || '—' },
+                    ...(features.standard_name && form.standard_name.trim() !== (cert?.standard_name ?? '')
+                      ? [{ label: 'Standart Ad', value: form.standard_name.trim() || '(boş)', highlight: true }] : []),
                     { label: 'ValidTo', highlight: true,
                       value: cert?.valid_to ? cert.valid_to.slice(0, 10) : '—' },
                   ]} />
@@ -569,6 +614,13 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
               ) : (
                 <Stack spacing={2}>
                   <Box sx={GRID3}>
+                    {features.standard_name && (
+                      <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
+                        <InfoCard title="Standart Ad" icon={<DriveFileRenameOutlineIcon />}
+                                  value={<Box component="span" sx={{ fontFamily: MONO_FONT }}>{cert.standard_name || '—'}</Box>}
+                                  sub={`CN / NAME: ${cert.name}`} copy={cert.standard_name || null} />
+                      </Box>
+                    )}
                     <InfoCard title="Satın Alım Yapan" icon={<ShoppingCartOutlinedIcon />} value={cert.purchased_by || '—'} />
                     <InfoCard title="Oluşturan Ekip" icon={<GroupsOutlinedIcon />} value={cert.creator || '—'} />
                     <InfoCard title="Ortam" icon={<LayersOutlinedIcon />} value={environmentLabel(cert.environment) || '—'} />

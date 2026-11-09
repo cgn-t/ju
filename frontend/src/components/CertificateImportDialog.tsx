@@ -6,9 +6,10 @@ import {
 } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSnackbar } from 'notistack'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate, ImportPreview, RenewalCandidate, Team } from '../api/types'
+import type { Certificate, ImportPreview, RenewalCandidate, StandardNameSuggestion, Team } from '../api/types'
+import { useFeatures } from '../hooks/useFeatures'
 import { MONO_FONT, nodeColors } from '../theme'
 import ConfirmSaveDialog, { type ConfirmItem } from './ConfirmSaveDialog'
 
@@ -57,6 +58,31 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const [skipProposals, setSkipProposals] = useState<Set<string>>(new Set())
   // Birden çok olası öncül varsa kullanıcının seçtiği eski sertifika (yeni sertifika anahtarıyla)
   const [chosenPreds, setChosenPreds] = useState<Record<string, number>>({})
+  // Standart Ad (v3.9.39): kurala göre önerilir, kullanıcı değiştirebilir. Anahtar: fingerprint
+  // (dosya) ya da 'manual'. Elle değiştirilen alan ortam değişince yeniden yazılmaz.
+  const features = useFeatures()
+  const [stdNames, setStdNames] = useState<Record<string, string>>({})
+  const [stdEdited, setStdEdited] = useState<Set<string>>(new Set())
+  const [stdInfo, setStdInfo] = useState<Record<string, string>>({})
+  const suggestFor = async (key: string, body: Record<string, unknown>, force = false) => {
+    if (!features.standard_name) return
+    try {
+      const r = (await api.post<StandardNameSuggestion>('/certificates/standard-name/suggest', body)).data
+      setStdNames((s) => (!force && stdEditedRef.current.has(key) ? s : { ...s, [key]: r.standard_name }))
+      setStdInfo((s) => ({ ...s, [key]: r.unknown_ca ? 'CA kısaltma listesinde yok ("Diger"); Ayarlar > İsimlendirme' : '' }))
+      if (force) setStdEdited((s) => { const n = new Set(s); n.delete(key); return n })
+    } catch { /* öneri alınamazsa alan boş kalır; kayıtta kurala göre doldurulur */ }
+  }
+  const stdEditedRef = useRef(stdEdited)
+  stdEditedRef.current = stdEdited
+  const editStd = (key: string, v: string) => {
+    setStdNames((s) => ({ ...s, [key]: v }))
+    setStdEdited((s) => new Set(s).add(key))
+  }
+  const previewBody = (p: ImportPreview) => ({
+    issuer: p.issuer, subject: p.subject, name: p.name, san: p.san, cert_type: p.cert_type,
+    extended_key_usage: p.extended_key_usage, valid_to: p.valid_to, environment: environment || null,
+  })
 
   const reset = () => {
     setFile(null); setPfxPassword(''); setPreview(null); setNotes(''); setPurchasedBy('')
@@ -64,6 +90,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
     setManualNotes(''); setManualPurchasedBy(''); setManualInternal(false); setManualEnvironment('')
     setCreator(''); setTab(0)
     setConfirmOpen(false); setSkipProposals(new Set()); setChosenPreds({})
+    setStdNames({}); setStdEdited(new Set()); setStdInfo({})
   }
 
   const close = () => { reset(); onClose() }
@@ -127,6 +154,8 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
   const confirmItems: ConfirmItem[] = tab === 0
     ? (preview ?? []).filter((p) => !p.already_exists).flatMap((p) => [
         { label: 'Sertifika', value: p.name },
+        ...(features.standard_name && p.fingerprint_sha256 && stdNames[p.fingerprint_sha256]?.trim()
+          ? [{ label: 'Standart Ad', value: stdNames[p.fingerprint_sha256].trim() }] : []),
         { label: 'Bitiş (ValidTo)', value: (p.valid_to || '').slice(0, 10) || '—', highlight: true },
         ...(wantsProposal(p)
           ? [{ label: 'Değişiklik talebi', value: needsChoice(p)
@@ -137,6 +166,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
             : []),
       ])
     : [{ label: 'Sertifika', value: manualName || '(PEM içeriğinden)' },
+       ...(features.standard_name && stdNames.manual?.trim() ? [{ label: 'Standart Ad', value: stdNames.manual.trim() }] : []),
        { label: 'Tarihler', value: manualPem ? 'PEM içinden otomatik okunacak' : '—', highlight: true }]
 
   const importMutation = useMutation({
@@ -149,6 +179,14 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
       if (creator) form.append('creator', creator)
       form.append('is_internal', String(isInternal))
       if (environment) form.append('environment', environment)
+      if (features.standard_name) {
+        const names: Record<string, string> = {}
+        for (const p of preview ?? []) {
+          const k = p.fingerprint_sha256 ?? ''
+          if (!p.already_exists && k && stdNames[k]?.trim()) names[k] = stdNames[k].trim()
+        }
+        form.append('standard_names', JSON.stringify(names))
+      }
       const created = (await api.post<Certificate[]>('/certificates/import', form)).data
       // İçe aktarma kendisi talep üretmez; kullanıcı önizlemede onay verdiyse eski sertifikanın
       // bağlantıları için talepler sertifika detayındaki "Değişiklik Talebi Oluştur" ile aynı uçtan açılır
@@ -187,6 +225,7 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
         name: manualName, pem_certificate: manualPem || null, notes: manualNotes || null,
         purchased_by: manualPurchasedBy || null, is_internal: manualInternal,
         creator: creator || null, environment: manualEnvironment || null,
+        ...(features.standard_name && stdNames.manual?.trim() ? { standard_name: stdNames.manual.trim() } : {}),
       })).data,
     onSuccess: (data: Certificate) => {
       const extra = data?.chain_added ?? []
@@ -197,6 +236,32 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
     },
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
+
+  // Önizleme geldiğinde ya da ortam değiştiğinde öneriyi yenile (elle değiştirilenler korunur)
+  useEffect(() => {
+    for (const p of preview ?? []) {
+      if (!p.already_exists && p.fingerprint_sha256) void suggestFor(p.fingerprint_sha256, previewBody(p))
+    }
+  }, [preview, environment, features.standard_name])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!manualPem.trim()) return
+    const t = setTimeout(() => void suggestFor('manual', { pem_certificate: manualPem, environment: manualEnvironment || null }), 400)
+    return () => clearTimeout(t)
+  }, [manualPem, manualEnvironment, features.standard_name])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stdField = (key: string, label: string, body: () => Record<string, unknown> | null) => (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'flex-start' } }} key={key}>
+      <TextField size="small" fullWidth multiline maxRows={3} label={label} value={stdNames[key] ?? ''}
+                 onChange={(e) => editStd(key, e.target.value)}
+                 placeholder="Boş bırakılırsa kurala göre doldurulur"
+                 helperText={stdInfo[key] || (stdEdited.has(key) ? 'Elle değiştirildi' : 'Önerilen standart ad; isterseniz değiştirin')}
+                 slotProps={{ inputLabel: { shrink: true }, input: { sx: { fontFamily: MONO_FONT, fontWeight: 600, wordBreak: 'break-all' } } }} />
+      <Button variant="outlined" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+              onClick={() => { const b = body(); if (b) void suggestFor(key, b, true) }}>
+        İsimlendirme Kuralını Uygula
+      </Button>
+    </Stack>
+  )
 
   const pickFile = (selected: File | null) => {
     setFile(selected)
@@ -458,6 +523,13 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
             {creatorSelect}
             {environmentSelect(environment, setEnvironment)}
+            {features.standard_name && preview && preview.some((p) => !p.already_exists) && (
+              <Stack spacing={1.5}>
+                <Typography variant="subtitle2">Standart Ad</Typography>
+                {preview.filter((p) => !p.already_exists && p.fingerprint_sha256).map((p) =>
+                  stdField(p.fingerprint_sha256!, `${p.cert_type} · ${p.name}`, () => previewBody(p)))}
+              </Stack>
+            )}
             <Stack direction="row" spacing={2}>
               <TextField label="Satın Alım Yapan Ekip/Kişi" size="small" fullWidth
                          value={purchasedBy} onChange={(e) => setPurchasedBy(e.target.value)} />
@@ -487,6 +559,8 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
             />
             {creatorSelect}
             {environmentSelect(manualEnvironment, setManualEnvironment)}
+            {features.standard_name && stdField('manual', 'Standart Ad',
+              () => (manualPem.trim() ? { pem_certificate: manualPem, environment: manualEnvironment || null } : null))}
             <Stack direction="row" spacing={2}>
               <TextField label="Satın Alım Yapan Ekip/Kişi" size="small" fullWidth
                          value={manualPurchasedBy} onChange={(e) => setManualPurchasedBy(e.target.value)} />

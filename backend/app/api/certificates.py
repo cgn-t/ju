@@ -1,11 +1,12 @@
-from datetime import datetime
+import json
+from datetime import datetime, timezone
 from app.core.textmatch import ci_like
 from app.core.timeutil import utcnow
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func
-from sqlalchemy.orm import Session, defer, joinedload
+from sqlalchemy.orm import Session, defer, joinedload, undefer
 
 from app.api.schemas import (
     CertificateChainOut,
@@ -34,7 +35,8 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.api.trigger_auth import EXTERNAL_ACTOR, external_cooldown, trigger_actor
-from app.services import cert_parser, chain_repair, job_lock, notifier, renewal, revocation
+from app.services import (cert_naming, cert_parser, chain_repair, job_lock, notifier, renewal,
+                          revocation, schema_state)
 from app.services.audit import audited_job, diff_fields, label_ids, log_action, snapshot
 from app.services.cert_extras import pem_extras
 
@@ -69,11 +71,17 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
     q = db.query(Certificate).options(
         joinedload(Certificate.domain_mappings).joinedload(CertificateDomainMap.domain)
     )
+    std_ready = schema_state.standard_name_ready()
+    if std_ready:
+        q = q.options(undefer(Certificate.standard_name))
     if search:
         like = f"%{search}%"
-        q = q.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
-                     | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
-                     | ci_like(Certificate.subject_key_identifier, like))
+        cond = (ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
+                | ci_like(Certificate.subject_key_identifier, like))
+        if std_ready:
+            cond = cond | ci_like(Certificate.standard_name, like)
+        q = q.filter(cond)
     if cert_type:
         # normalize: DB ham ("Intermediate") tutabilir; filtre kanonik eşleşme yapar (bkz. core/certtype)
         q = q.filter(cert_type_filter(Certificate.cert_type, cert_type))
@@ -84,18 +92,35 @@ def list_certificates(search: str | None = None, cert_type: str | None = None,
 
 
 _LIGHT_SKIP = {"pem_certificate", "extras", "domains", "supersedes", "days_left", "superseded_by_name",
-               "can_edit", "chain_added", "domain_count"}
+               "can_edit", "chain_added", "domain_count", "standard_name", "can_edit_standard_name"}
 _LIST_DOMAIN_CAP = 50   # Root/Intermediate yüzlerce domaine bağlı olabilir; liste satırı ilk 50'yi taşır
 _SOURCES = ("manual", "vault", "live", "discovery", "ct")
 _KNOWN_SRC = {"vault", "live", "discovery", "ct"}
 _TYPE_SORT = {"intermediate": 0, "leaf": 1, "root": 2}   # eski ORDER BY cert_type ile aynı sıra
 
 
+def _std_names(db: Session) -> dict[int, str]:
+    """Standart Adı dolu sertifikalar (id → ad). Kolon yoksa boş: hiçbir sorgu ona dokunmaz."""
+    if not schema_state.standard_name_ready():
+        return {}
+    return dict(db.query(Certificate.id, Certificate.standard_name)
+                .filter(Certificate.standard_name.isnot(None)).all())
+
+
+def _display_names(db: Session) -> dict[int, str]:
+    """id → ekranda gösterilen ad (Standart Ad, yoksa NAME)."""
+    names = dict(db.query(Certificate.id, Certificate.name).all())
+    names.update({k: v for k, v in _std_names(db).items() if v})
+    return names
+
+
 def _light_out(cert: Certificate, domains: list[MappedDomainOut],
-               names: dict[int, str], cap: int | None = _LIST_DOMAIN_CAP) -> CertificateOut:
+               names: dict[int, str], cap: int | None = _LIST_DOMAIN_CAP,
+               std: dict[int, str] | None = None) -> CertificateOut:
     """PEM'siz liste kaydı. ORM nesnesindeki PEM ertelendiği (defer) için okunmaz — binlerce
     sertifikada her satırın PEM'ini taşımak listeyi şişiriyordu."""
     data = {f: getattr(cert, f) for f in CertificateOut.model_fields if f not in _LIGHT_SKIP}
+    data["standard_name"] = (std or {}).get(cert.id)
     out = CertificateOut.model_validate(data)
     out.days_left = _days_left(cert.valid_to)
     out.domain_count = len(domains)
@@ -120,15 +145,21 @@ def page_certificates(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le
     sayfalamadan önce çıkarılır. Kolon filtresi varsa eşleşenler düz liste olarak gelir.
     PEM gövdesi listede yok (detay penceresi tekil GET ile alır)."""
     base = db.query(Certificate).options(defer(Certificate.pem_certificate))
+    std = _std_names(db)
     if q:
         like = f"%{q}%"
-        base = base.filter(ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
-                           | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
-                           | ci_like(Certificate.subject_key_identifier, like))
+        cond = (ci_like(Certificate.name, like) | ci_like(Certificate.serial_number, like)
+                | ci_like(Certificate.issuer, like) | ci_like(Certificate.subject, like)
+                | ci_like(Certificate.subject_key_identifier, like))
+        if schema_state.standard_name_ready():
+            cond = cond | ci_like(Certificate.standard_name, like)
+        base = base.filter(cond)
     if is_active is not None:
         base = base.filter(Certificate.is_active == is_active)  # MSSQL: BIT = 1/0
-    certs = sorted(base.all(), key=lambda c: (_TYPE_SORT.get(normalize_cert_type(c.cert_type), 9), fold_search(c.name)))
-    names = dict(db.query(Certificate.id, Certificate.name).all())
+
+    def shown(c): return std.get(c.id) or c.name
+    certs = sorted(base.all(), key=lambda c: (_TYPE_SORT.get(normalize_cert_type(c.cert_type), 9), fold_search(shown(c))))
+    names = _display_names(db)
     links: dict[int, int] = dict(db.query(CertificateDomainMap.certificate_id, func.count())
                                  .group_by(CertificateDomainMap.certificate_id).all())
 
@@ -152,7 +183,8 @@ def page_certificates(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le
     rows: list[tuple[Certificate, int, int]] = []   # (sertifika, derinlik, kök id)
     if flat:
         for c in certs:
-            if (contains(c.name, f_name) and contains(c.subject_key_identifier, f_ski)
+            if ((contains(c.name, f_name) or contains(std.get(c.id), f_name))
+                    and contains(c.subject_key_identifier, f_ski)
                     and contains(c.san or c.issuer, f_saniss)
                     and f_source in (None, "", "all", src(c))
                     and f_environment in (None, "", "all", env(c))
@@ -222,7 +254,7 @@ def page_certificates(page: int = Query(0, ge=0), size: int = Query(50, ge=1, le
                   .filter(CertificateDomainMap.certificate_id.in_(page_ids)).all()):
             mapped.setdefault(m.certificate_id, []).append(
                 MappedDomainOut(domain_id=m.domain_id, domain=m.domain.domain, mapping_type=m.mapping_type))
-    items = [CertificateTreeRow(cert=_light_out(c, mapped.get(c.id, []), names, None if all else _LIST_DOMAIN_CAP),
+    items = [CertificateTreeRow(cert=_light_out(c, mapped.get(c.id, []), names, None if all else _LIST_DOMAIN_CAP, std),
                                 depth=depth,
                                 has_children=bool(children.get(c.id)), root_id=r,
                                 root_name=names.get(r, ""))
@@ -319,12 +351,21 @@ def get_certificate(cert_id: int, db: Session = Depends(get_db), user: User = De
     else:
         owners = _cert_owner_team_ids(db, cert)
         out.can_edit = not owners or bool(owners & user_team_ids(db, user))
+    # Standart Ad: admin ya da sahibi ekibin editörü; sahipsiz sertifikada yalnız admin
+    if not schema_state.standard_name_ready():
+        out.can_edit_standard_name = False
+    elif user.role == "admin":
+        out.can_edit_standard_name = True
+    elif not out.can_edit:
+        out.can_edit_standard_name = False
+    else:
+        out.can_edit_standard_name = bool(_cert_owner_team_ids(db, cert))
     # Yenileme zinciri iki yönlü gezilebilsin: halefin adı + devraldığı öncüller
     if cert.superseded_by_id:
         successor = db.get(Certificate, cert.superseded_by_id)
-        out.superseded_by_name = successor.name if successor else None
+        out.superseded_by_name = successor.display_name if successor else None
     out.supersedes = [
-        CertRefOut(id=p.id, name=p.name, is_active=p.is_active)
+        CertRefOut(id=p.id, name=p.display_name, is_active=p.is_active)
         for p in db.query(Certificate)
                    .filter(Certificate.superseded_by_id == cert.id)
                    .order_by(Certificate.valid_to.desc()).all()
@@ -510,6 +551,7 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                         purchased_by: str | None = Form(None), is_internal: bool = Form(False),
                         source: str = Form("manual"), supersede: bool = Form(False),
                         creator: str | None = Form(None), environment: str | None = Form(None),
+                        standard_names: str | None = Form(None),
                         db: Session = Depends(get_db), user: User = Depends(require_role("editor"))):
     """Binary import: PEM (fullchain destekli) / DER / PFX. Var olanları atlar,
     zinciri SKI/AKI ile otomatik bağlar. Değişiklik talebi ÜRETMEZ (supersede etkisiz);
@@ -522,6 +564,21 @@ def import_certificates(request: Request, file: UploadFile = File(...),
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    # Önizlemede kullanıcının gördüğü/düzelttiği Standart Adlar: {"<SHA-256 fingerprint>": "ad"}.
+    # Boş olanlar kurala göre doldurulur (before_flush); kolon yoksa hiç yazılmaz.
+    std_map: dict[str, str] = {}
+    if standard_names and schema_state.standard_name_ready():
+        try:
+            raw = json.loads(standard_names)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="standard_names JSON olmalı")
+        std_map = {str(k): str(v).strip()[:255] for k, v in (raw or {}).items() if str(v or "").strip()}
+        seen: set[str] = set()
+        for fp, nm in std_map.items():
+            if nm.lower() in seen:
+                raise HTTPException(status_code=409, detail=f"Aynı Standart Ad iki kez verilmiş: {nm}")
+            seen.add(nm.lower())
+            _ensure_unique_standard_name(db, nm, None)
     created: list[Certificate] = []
     # Önce CA'lar (leaf'ler parent bulsun), leaf'lerde önce ESKİ nesil (valid_from):
     # aynı dosyada iki nesil varsa devir dosyadaki PEM sırasından bağımsız işler
@@ -534,6 +591,8 @@ def import_certificates(request: Request, file: UploadFile = File(...),
                            is_internal=is_internal, creator=creator or user.username, source=source,
                            environment=environment or None)
         cert.parent_id = cert_parser.resolve_parent(db, parsed)
+        if std_map.get(parsed.fingerprint_sha256 or ""):
+            cert.standard_name = std_map[parsed.fingerprint_sha256]
         db.add(cert)
         db.flush()
         cert_parser.relink_children(db, cert)
@@ -683,6 +742,13 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
                        user: User = Depends(require_role("editor"))):
     """Manuel ekleme. PEM verilmişse alanlar PEM'den doğrulanıp tamamlanır."""
     data = body.model_dump()
+    # Standart Ad: yalnız kolon varken ve doluysa yazılır; boşsa before_flush kurala göre doldurur.
+    # Kolon yokken Certificate'e HİÇ verilmez (INSERT o kolonu içermesin).
+    std_name = (data.pop("standard_name", None) or "").strip() or None
+    if std_name and schema_state.standard_name_ready():
+        _ensure_unique_standard_name(db, std_name, None)
+    else:
+        std_name = None
     extra: list = []  # PEM'e zincir yapıştırıldıysa ana sertifika dışındakiler (ara/kök)
     if body.pem_certificate and body.pem_certificate.strip():
         try:
@@ -738,10 +804,14 @@ def create_certificate(request: Request, body: CertificateCreate, db: Session = 
         cert.parent_id = parent.id if parent else None
     if not cert.creator:
         cert.creator = user.username
+    if std_name:
+        cert.standard_name = std_name
     db.add(cert)
     db.flush()
     cert_parser.relink_children(db, cert)
-    log_action(db, user.username, "create", "certificates", cert.id, {"name": cert.name}, request)
+    log_action(db, user.username, "create", "certificates", cert.id,
+               {"name": cert.name, **({"standard_name": cert.standard_name}
+                                      if schema_state.standard_name_ready() else {})}, request)
     db.commit()
     out = _to_out(cert)
     out.chain_added = chain_added
@@ -821,6 +891,16 @@ def _ensure_can_edit_cert(db: Session, user: User, cert: Certificate) -> None:
                                    "veya admin düzenleyebilir")
 
 
+def _ensure_unique_standard_name(db: Session, name: str, exclude_id: int | None) -> None:
+    """Standart Ad tekil olmalı (büyük/küçük harf duyarsız): aynı adı taşıyan iki sertifika,
+    adlandırmanın çözmek istediği "hangi sertifika?" sorusunu geri getirir."""
+    q = db.query(Certificate.id, Certificate.standard_name).filter(ci_like(Certificate.standard_name, name))
+    for cid, other in q.all():
+        if cid != exclude_id and (other or "").lower() == name.lower():
+            raise HTTPException(status_code=409,
+                                detail=f"Bu Standart Ad başka bir sertifikada kullanılıyor (ID {cid})")
+
+
 # Sertifikanın kendisinden gelen bilgiler — elle düzeltmeyi yalnız admin yapar
 ADMIN_ONLY_FIELDS = ("name", "cert_type", "parent_id", "is_internal")
 
@@ -850,6 +930,21 @@ def update_certificate(request: Request, cert_id: int, body: CertificateUpdate,
             raise HTTPException(status_code=403,
                                 detail="Sertifika adı, Type, üst sertifika ve Internal bilgisini "
                                        "yalnız admin değiştirebilir")
+    if "standard_name" in changes:
+        changes["standard_name"] = (changes["standard_name"] or "").strip() or None
+        if not schema_state.standard_name_ready():
+            raise HTTPException(status_code=409,
+                                detail="Standart Ad için önce Veritabanı Değişiklikleri sayfasından "
+                                       "v3.9.39 betiği çalıştırılmalı")
+        if changes["standard_name"] != cert.standard_name:
+            if user.role != "admin" and not _cert_owner_team_ids(db, cert):
+                raise HTTPException(status_code=403,
+                                    detail="Hiçbir ekibe bağlı olmayan sertifikanın Standart Adını "
+                                           "yalnız admin değiştirebilir")
+            if changes["standard_name"]:
+                _ensure_unique_standard_name(db, changes["standard_name"], cert.id)
+        else:
+            changes.pop("standard_name")
     if changes.get("parent_id") is not None:
         _ensure_valid_parent(db, cert, changes["parent_id"])
     diff = label_ids(db, diff_fields(cert, changes))
@@ -988,3 +1083,143 @@ def delete_certificate(request: Request, cert_id: int, db: Session = Depends(get
         child.parent_id = cert_parser.resolve_parent(db, child, exclude_id=cert.id)
     db.commit()
     return {"ok": True}
+
+
+# ---------- Standart Ad (v3.9.39) ----------
+
+def _require_std_ready() -> None:
+    if not schema_state.standard_name_ready():
+        raise HTTPException(status_code=409,
+                            detail="Standart Ad için önce Veritabanı Değişiklikleri sayfasından "
+                                   "v3.9.39 betiği çalıştırılmalı")
+
+
+class _Fields:
+    """Kaydedilmemiş sertifika (önizleme / PEM) için cert_naming'in okuduğu alanlar."""
+    def __init__(self, **kw):
+        self.id = kw.get("id")
+        for f in ("issuer", "subject", "name", "san", "cert_type", "extended_key_usage",
+                  "valid_to", "environment"):
+            setattr(self, f, kw.get(f))
+
+
+@router.post("/standard-name/suggest")
+def suggest_standard_name(body: dict, db: Session = Depends(get_db),
+                          user: User = Depends(require_role("editor"))):
+    """"İsimlendirme Kuralını Uygula": kurala göre önerilen ad (kaydetmez).
+    body: {"id": kayıtlı sertifika} ya da {"pem_certificate": "..."} ya da önizleme alanları
+    (issuer, subject, name, san, cert_type, extended_key_usage, valid_to); "environment" verilirse
+    kayıttakinin yerine o kullanılır (formda seçilen ortam)."""
+    _require_std_ready()
+    body = body or {}
+    env = body.get("environment")
+    env = env if env in ("prod", "test") else None
+    if body.get("id"):
+        cert = db.get(Certificate, int(body["id"]))
+        if cert is None:
+            raise HTTPException(status_code=404, detail="Sertifika bulunamadı")
+        src = _Fields(id=cert.id, issuer=cert.issuer, subject=cert.subject, name=cert.name, san=cert.san,
+                      cert_type=normalize_cert_type(cert.cert_type), extended_key_usage=cert.extended_key_usage,
+                      valid_to=cert.valid_to,
+                      environment=env if "environment" in body else cert.environment)
+    elif (body.get("pem_certificate") or "").strip():
+        try:
+            parsed_all = cert_parser.parse_pem_text(body["pem_certificate"])
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"PEM parse edilemedi: {exc}")
+        leaves = [p for p in parsed_all if p.cert_type == "leaf"]
+        p = leaves[0] if len(leaves) == 1 else parsed_all[0]
+        src = _Fields(issuer=p.issuer, subject=p.subject, name=p.name, san=p.san, cert_type=p.cert_type,
+                      extended_key_usage=p.extended_key_usage, valid_to=p.valid_to, environment=env)
+    else:
+        vt = body.get("valid_to")
+        try:
+            vt = datetime.fromisoformat(str(vt).replace("Z", "+00:00")) if vt else None
+        except ValueError:
+            vt = None
+        if vt is not None and vt.tzinfo is not None:
+            vt = vt.astimezone(timezone.utc).replace(tzinfo=None)
+        src = _Fields(issuer=body.get("issuer"), subject=body.get("subject"), name=body.get("name"),
+                      san=body.get("san"), cert_type=body.get("cert_type"),
+                      extended_key_usage=body.get("extended_key_usage"), valid_to=vt, environment=env)
+    out = cert_naming.suggest(db, src)
+    return {"standard_name": out["name"], "ca": out["ca"], "kind": out["kind"], "main": out["main"],
+            "date": out["date"], "env": out["env"], "unknown_ca": out["unknown_ca"],
+            "collision": out["collision"]}
+
+
+@router.get("/standard-name/bulk")
+def standard_name_bulk_preview(only_missing: bool = False, db: Session = Depends(get_db),
+                               _: User = Depends(require_role("admin"))):
+    """Toplu ekran: her sertifika için bugünkü ad, Standart Ad ve kurala göre önerilen ad.
+    Öneriler birbirleriyle de çakışmasın diye sırayla tekilleştirilir (kaydetmez)."""
+    _require_std_ready()
+    cfg = cert_naming.config(db)
+    certs = (db.query(Certificate).options(defer(Certificate.pem_certificate), undefer(Certificate.standard_name))
+             .order_by(Certificate.is_active.desc(), Certificate.valid_to.desc()).all())
+    taken = {(c.standard_name or "").lower() for c in certs if c.standard_name}
+    rows = []
+    for c in certs:
+        if only_missing and c.standard_name:
+            continue
+        mine = (c.standard_name or "").lower()
+        out = cert_naming.from_cert(c, cfg)
+        others = taken - {mine}
+        name = cert_naming.unique(out["name"], others)
+        if name.lower() != mine:
+            taken.add(name.lower())
+        rows.append({"id": c.id, "name": c.name, "standard_name": c.standard_name, "suggested": name,
+                     "same": name == c.standard_name, "collision": name != out["name"],
+                     "unknown_ca": out["unknown_ca"], "cert_type": normalize_cert_type(c.cert_type),
+                     "issuer": c.issuer, "valid_to": c.valid_to, "environment": c.environment,
+                     "is_active": bool(c.is_active)})
+    return {"rows": rows}
+
+
+@router.post("/standard-name/bulk")
+def standard_name_bulk_apply(request: Request, body: dict, db: Session = Depends(get_db),
+                             user: User = Depends(require_role("admin"))):
+    """Seçilen sertifikalara önerilen adı yazar. body: {"items": [{"id": 1, "standard_name": "..."}]}
+    (ekranda gösterilen öneri gönderilir; kişi satırda düzelttiyse düzeltilmiş hali)."""
+    _require_std_ready()
+    items = (body or {}).get("items") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="Uygulanacak sertifika seçilmedi")
+    wanted: dict[int, str] = {}
+    for it in items:
+        try:
+            cid = int(it.get("id"))
+        except (TypeError, ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="Geçersiz sertifika")
+        nm = str(it.get("standard_name") or "").strip()[:255]
+        if not nm:
+            raise HTTPException(status_code=400, detail=f"ID {cid}: Standart Ad boş olamaz")
+        wanted[cid] = nm
+    lowered = [n.lower() for n in wanted.values()]
+    dup = next((n for n in wanted.values() if lowered.count(n.lower()) > 1), None)
+    if dup:
+        raise HTTPException(status_code=409, detail=f"Aynı Standart Ad iki sertifikaya verilmiş: {dup}")
+    certs = {c.id: c for c in db.query(Certificate).options(undefer(Certificate.standard_name))
+             .filter(Certificate.id.in_(list(wanted))).all()}
+    missing = [i for i in wanted if i not in certs]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Sertifika bulunamadı: {missing[0]}")
+    # Seçilmeyen sertifikalarda zaten kullanılan adlarla çakışma
+    taken = {(n or "").lower(): i for i, n in db.query(Certificate.id, Certificate.standard_name)
+             .filter(Certificate.standard_name.isnot(None)).all() if i not in wanted}
+    for cid, nm in wanted.items():
+        if nm.lower() in taken:
+            raise HTTPException(status_code=409,
+                                detail=f"'{nm}' başka bir sertifikada kullanılıyor (ID {taken[nm.lower()]})")
+    changed = 0
+    for cid, nm in wanted.items():
+        cert = certs[cid]
+        if cert.standard_name == nm:
+            continue
+        log_action(db, user.username, "update", "certificates", cert.id,
+                   {"name": cert.name, "via": "isimlendirme kuralı (toplu)",
+                    "changes": {"standard_name": {"old": cert.standard_name, "new": nm}}}, request)
+        cert.standard_name = nm
+        changed += 1
+    db.commit()
+    return {"changed": changed}

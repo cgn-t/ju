@@ -2,6 +2,7 @@ from datetime import datetime
 from app.core.timeutil import utcnow
 
 from sqlalchemy import (
+    FetchedValue,
     Boolean,
     DateTime,
     ForeignKey,
@@ -62,6 +63,7 @@ class Team(Base):
 class Certificate(Base):
     # Prod tablo: SSLCertificates. Mevcut kolonlar prod adıyla eşlenir; app-yeni kolonlar additive.
     __tablename__ = "SSLCertificates"
+    __mapper_args__ = {"eager_defaults": False}
     __table_args__ = (
         # TEKİL KİMLİK = SHA-256 fingerprint (best practice). SerialNumber DEĞİL: seri yalnız
         # onu VEREN CA içinde benzersizdir (RFC 5280) — farklı CA'lar aynı seriyi verebilir, bu
@@ -122,6 +124,29 @@ class Certificate(Base):
     # prod|test ortam etiketi. Nullable, varsayılan YOK — otomatik yollar (vault-sync/keşif/backfill)
     # bunu bilemez; yalnız manuel formda UI zorunlu kılar, DB/şema seviyesinde zorunlu DEĞİL.
     environment: Mapped[str | None] = mapped_column(Unicode(20))
+    # Standart Ad (v3.9.39): CA_Tür_alanadı_yyyymmdd[_prod|_test]. NAME'e (eski uygulamanın da
+    # kullandığı prod kolonu) dokunulmaz. Kolon pod açılışında EKLENMEZ: sahip
+    # db/degisiklikler/v3.9.39-standart-ad.sql'i Veritabanı Değişiklikleri sayfasından çalıştırır.
+    # Kolon yokken sorgular bozulmasın diye deferred: yalnız schema_state.standard_name_ready()
+    # iken okunur/yazılır (bkz. display_name, cert_naming).
+    # FetchedValue + eager_defaults=False: değer verilmeyen INSERT'te kolon HİÇ yazılmaz ve
+    # RETURNING'e de girmez — kolon yokken de yeni sertifika eklenebilir.
+    standard_name: Mapped[str | None] = mapped_column("StandartAd", Unicode(255), deferred=True,
+                                                      server_default=FetchedValue())
+
+    @property
+    def display_name(self) -> str:
+        """Ekranda/mailde gösterilen ad: Standart Ad doluysa o, değilse NAME."""
+        from app.services import schema_state
+        if schema_state.standard_name_ready():
+            return self.standard_name or self.name
+        return self.name
+
+    @property
+    def standard_name_safe(self) -> str | None:
+        """Kolon yoksa (betik çalıştırılmamış) None; deferred kolonu hiç okumaz."""
+        from app.services import schema_state
+        return self.standard_name if schema_state.standard_name_ready() else None
 
     parent: Mapped["Certificate | None"] = relationship(
         remote_side=[id], backref="children", foreign_keys=[parent_id])

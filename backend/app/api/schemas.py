@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PlainSerializer, computed_field, field_validator
 
 from app.core.certtype import normalize_cert_type
 from app.core.emails import normalize_email_list
@@ -72,6 +72,10 @@ class UserOut(ORMModel):
     nav_page_access: dict[str, bool] = {}
     # Yalnız /auth/me doldurur: Jumbo'nun yerel şifresi var mı (şifre değiştir menüsü yalnız buna açılır)
     local_account: bool = False
+    # Yalnız /auth/me doldurur: ortam/şema durumuna bağlı özellikler.
+    # db_console: Veritabanı Değişiklikleri sayfası (admin + DB_CONSOLE=1);
+    # standard_name: StandartAd kolonu veritabanında var (v3.9.39 betiği çalıştırıldı).
+    features: dict[str, bool] = {}
 
 
 # Doğrudan atanabilen roller: admin(global tam), editor(takım-kapsamlı düzenle), viewer(takım-kapsamlı
@@ -164,7 +168,8 @@ class CertificateBase(BaseModel):
 
 
 class CertificateCreate(CertificateBase):
-    pass
+    # Standart Ad (v3.9.39): boşsa Jumbo kurala göre doldurur; kolon yoksa yok sayılır.
+    standard_name: str | None = Field(default=None, max_length=255)
 
 
 class CertificateUpdate(BaseModel):
@@ -177,6 +182,8 @@ class CertificateUpdate(BaseModel):
     creator: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     cert_type: Literal["root", "intermediate", "leaf"] | None = None
+    # Standart Ad: admin ya da sertifikanın sahibi ekibin editörü (sahipsiz sertifikada yalnız admin)
+    standard_name: str | None = Field(default=None, max_length=255)
 
 
 class MappedDomainOut(BaseModel):
@@ -238,6 +245,11 @@ class CertificateOut(CertificateBase, ORMModel):
     extras: CertExtrasOut | None = None
     can_edit: bool | None = None  # tekil GET: oturumdaki kullanıcı bu sertifikayı düzenleyebilir mi
     domain_count: int | None = None  # sayfalı liste: bağlı domain sayısı (domains en fazla 50 kayıt taşır)
+    # Standart Ad (v3.9.39). ORM'den standard_name_safe okunur: kolon yokken deferred kolona
+    # dokunulmaz. Sözlükten (hafif liste) "standard_name" anahtarıyla gelir.
+    standard_name: str | None = Field(default=None,
+                                      validation_alias=AliasChoices("standard_name_safe", "standard_name"))
+    can_edit_standard_name: bool | None = None  # tekil GET: kullanıcı Standart Adı düzeltebilir mi
 
 
 class CertificateChainOut(BaseModel):

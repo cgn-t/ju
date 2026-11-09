@@ -4,6 +4,7 @@ import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import FactCheckIcon from '@mui/icons-material/FactCheck'
+import StorageIcon from '@mui/icons-material/Storage'
 import KeyboardDoubleArrowLeftIcon from '@mui/icons-material/KeyboardDoubleArrowLeft'
 import KeyboardDoubleArrowRightIcon from '@mui/icons-material/KeyboardDoubleArrowRight'
 import GroupsIcon from '@mui/icons-material/Groups'
@@ -69,6 +70,7 @@ const NAV: NavEntry[] = [
     { to: '/deployments/runs', label: 'Tüm Çalıştırmalar' },
     { to: '/system-health', label: 'Sistem Sağlığı' },
     { to: '/regression', label: 'Regresyon Testi' },
+    { to: '/db-changes', label: 'Veritabanı Değişiklikleri' },
   ] },
 ]
 
@@ -77,6 +79,7 @@ const NAV_ICONS: Record<string, ComponentType<{ fontSize?: 'small' }>> = {
   '/cert-map': AccountTreeIcon, '/policy': RuleIcon, '/discovery': TravelExploreIcon,
   '/proposals': AssignmentTurnedInIcon, '/deployments': RocketLaunchIcon, '/deployments/runs': HistoryIcon,
   '/overview': GroupsIcon, '/my-team': GroupsIcon, '/system-health': MonitorHeartIcon, '/regression': FactCheckIcon, '/guide': MenuBookIcon,
+  '/db-changes': StorageIcon,
 }
 
 // Rol kapılı rotalar: Genel Durum admin + Genel İzleyici, Ekibim editör + Ekip İzleyici, Sistem Sağlığı ve Regresyon Testi yalnız admin.
@@ -85,6 +88,7 @@ const ROLE_PATHS: Record<string, string[]> = {
   '/my-team': ['editor', 'viewer'],
   '/system-health': ['admin'],
   '/regression': ['admin'],
+  '/db-changes': ['admin'],
 }
 const NAV_W = 248
 const NAV_W_COMPACT = 68
@@ -159,6 +163,8 @@ export default function AppLayout() {
   // burada UYGULANMAZ; rota erişimi/onay iş akışı bundan etkilenmez). Boşalan gruplar düşer.
   const canSee = (to: string) => {
     if (ROLE_PATHS[to] && !ROLE_PATHS[to].includes(role ?? '')) return false
+    // Veritabanı Değişiklikleri yalnız DB_CONSOLE=1 olan ortamda (sunucu da 404 döner)
+    if (to === '/db-changes' && !me?.features?.db_console) return false
     const page = PAGE_FOR_PATH[to]
     return !page || access.nav[page]
   }

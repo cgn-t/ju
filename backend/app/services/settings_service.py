@@ -306,6 +306,32 @@ DEFAULTS: dict[str, dict] = {
         "skip_cert_verify": False,    # https sertifikasını doğrulama (YALNIZ dev) — AI servisi ve wiki
         "timeout_seconds": 60,
     },
+    "naming": {
+        # Sertifika Standart Adı (v3.9.39): CA_Tür_alanadı_yyyymmdd[_prod|_test].
+        # CA kısaltması Issuer'dan bulunur: liste SIRAYLA denenir, Issuer metninde "match" geçen
+        # ilk satırın "abbr" değeri kullanılır (büyük/küçük harf duyarsız). Bulunamazsa unknown_abbr.
+        "ca_abbreviations": [
+            {"match": "DigiCert", "abbr": "Dgcrt"},
+            {"match": "Sectigo", "abbr": "Sctg"},
+            {"match": "Comodo", "abbr": "Sctg"},
+            {"match": "GlobalSign", "abbr": "Glbsgn"},
+            {"match": "Let's Encrypt", "abbr": "LE"},
+            {"match": "Entrust", "abbr": "Entrst"},
+            {"match": "GoDaddy", "abbr": "Gdddy"},
+            {"match": "Starfield", "abbr": "Gdddy"},
+            {"match": "Google Trust Services", "abbr": "Gts"},
+            {"match": "Amazon", "abbr": "Amzn"},
+            {"match": "Microsoft", "abbr": "Msft"},
+            {"match": "ZeroSSL", "abbr": "Zrssl"},
+            {"match": "Buypass", "abbr": "Bypss"},
+            {"match": "E-Tugra", "abbr": "Etugra"},
+            {"match": "TURKTRUST", "abbr": "Trktrst"},
+            {"match": "Kamu SM", "abbr": "KamuSM"},
+        ],
+        "unknown_abbr": "Diger",      # listede olmayan CA
+        "self_signed_abbr": "Self",   # kendinden imzalı sunucu sertifikası
+        "env_suffix": True,           # ortam eki: Prod → _prod, Test → _test (ortam boşsa ek yok)
+    },
 }
 
 

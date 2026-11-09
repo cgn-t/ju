@@ -38,6 +38,7 @@ ACTION_LABELS = {
     "regression_start": "Regresyon testi başladı", "regression_mark": "Regresyon senaryosu",
     "regression_end": "Regresyon testi bitti", "regression_auto": "Regresyon otomatik kontrol",
     "regression_lab": "Regresyon test hazırlığı", "regression_cleanup": "Regresyon test verisi temizlendi",
+    "db_console_run": "Veritabanı değişikliği", "db_console_try": "Veritabanı değişikliği (deneme)",
 }
 
 # İşlem rengi (UI çip) — kategori renginden bağımsız, işlemin doğasına göre
@@ -63,6 +64,7 @@ TABLE_LABELS = {
     "deployment_flows": "Dağıtım akışı", "deployment_run": "Dağıtım çalıştırması",
     "deployment_run_step": "Dağıtım adımı", "jenkins_job": "Jenkins işi", "jobs": "Zamanlanmış iş",
     "mail_queue": "Mail kuyruğu", "ai": "AI asistanı", "regression": "Regresyon testi",
+    "db_console": "Veritabanı Değişiklikleri",
 }
 
 FIELD_LABELS = {
@@ -206,6 +208,9 @@ def summarize(action: str, details) -> str:
     if action == "regression_mark":
         res = {"pass": "Geçti", "fail": "Kaldı", "skip": "Atlandı"}.get(details.get("result"), "işaret kaldırıldı")
         return f"{details.get('scenario') or ''}: {res}" + (f" — {details['note']}" if details.get("note") else "")
+    if action in ("db_console_run", "db_console_try"):
+        st = "başarılı" if details.get("ok") else f"HATA: {details.get('error') or ''}"
+        return f"{details.get('title') or ''} — {st}"
     if action == "regression_lab":
         return details.get("step") or ""
     if action == "regression_cleanup":

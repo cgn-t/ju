@@ -181,6 +181,7 @@ def _cert_rows(cert: Certificate) -> list[tuple]:
     """'SSL Sertifika Detayı' tablosu — eski sistemdeki alan sırasıyla."""
     return [
         ("NAME", cert.name),
+        *((("Standart Ad", cert.display_name),) if cert.display_name != cert.name else ()),
         ("SerialNumber", cert.serial_number),
         ("Issuer", cert.issuer),
         ("Oluşturan Ekip", cert.creator),
@@ -332,7 +333,7 @@ def _deactivation_body_text(cert: Certificate, actor: str, bound: list[str], tea
                             reason: str | None = None) -> str:
     return (
         (f"{reason}\n\n" if reason else "")
-        + f"'{cert.name}' sertifikası {actor} tarafından pasife alındı.\n\n"
+        + f"'{cert.display_name}' sertifikası {actor} tarafından pasife alındı.\n\n"
         f"Bu sertifika hâlâ şu domain(ler)e bağlı görünüyor:\n"
         + "".join(f"  - {d}\n" for d in bound)
         + "\nİlgili SY ekipleri: " + (", ".join(team_list) if team_list else "—") + "\n\n"
@@ -346,7 +347,7 @@ def _render_deactivation_html(cert: Certificate, actor: str, bound: list[str], t
     """Diğer mail türleriyle aynı iskelet: banner + 'SSL Sertifika Detayı' tablosu (_cert_rows)."""
     body = (
         (_warn_line(reason) if reason else "")
-        + _banner(f"'{cert.name}' sertifikası {actor} tarafından PASİFE ALINDI — hâlâ "
+        + _banner(f"'{cert.display_name}' sertifikası {actor} tarafından PASİFE ALINDI — hâlâ "
                f"{len(bound)} domain'e bağlı görünüyor!")
         + _section("SSL Sertifika Detayı") + _kv_table(_cert_rows(cert))
         + _section("Hâlâ Bağlı Olduğu Domainler")
@@ -414,7 +415,7 @@ def notify_certificate_deactivated(db: Session, cert: Certificate, actor: str) -
         return {"bound_domains": [], "recipients": [], "teams": [],
                 "mail_sent": False, "message": "Sertifika pasife alındı."}
 
-    subject = f"[JUMBO] Sertifika pasife alındı: {cert.name} — {len(bound)} domain etkilendi"
+    subject = f"[JUMBO] Sertifika pasife alındı: {cert.display_name} — {len(bound)} domain etkilendi"
     cfg = get_category(db, "smtp", mask_secrets=False)
     smtp_on = bool(cfg.get("enabled") and cfg.get("host"))
     # Alıcı yoksa (bağlı domainlerin SY ekibinde e-posta tanımsız) mail yedek adrese gider —
@@ -784,7 +785,7 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                     parties = [fb_party] if fb_party else []
             if not parties:
                 skipped += 1
-                details.append({"certificate": cert.name, "days_left": None, "mails": [],
+                details.append({"certificate": cert.display_name, "days_left": None, "mails": [],
                                 "error": "tanımlı alıcı yok (yedek adres de tanımsız) — atlandı"})
                 continue
 
@@ -837,7 +838,7 @@ def _dispatch_cert_mails(db: Session, cfg: dict, certs: list, *, force: bool,
                         db.commit()
                     failed += 1
                     mails.append({"to": p["emails"], "stakeholder": p["label"], "ok": False, "note": note})
-            details.append({"certificate": cert.name, "days_left": days_left, "mails": mails})
+            details.append({"certificate": cert.display_name, "days_left": days_left, "mails": mails})
         except Exception as exc:
             # Beklenmeyen bir hata (ör. bozuk veri, şablon hatası) BU sertifikayı atlar ama
             # taramanın geri kalanını (diğer sertifikalar) durdurmaz — bkz. run_mail_queue_drain
@@ -991,11 +992,11 @@ def send_expiry_notifications(db: Session, *, force: bool = False) -> dict:
         return dict(_SMTP_OFF)
 
     def subject(cert, days_left):
-        return f"[JUMBO] Sertifika süresi doluyor: {cert.name} ({days_left} gün kaldı)"
+        return f"[JUMBO] Sertifika süresi doluyor: {cert.display_name} ({days_left} gün kaldı)"
 
     def body(cert, days_left, p):
         return (
-            f"Sertifika: {cert.name}\nSeri No: {cert.serial_number}\n"
+            f"Sertifika: {cert.display_name}\nSeri No: {cert.serial_number}\n"
             f"Bitiş: {cert.valid_to:%Y-%m-%d %H:%M} UTC\nKalan: {days_left} gün\n\n"
             + _reason_block(p)
             + "\nYenileme sürecini başlatmanız ve yeni sertifikayı JUMBO'ya eklemeniz önerilir.\n"
@@ -1088,11 +1089,11 @@ def send_revoked_notifications(db: Session, certs: list) -> dict:
         return dict(_SMTP_OFF)
 
     def subject(cert, days_left):
-        return f"[JUMBO] İPTAL EDİLMİŞ sertifika: {cert.name} — acil aksiyon gerekli"
+        return f"[JUMBO] İPTAL EDİLMİŞ sertifika: {cert.display_name} — acil aksiyon gerekli"
 
     def body(cert, days_left, p):
         return (
-            f"Sertifika: {cert.name}\nSeri No: {cert.serial_number}\n"
+            f"Sertifika: {cert.display_name}\nSeri No: {cert.serial_number}\n"
             f"Bitiş: {_fmt(cert.valid_to)}\n"
             "Durum: İPTAL EDİLMİŞ (revoked) — sertifika otoritesi bu sertifikayı iptal etti.\n\n"
             + _reason_block(p)
@@ -1136,12 +1137,12 @@ def send_expired_notifications(db: Session, *, force: bool = False) -> dict:
         return dict(_SMTP_OFF)
 
     def subject(cert, days_left):
-        return (f"[JUMBO] SÜRESİ GEÇMİŞ sertifika: {cert.name} "
+        return (f"[JUMBO] SÜRESİ GEÇMİŞ sertifika: {cert.display_name} "
                 f"({-days_left} gün önce doldu) — JUMBO'da güncelleme gerekli")
 
     def body(cert, days_left, p):
         return (
-            f"Sertifika: {cert.name}\nSeri No: {cert.serial_number}\n"
+            f"Sertifika: {cert.display_name}\nSeri No: {cert.serial_number}\n"
             f"Bitiş: {cert.valid_to:%Y-%m-%d %H:%M} UTC\n"
             f"Durum: SÜRESİ {-days_left} GÜN ÖNCE DOLDU — JUMBO'da hâlâ AKTİF görünüyor.\n\n"
             + _reason_block(p)
@@ -1242,8 +1243,8 @@ def _proposal_location(p: TransferProposal) -> str:
 def _proposal_label(p: TransferProposal) -> str:
     """Tek bir değişiklik talebinin insan-okur ÖZETİ (bölüm başlığı) — konum bilgisi artık
     _proposal_rows'un ayrı 'Konum' satırında, burada yalnız eski → yeni."""
-    old = p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"
-    new = p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"
+    old = p.old_cert.display_name if p.old_cert else f"#{p.old_cert_id}"
+    new = p.new_cert.display_name if p.new_cert else f"#{p.new_cert_id}"
     if p.kind == "server_add":
         return f"Ekleme: {new}"
     if p.kind == "server_remove":
@@ -1264,7 +1265,7 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
     if p.kind == "date_fix":
         pem = cert_parser.pem_dates(p.new_cert.pem_certificate) if p.new_cert else None
         return [
-            ("Sertifika", p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"),
+            ("Sertifika", p.new_cert.display_name if p.new_cert else f"#{p.new_cert_id}"),
             ("Kayıttaki Bitiş", p.new_cert.valid_to if p.new_cert else None),
             ("Sertifikadaki Bitiş", pem[1] if pem else None),
             ("Konum", _proposal_location(p)),
@@ -1274,9 +1275,9 @@ def _proposal_rows(p: TransferProposal) -> list[tuple]:
             ("Not", p.note),
         ]
     return [
-        ("Eski Sertifika", p.old_cert.name if p.old_cert else f"#{p.old_cert_id}"),
+        ("Eski Sertifika", p.old_cert.display_name if p.old_cert else f"#{p.old_cert_id}"),
         ("Eski Sertifika Bitiş", p.old_cert.valid_to if p.old_cert else None),
-        ("Yeni Sertifika", p.new_cert.name if p.new_cert else f"#{p.new_cert_id}"),
+        ("Yeni Sertifika", p.new_cert.display_name if p.new_cert else f"#{p.new_cert_id}"),
         ("Yeni Sertifika Bitiş", p.new_cert.valid_to if p.new_cert else None),
         ("Konum", _proposal_location(p)),
         ("Talep Türü", _PROPOSAL_KIND_LABELS.get(p.kind, p.kind)),

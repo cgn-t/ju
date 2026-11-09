@@ -1,6 +1,7 @@
 import { richToPlain } from '../utils/richText'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AddIcon from '@mui/icons-material/Add'
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
 import DeleteIcon from '@mui/icons-material/DeleteOutlined'
 import FileDownloadIcon from '@mui/icons-material/FileDownload'
@@ -24,11 +25,13 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useSnackbar } from 'notistack'
 import { useMemo, useState } from 'react'
 import { api, apiErrorMessage } from '../api/client'
-import type { Certificate, CertificatePage, CertificateTreeRow } from '../api/types'
+import { certLabel, type Certificate, type CertificatePage, type CertificateTreeRow } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import CertificateDetailDrawer from '../components/CertificateDetailDrawer'
 import CertificateImportDialog from '../components/CertificateImportDialog'
 import ChainCheckDialog from '../components/ChainCheckDialog'
+import StandardNameBulkDialog from '../components/StandardNameBulkDialog'
+import { useFeatures } from '../hooks/useFeatures'
 import { ColHeaderCell, ColumnFilterMenu, useColumnFilters, type ColDef } from '../components/ColumnFilters'
 import { StatusPill, type Tone } from '../components/DetailCards'
 import ListPagination from '../components/ListPagination'
@@ -79,7 +82,7 @@ const ENV_OPTS = [
   { value: 'none', label: 'Belirtilmemiş' },
 ]
 const CERT_COLS: ColDef<Certificate>[] = [
-  { key: 'name', label: 'Ad', kind: 'text', get: (c) => c.name },
+  { key: 'name', label: 'Ad', kind: 'text', get: (c) => certLabel(c) },
   { key: 'ski', label: 'SKI', kind: 'text', get: (c) => c.subject_key_identifier },
   { key: 'saniss', label: 'SAN / Issuer', kind: 'text', get: (c) => c.san || c.issuer },
   { key: 'source', label: 'Kaynak', kind: 'status', options: SRC_OPTS,
@@ -115,6 +118,8 @@ export default function Certificates() {
   const [search, setSearch] = useUrlState<string>('q', '')
   const [importOpen, setImportOpen] = useState(false)
   const [chainCheckOpen, setChainCheckOpen] = useState(false)
+  const [namingOpen, setNamingOpen] = useState(false)
+  const features = useFeatures()
   const [detailId, setDetailId] = useUrlId('cert')
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
   const [deactivateTarget, setDeactivateTarget] = useState<Certificate | null>(null)
@@ -217,7 +222,7 @@ export default function Certificates() {
       ['name', 'cert_type', 'serial_number', 'subject_key_identifier', 'authority_key_identifier',
        'fingerprint_sha256', 'subject', 'issuer', 'san', 'extended_key_usage',
        'valid_from', 'valid_to', 'kalan_gun', 'aktif', 'yeni_sertifika', 'internal', 'ortam', 'kaynak', 'vault_path',
-       'auto_renew', 'satin_alan', 'olusturan', 'notlar', 'olusturulma', 'domainler'],
+       'auto_renew', 'satin_alan', 'olusturan', 'notlar', 'olusturulma', 'domainler', 'standart_ad'],
       certs.map((c) => [c.name, c.cert_type, c.serial_number, c.subject_key_identifier,
                                 c.authority_key_identifier, c.fingerprint_sha256, c.subject,
                                 c.issuer, c.san, c.extended_key_usage, c.valid_from, c.valid_to,
@@ -228,7 +233,8 @@ export default function Certificates() {
                                 c.source, c.vault_path,
                                 c.auto_renew ? 'evet' : 'hayir', c.purchased_by, c.creator,
                                 richToPlain(c.notes), c.created_at,
-                                c.domains.map((d) => `${d.domain}(${d.mapping_type})`).join(' ')]))
+                                c.domains.map((d) => `${d.domain}(${d.mapping_type})`).join(' '),
+                                c.standard_name ?? '']))
   }
 
   // Tablo satırları sunucudan ağaç sırasında + derinlikle gelir (kolon filtresi varsa düz liste)
@@ -348,11 +354,12 @@ export default function Certificates() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, pl: `${depth * 24}px` }}>
         {typeChip(cert)}
         <Typography variant="body2" noWrap
-                    title={cert.san ? `${cert.name} — SAN: ${cert.san}` : cert.name}
+                    title={[certLabel(cert), cert.standard_name ? `CN: ${cert.name}` : '', cert.san ? `SAN: ${cert.san}` : '']
+                      .filter(Boolean).join(' — ')}
                     onClick={(e) => { e.stopPropagation(); setDetailId(cert.id) }}
                     sx={{ fontWeight: depth === 0 ? 700 : 500, minWidth: 0, cursor: 'pointer',
                           '&:hover': { textDecoration: 'underline' } }}>
-          {cert.name}
+          {certLabel(cert)}
         </Typography>
         {cert.environment && (
           <Chip size="small" color={environmentColor(cert.environment)} variant="outlined"
@@ -474,6 +481,12 @@ export default function Certificates() {
                 Zincir Kontrolü
               </Button>
             )}
+            {isAdmin && features.standard_name && (
+              <Button variant="outlined" color="inherit" sx={{ borderColor: 'divider' }} startIcon={<DriveFileRenameOutlineIcon />}
+                      onClick={() => setNamingOpen(true)}>
+                İsimlendirme Kuralını Uygula
+              </Button>
+            )}
           </>
         }
       />
@@ -558,9 +571,14 @@ export default function Certificates() {
                                     color: 'rgba(0,0,0,0.87)', fontWeight: 700, width: 28 }} />
                       </Tooltip>
                       <Typography variant="body2" onClick={(e) => { e.stopPropagation(); setDetailId(cert.id) }}
-                                  sx={{ fontWeight: depth === 0 ? 700 : 400, minWidth: 0, cursor: 'pointer',
-                                        '&:hover': { textDecoration: 'underline' } }}>
-                        {cert.name}
+                                  sx={{ fontWeight: depth === 0 ? 700 : 400, minWidth: 0, maxWidth: 360, cursor: 'pointer',
+                                        overflowWrap: 'anywhere', '&:hover': { textDecoration: 'underline' } }}>
+                        {certLabel(cert)}
+                        {cert.standard_name && (
+                          <Typography component="span" variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {cert.name}
+                          </Typography>
+                        )}
                       </Typography>
                       {cert.is_internal && <Chip size="small" label="Internal" variant="outlined" sx={{ ml: 1, flexShrink: 0 }} />}
                       {!cert.is_active && !cert.superseded_by_id && <Chip size="small" label="Pasif" sx={{ ml: 1, flexShrink: 0 }} />}
@@ -624,6 +642,7 @@ export default function Certificates() {
 
       <CertificateImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <ChainCheckDialog open={chainCheckOpen} onClose={() => setChainCheckOpen(false)} />
+      <StandardNameBulkDialog open={namingOpen} onClose={() => setNamingOpen(false)} />
       <CertificateDetailDrawer certId={detailId} onClose={() => setDetailId(null)}
                                onSelectCert={(id) => setDetailId(id)} />
 
@@ -631,7 +650,7 @@ export default function Certificates() {
         <DialogTitle>Sertifikayı Kalıcı Sil</DialogTitle>
         <DialogContent>
           <Typography>
-            <b>{deleteTarget?.name}</b> kalıcı olarak silinecek. Alt sertifikalar silinmez,
+            <b>{deleteTarget && certLabel(deleteTarget)}</b> kalıcı olarak silinecek. Alt sertifikalar silinmez,
             hiyerarşiden ayrılır.
             {deleteTarget && deleteTarget.domains.length > 0 && (
               <> Bu sertifika <b>{deleteTarget.domain_count ?? deleteTarget.domains.length}</b> domaine bağlı; bu bağlantılar da silinir.</>
@@ -651,7 +670,7 @@ export default function Certificates() {
         <DialogTitle>Sertifikayı Pasife Al</DialogTitle>
         <DialogContent>
           <Typography>
-            <b>{deactivateTarget?.name}</b> pasife alınacak. Domain/uygulama bağlantıları KALIR,
+            <b>{deactivateTarget && certLabel(deactivateTarget)}</b> pasife alınacak. Domain/uygulama bağlantıları KALIR,
             ama sertifika artık aktif sayılmaz.
             {deactivateTarget && deactivateTarget.domains.length > 0 && (
               <> Bu sertifika <b>{deactivateTarget.domain_count ?? deactivateTarget.domains.length}</b> domaine bağlı;

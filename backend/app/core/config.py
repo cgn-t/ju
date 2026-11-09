@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # Regresyon Testi > Test Hazırlığı (test sertifikaları, localhost'ta test siteleri, test verisi).
     # YALNIZ test/preprod ortamında açın (REGRESSION_TOOLS=1); canlıda kapalı kalmalı.
     regression_tools: bool = False
+    # Veritabanı Değişiklikleri sayfası (v3.9.38): admin, GitHub'daki db/degisiklikler/*.sql
+    # betiklerini sayfaya yapıştırıp çalıştırır. Sayfa veritabanında her şeyi yapabildiği için
+    # yalnız DB_CONSOLE=1 olan ortamda açılır; kapalıyken menüde görünmez, uçlar 404 döner.
+    db_console: bool = False
 
     @property
     def effective_database_url(self) -> str:
