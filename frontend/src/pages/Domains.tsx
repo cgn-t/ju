@@ -1,3 +1,4 @@
+import { richToPlain } from '../utils/richText'
 import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import DeleteIcon from '@mui/icons-material/DeleteOutlined'
@@ -192,7 +193,7 @@ export default function Domains() {
       visibleRows.map((d) => [d.domain, d.external_address, d.sy_team?.name, d.ug_team_name ?? d.ug_team?.name,
                            d.cert_owner, d.external_company, d.mail_addresses, d.expire_date,
                            d.lb_update, d.waf_update, d.env_update, d.servers_to_update,
-                           d.action_required, d.ssl_pinning, d.keystore, d.info,
+                           d.action_required, d.ssl_pinning, d.keystore, richToPlain(d.info),
                            d.server_days_left, d.client_days_left,
                            d.certificates.map((c) => `${c.name}(${mappingTypeLabel(c.mapping_type)})`).join(' '),
                            d.live_check_status, d.live_check_at]))

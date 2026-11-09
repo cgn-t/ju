@@ -24,6 +24,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core import richtext
 from app.core.security import page_visible
 from app.core.textmatch import fold
 from app.core.timeutil import ISTANBUL
@@ -232,7 +233,7 @@ def tool_get_certificate(db: Session, user: User, id: int) -> dict:
     out.update({
         "subject": c.subject, "serial_number": c.serial_number, "valid_from": _d(c.valid_from),
         "san": c.san, "ski": c.subject_key_identifier, "aki": c.authority_key_identifier,
-        "ust_sertifika_id": c.parent_id, "kaynak": c.source, "notlar": c.notes,
+        "ust_sertifika_id": c.parent_id, "kaynak": c.source, "notlar": richtext.to_plain(c.notes),
         "anahtar": f"{c.public_key_type or ''} {c.key_size or ''} {c.key_curve or ''}".strip(),
         "imza_hash": c.signature_hash, "iptal_durumu": c.revocation_status,
         "yerine_gecen": c.superseded_by_name, "onceki_sertifikalar": [p.name for p in c.supersedes],
@@ -276,7 +277,7 @@ def tool_get_domain(db: Session, user: User, id: int) -> dict:
         "id": d.id, "domain": d.domain, "dis_adres": d.external_address,
         "sy_ekip": d.sy_team.name if d.sy_team else None,
         "ug_ekip": d.ug_team_name or (d.ug_team.name if d.ug_team else None),
-        "sertifika_sahibi": d.cert_owner, "dis_firma": d.external_company, "bilgi": d.info,
+        "sertifika_sahibi": d.cert_owner, "dis_firma": d.external_company, "bilgi": richtext.to_plain(d.info),
         "mail_adresleri": d.mail_addresses, "bildirim_gun": d.notify_days,
         "ssl_pinning": d.ssl_pinning, "guncellenecek_sunucular": d.servers_to_update,
         "sertifikalar": [{"id": c.certificate_id, "ad": c.name, "baglanti": c.mapping_type,

@@ -1,3 +1,4 @@
+import { RichTextEditor } from './RichText'
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined'
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined'
 import NotesOutlinedIcon from '@mui/icons-material/NotesOutlined'
@@ -165,7 +166,8 @@ export default function DomainEditPanel({ domain, onDone }: { domain: Domain; on
         </FormSection>
 
         <FormSection icon={<NotesOutlinedIcon />} title="Notlar" columns={1}>
-          {text('info', 'Detay', { span: true, placeholder: 'Bu domainle ilgili açıklama…' })}
+          <RichTextEditor label="Detay" value={form.info ?? ''} placeholder="Bu domainle ilgili açıklama…" changed={changed.includes('info')}
+                          onChange={(v) => setForm((f) => ({ ...f, info: v }))} />
         </FormSection>
       </Stack>
 

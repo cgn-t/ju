@@ -288,14 +288,20 @@ export const CARD_SX = {
   bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: '14px',
 } as const
 
-export function InfoCard({ title, value, sub, chip, color = 'default', icon, onClick, multiline }: {
+export function InfoCard({ title, value, sub, chip, color = 'default', icon, onClick, multiline, copy }: {
   title: string; value: ReactNode; sub?: string; chip?: { label: string; color: Tone }; color?: Tone
   icon?: ReactNode; onClick?: () => void
   /** Serbest metin (Detay / Notlar): yazılan satır sonları korunur, metin normal kalınlıkta gösterilir. */
   multiline?: boolean
+  /** Doluysa kartın sağ üstünde "Kopyala" düğmesi: bu metni panoya kopyalar. */
+  copy?: string | null
 }) {
+  const { enqueueSnackbar } = useSnackbar()
+  // Tıklanmayan kart düz kutu: ButtonBase metin seçimini (user-select) ve fareyi kapatır,
+  // bu yüzden içerik düzenlemeye geçmeden seçilip kopyalanamıyordu (v3.9.37).
+  const Root = (onClick ? ButtonBase : Box) as typeof Box
   return (
-    <ButtonBase component="div" disabled={!onClick} onClick={onClick}
+    <Root {...(onClick ? { component: 'div', onClick } : {})}
                 sx={(t) => ({ ...CARD_SX, display: 'flex', gap: 1.5, alignItems: 'flex-start', textAlign: 'left', p: 2,
                       transition: 'border-color 150ms, box-shadow 150ms, transform 150ms',
                       '&:hover': onClick ? { borderColor: alpha(t.palette.primary.main, 0.45), transform: 'translateY(-1px)',
@@ -311,7 +317,15 @@ export function InfoCard({ title, value, sub, chip, color = 'default', icon, onC
         {sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, wordBreak: 'break-word', lineHeight: 1.4 }}>{sub}</Typography>}
       </Box>
       {onClick && <ChevronRightIcon className="info-go" fontSize="small" sx={{ color: 'text.disabled', opacity: 0.5, transition: 'opacity 150ms', mt: 0.25 }} />}
-    </ButtonBase>
+      {!onClick && copy && (
+        <Tooltip title="Kopyala">
+          <IconButton size="small" aria-label={`${title} kopyala`} sx={{ mt: -0.5, mr: -0.5 }}
+                      onClick={() => copyText(copy, (m) => enqueueSnackbar(m, { variant: 'success' }))}>
+            <ContentCopyIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Root>
   )
 }
 
