@@ -74,7 +74,7 @@ class UserOut(ORMModel):
     local_account: bool = False
     # Yalnız /auth/me doldurur: ortam/şema durumuna bağlı özellikler.
     # db_console: Veritabanı Değişiklikleri sayfası (admin + DB_CONSOLE=1);
-    # standard_name: StandartAd kolonu veritabanında var (v3.9.39 betiği çalıştırıldı).
+    # standard_name: StandardName kolonu veritabanında var (v3.9.39 betiği çalıştırıldı).
     features: dict[str, bool] = {}
 
 

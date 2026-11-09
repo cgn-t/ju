@@ -26,7 +26,7 @@ EXPECTATIONS: list[dict] = [
         "version": "3.9.39",
         "title": "Sertifikalara Standart Ad kolonu",
         "table": "SSLCertificates",
-        "column": "StandartAd",
+        "column": "StandardName",
         "feature": "Standart Ad (isimlendirme kuralı)",
         "script": "db/degisiklikler/v3.9.39-standart-ad.sql",
     },

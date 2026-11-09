@@ -1,6 +1,6 @@
 """v3.9.39 Sertifika Standart Adı: CA_Tür_alanadı_yyyymmdd[_prod|_test].
 
-NAME (prod kolonu) hiç değişmez; Standart Ad ayrı StandartAd kolonunda. Kolon pod açılışında
+NAME (prod kolonu) hiç değişmez; Standart Ad ayrı StandardName kolonunda. Kolon pod açılışında
 eklenmez (Veritabanı Değişiklikleri sayfasından betik çalıştırılır); kolon yokken uygulama
 eski haliyle çalışır. Düzeltme: admin ya da sahibi ekibin editörü, sahipsiz sertifikada yalnız admin."""
 
@@ -281,7 +281,7 @@ def test_missing_column_app_still_works(client, auth_headers):
     düzenleme, AI sorgusu ve mail eskisi gibi çalışır; kolon eklenince özellik açılır."""
     h = auth_headers
     with engine.begin() as conn:
-        conn.execute(text('ALTER TABLE "SSLCertificates" DROP COLUMN "StandartAd"'))
+        conn.execute(text('ALTER TABLE "SSLCertificates" DROP COLUMN "StandardName"'))
     schema_state.override.pop("standard_name", None)
     try:
         schema_state.refresh()
@@ -304,7 +304,7 @@ def test_missing_column_app_still_works(client, auth_headers):
         assert st["standard_name"] is False
     finally:
         with engine.begin() as conn:
-            conn.execute(text('ALTER TABLE "SSLCertificates" ADD COLUMN "StandartAd" VARCHAR(255)'))
+            conn.execute(text('ALTER TABLE "SSLCertificates" ADD COLUMN "StandardName" VARCHAR(255)'))
         schema_state.refresh()
         schema_state.override["standard_name"] = False
     # kolon eklenince (betik çalıştırılınca) özellik kendiliğinden açılır
