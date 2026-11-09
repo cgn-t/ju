@@ -21,7 +21,7 @@ endpoint_checks.ENABLED = False
 # Zamanlanmış işlerin "başka pod az önce çalıştırdı" freni testlerde kapalı (aynı iş art arda
 # çağrılıyor); kendi testi (test_job_lock.py) bunu açar.
 job_lock.GAPS_ENABLED = False
-# Test DB'si create_all ile kurulduğundan StandartAd kolonu VAR; prod'daki "v3.9.39 betiği henüz
+# Test DB'si create_all ile kurulduğundan StandardName kolonu VAR; prod'daki "v3.9.39 betiği henüz
 # çalıştırılmadı" durumu varsayılan kabul edilir (mevcut testler eski davranışı görür).
 # Standart Ad testleri (test_standard_name.py) bunu açar.
 schema_state.override["standard_name"] = False

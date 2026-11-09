@@ -96,7 +96,7 @@ def test_status_lists_pending_changes(client, auth_headers, console_on):
     d = client.get("/api/db-console", headers=auth_headers).json()
     assert d["enabled"] is True and d["dialect"] == "sqlite" and d["can_alter"] is True
     p = next(x for x in d["pending"] if x["key"] == "standard_name")
-    assert p["column"] == "StandartAd" and p["script"].endswith("v3.9.39-standart-ad.sql")
+    assert p["column"] == "StandardName" and p["script"].endswith("v3.9.39-standart-ad.sql")
 
 
 # ---------- SQL çözümleme ----------

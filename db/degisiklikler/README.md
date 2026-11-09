@@ -18,4 +18,4 @@ sonra kullanın.
 
 | Sürüm | Dosya | Ne yapar |
 |---|---|---|
-| v3.9.39 | `v3.9.39-standart-ad.sql` | `SSLCertificates.StandartAd NVARCHAR(255) NULL` kolonu (Standart Ad) |
+| v3.9.39 | `v3.9.39-standart-ad.sql` | `SSLCertificates.StandardName NVARCHAR(255) NULL` kolonu (Standart Ad) |

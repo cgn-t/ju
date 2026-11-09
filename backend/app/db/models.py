@@ -131,7 +131,7 @@ class Certificate(Base):
     # iken okunur/yazılır (bkz. display_name, cert_naming).
     # FetchedValue + eager_defaults=False: değer verilmeyen INSERT'te kolon HİÇ yazılmaz ve
     # RETURNING'e de girmez — kolon yokken de yeni sertifika eklenebilir.
-    standard_name: Mapped[str | None] = mapped_column("StandartAd", Unicode(255), deferred=True,
+    standard_name: Mapped[str | None] = mapped_column("StandardName", Unicode(255), deferred=True,
                                                       server_default=FetchedValue())
 
     @property
