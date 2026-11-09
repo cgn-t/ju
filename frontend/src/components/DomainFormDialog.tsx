@@ -1,3 +1,4 @@
+import { RichTextEditor } from './RichText'
 import TravelExploreIcon from '@mui/icons-material/TravelExplore'
 import {
   Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
@@ -385,8 +386,8 @@ export default function DomainFormDialog({ open, onClose, domain }: Props) {
                        onChange={set('keystore')} slotProps={LABEL_SHRINK} />
           </Grid>
           <Grid size={{ xs: 12 }}>
-            <TextField label="Detay" fullWidth size="small" multiline rows={2} value={form.info}
-                       onChange={set('info')} slotProps={LABEL_SHRINK} />
+            <RichTextEditor label="Detay" value={form.info ?? ''} minRows={2}
+                            onChange={(v) => setForm((f) => ({ ...f, info: v }))} />
           </Grid>
         </Grid>
       </DialogContent>

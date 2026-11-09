@@ -1,3 +1,5 @@
+import { RichTextView } from './RichText'
+import { richToPlain } from '../utils/richText'
 import AddLinkIcon from '@mui/icons-material/AddLink'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
 import AlternateEmailOutlinedIcon from '@mui/icons-material/AlternateEmailOutlined'
@@ -452,7 +454,8 @@ export default function DomainDetailDrawer({ domainId, onClose }: Props) {
                           value={domain.expire_date ? fmtDate(domain.expire_date) : '—'}
                           sub={domain.expire_date ? undefined : 'Bağlı sertifikadan'} />
                 <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
-                  <InfoCard title="Detay" icon={<NotesOutlinedIcon />} value={domain.info || '—'} multiline />
+                  <InfoCard title="Detay" icon={<NotesOutlinedIcon />} value={<RichTextView value={domain.info} />} multiline
+                            copy={richToPlain(domain.info) || null} />
                 </Box>
               </Box>
               {editable && (

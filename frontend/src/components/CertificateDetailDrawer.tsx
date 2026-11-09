@@ -1,3 +1,5 @@
+import { RichTextEditor, RichTextView } from './RichText'
+import { richToPlain } from '../utils/richText'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined'
 import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined'
@@ -544,9 +546,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     </TextField>
                   </FormSection>
                   <FormSection icon={<NotesOutlinedIcon />} title="Notlar" columns={1}>
-                    <TextField size="small" fullWidth multiline rows={3} label="Notlar" value={form.notes} slotProps={SHRINK}
-                               placeholder="Bu sertifikayla ilgili notlar…"
-                               onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                    <RichTextEditor label="Notlar" value={form.notes} placeholder="Bu sertifikayla ilgili notlar…"
+                                    onChange={(v) => setForm((f) => ({ ...f, notes: v }))} />
                   </FormSection>
                 </Stack>
                 {/* Kaydet önce ONAY diyaloğu açar; işlem 'Onaylıyorum' ile uygulanır */}
@@ -580,7 +581,8 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                     <InfoCard title="Internal" icon={<LockOutlinedIcon />} color={cert.is_internal ? 'info' : 'default'}
                               value={<YesNoValue value={cert.is_internal ? 'Evet' : 'Hayır'} />} />
                     <Box sx={{ gridColumn: '1 / -1', display: 'grid' }}>
-                      <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={cert.notes || '—'} multiline />
+                      <InfoCard title="Notlar" icon={<NotesOutlinedIcon />} value={<RichTextView value={cert.notes} />} multiline
+                                copy={richToPlain(cert.notes) || null} />
                     </Box>
                   </Box>
                   {editable && (

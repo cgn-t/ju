@@ -4,6 +4,7 @@ import html as html_mod
 import logging
 import smtplib
 from datetime import datetime, timedelta
+from app.core import richtext
 from app.core.timeutil import utcnow
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -103,8 +104,10 @@ def _fmt(value) -> str:
 def _cell(value) -> str:
     """Tablo hücresi HTML'i: kaçışlı metin; çok satırlı serbest metinde (ör. Detay) yazılan satır
     sonları <br> olarak korunur — yoksa e-postada hepsi tek satıra birleşir."""
-    text = _esc(_fmt(value))
-    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+    if isinstance(value, str) and value:
+        # Detay/Notlar biçim etiketleri ([b], [renk=…]) güvenli HTML'e çevrilir (v3.9.37).
+        return richtext.to_html(value)
+    return _esc(_fmt(value))
 
 
 def _kv_table(rows: list[tuple]) -> str:
@@ -213,7 +216,7 @@ def _related_domains_table(mappings) -> str:
             td = _TD + f";background:{_ACTION_BG}" if highlight else _TD
             if highlight and i == 0:
                 td += f";border-left:4px solid {_ACTION_BORDER}"
-            tds += f'<td style="{td}">{_esc(_fmt(c))}</td>'
+            tds += f'<td style="{td}">{_cell(c)}</td>'
         body += f"<tr>{tds}</tr>"
     return (f'<table cellspacing="0" style="border-collapse:collapse;width:100%">'
             f"<tr>{head}</tr>{body}</table>")

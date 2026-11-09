@@ -19,3 +19,18 @@ def test_detay_satir_sonlari_br_olur():
 def test_tek_satir_ve_bos_degisinmez():
     assert notifier._cell("tek") == "tek"
     assert notifier._cell(None) == "-"
+
+
+def test_detay_bicim_etiketleri_mailde_guvenli_html():
+    html = notifier._domain_table_html(_dom("[b]Önemli[/b] [renk=kirmizi]F5[/renk]\n<script>x</script>"))
+    assert "<b>Önemli</b>" in html
+    assert 'color:#c62828' in html and ">F5</span>" in html
+    assert "&lt;script&gt;" in html and "<script>" not in html
+
+
+def test_richtext_bozuk_etiketler():
+    from app.core import richtext
+    assert richtext.to_html("[renk=zehir]a[/renk]") == "[renk=zehir]a[/renk]"
+    assert richtext.to_html("[b]açık") == "<b>açık</b>"
+    assert richtext.to_html('[b onclick="x"]a[/b]') == '[b onclick=&quot;x&quot;]a[/b]'
+    assert richtext.to_plain("[i]a[/i] [u]b[/u]") == "a b"

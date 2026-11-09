@@ -1,3 +1,4 @@
+import { richToPlain } from '../utils/richText'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import AddIcon from '@mui/icons-material/Add'
 import CloudSyncIcon from '@mui/icons-material/CloudSync'
@@ -226,7 +227,7 @@ export default function Certificates() {
                                 c.is_internal ? 'evet' : 'hayir', environmentLabel(c.environment),
                                 c.source, c.vault_path,
                                 c.auto_renew ? 'evet' : 'hayir', c.purchased_by, c.creator,
-                                c.notes, c.created_at,
+                                richToPlain(c.notes), c.created_at,
                                 c.domains.map((d) => `${d.domain}(${d.mapping_type})`).join(' ')]))
   }
 
