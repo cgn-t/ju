@@ -13,7 +13,7 @@ pod'lar en geç CACHE_SECONDS sonra yeni durumu görür."""
 import threading
 import time
 
-from sqlalchemy import inspect
+from sqlalchemy import text
 
 from app.db.session import engine
 
@@ -40,20 +40,26 @@ _cache_at = 0.0
 override: dict[str, bool] = {}
 
 
-def _columns(table: str) -> set[str]:
+def _has_column(table: str, column: str) -> bool:
+    """Kolonu, uygulamanın kendi sorgularının çözdüğü şekilde (şema adı vermeden) okumayı dener.
+
+    inspect() kullanıcının varsayılan şemasına bakar; AD ile bağlanan kullanıcının varsayılan
+    şeması dbo değilse kolon 'yok' görünüyordu (v3.9.41). Doğrudan TOP 0 / LIMIT 0 sorgusu,
+    SQL Server'ın normal ad çözümlemesini (önce kullanıcı şeması, sonra dbo) kullanır."""
+    # Köşeli parantez: SQLite'ta çift tırnaklı bilinmeyen ad metin sabiti sayılır, [ad] sayılmaz.
+    sql = (f"SELECT TOP 0 [{column}] FROM [{table}]" if engine.dialect.name == "mssql"
+           else f"SELECT [{column}] FROM [{table}] LIMIT 0")
     try:
-        return {c["name"].lower() for c in inspect(engine).get_columns(table)}
-    except Exception:  # tablo yok / yetki yok → özellik kapalı say
-        return set()
+        with engine.connect() as conn:
+            conn.execute(text(sql))
+            conn.rollback()
+        return True
+    except Exception:  # kolon/tablo yok ya da yetki yok → özellik kapalı say
+        return False
 
 
 def _load() -> dict[str, bool]:
-    by_table: dict[str, set[str]] = {}
-    out = {}
-    for e in EXPECTATIONS:
-        cols = by_table.setdefault(e["table"], _columns(e["table"]))
-        out[e["key"]] = e["column"].lower() in cols
-    return out
+    return {e["key"]: _has_column(e["table"], e["column"]) for e in EXPECTATIONS}
 
 
 def refresh() -> dict[str, bool]:
