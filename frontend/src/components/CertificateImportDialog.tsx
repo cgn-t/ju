@@ -251,11 +251,11 @@ export default function CertificateImportDialog({ open, onClose }: Props) {
 
   const stdField = (key: string, label: string, body: () => Record<string, unknown> | null) => (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'flex-start' } }} key={key}>
-      <TextField size="small" fullWidth label={label} value={stdNames[key] ?? ''}
+      <TextField size="small" fullWidth multiline maxRows={3} label={label} value={stdNames[key] ?? ''}
                  onChange={(e) => editStd(key, e.target.value)}
                  placeholder="Boş bırakılırsa kurala göre doldurulur"
                  helperText={stdInfo[key] || (stdEdited.has(key) ? 'Elle değiştirildi' : 'Önerilen standart ad; isterseniz değiştirin')}
-                 slotProps={{ inputLabel: { shrink: true }, input: { sx: { fontFamily: MONO_FONT, fontWeight: 600 } } }} />
+                 slotProps={{ inputLabel: { shrink: true }, input: { sx: { fontFamily: MONO_FONT, fontWeight: 600, wordBreak: 'break-all' } } }} />
       <Button variant="outlined" sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
               onClick={() => { const b = body(); if (b) void suggestFor(key, b, true) }}>
         İsimlendirme Kuralını Uygula
