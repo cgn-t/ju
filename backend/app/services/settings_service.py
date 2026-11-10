@@ -330,7 +330,7 @@ DEFAULTS: dict[str, dict] = {
         ],
         "unknown_abbr": "Diger",      # listede olmayan CA
         "self_signed_abbr": "Self",   # kendinden imzalı sunucu sertifikası
-        "env_suffix": True,           # ortam eki: Prod → _prod, Test → _test (ortam boşsa ek yok)
+        "env_suffix": True,           # ortam adın başında: prod_ / test_ (v3.9.42; ortam boşsa yok)
     },
 }
 

@@ -1,13 +1,14 @@
 """Sertifika Standart Adı (v3.9.39).
 
-Biçim: CA_Tür_alanadı_BitişTarihi[_prod|_test]   ör. Dgcrt_wildcard_aaaa.com_20260814_prod
+Biçim (v3.9.42, genelden özele): ortam_CA_Tür_alanadı_BitişTarihi   ör. prod_Dgcrt_wildcard_aaaa.com_20260814
+  • Ortam  : prod | test; ortam boşsa bu parça yok, ad CA ile başlar (Ayarlar'dan kapatılabilir).
   • CA     : Issuer'dan, Ayarlar > İsimlendirme'deki kısaltma listesiyle (ilk eşleşen satır).
              Listede yoksa "Diger"; kendinden imzalı sunucu sertifikasında "Self".
   • Tür    : root | intermediate | client (yalnız mTLS istemci) | wildcard | san | single
+             (san = www dışında birden fazla host adı; aaa.ai + api.aaa.ai de san)
   • Alan adı: CN küçük harf, başındaki "*." atılır; CN yoksa ilk SAN. Root/intermediate'ta
              CA'nın kendi adı (boşluksuz).
   • Tarih  : ValidTo, İstanbul saatine göre yyyyaagg.
-  • Ek     : Ortam Prod → _prod, Test → _test (ortam boşsa ek yok; Ayarlar'dan kapatılabilir).
 Aynı ad başka bir sertifikada varsa sonuna _2, _3… eklenir.
 
 Ad yalnız ÖNERİLİR: yüklemede alan dolu gelir, kişi değiştirebilir; Jumbo elle verilen adın
@@ -113,12 +114,14 @@ def build(*, issuer: str | None, subject: str | None, name: str | None, san: str
         if first.startswith("*."):
             first = first[2:]
         main = _clean(first)
-    parts = [ca, kind, main or "adsiz"]
+    # v3.9.42 sıra genelden özele: ortam_CA_tür_alanadı_tarih; ortam boşsa ortam parçası yok
+    parts = []
+    if cfg.get("env_suffix", True) and environment in ("prod", "test"):
+        parts.append(environment)
+    parts += [ca, kind, main or "adsiz"]
     d = _date(valid_to)
     if d:
         parts.append(d)
-    if cfg.get("env_suffix", True) and environment in ("prod", "test"):
-        parts.append(environment)
     return {"name": "_".join(parts)[:MAX_LEN], "ca": ca, "kind": kind, "main": main,
             "date": d, "env": environment if cfg.get("env_suffix", True) else None,
             "unknown_ca": ca == (cfg.get("unknown_abbr") or "Diger")}

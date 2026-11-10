@@ -1,4 +1,4 @@
-"""v3.9.39 Sertifika Standart Adı: CA_Tür_alanadı_yyyymmdd[_prod|_test].
+"""v3.9.39 Sertifika Standart Adı; v3.9.42 sırası: ortam_CA_Tür_alanadı_yyyymmdd (ortam boşsa ortam parçası yok).
 
 NAME (prod kolonu) hiç değişmez; Standart Ad ayrı StandardName kolonunda. Kolon pod açılışında
 eklenmez (Veritabanı Değişiklikleri sayfasından betik çalıştırılır); kolon yokken uygulama
@@ -36,19 +36,21 @@ def _b(**kw):
 
 # ---------- kural ----------
 def test_rule_wildcard_digicert_prod():
-    assert _b()["name"] == "Dgcrt_wildcard_aaaa.com_20260814_prod"
+    assert _b()["name"] == "prod_Dgcrt_wildcard_aaaa.com_20260814"
 
 
 def test_rule_kinds_and_suffix():
     assert _b(subject="CN=odeme.aaaa.com", san="odeme.aaaa.com", environment="test",
               issuer="CN=Sectigo RSA Domain Validation Secure Server CA,O=Sectigo Limited")["name"] \
-        == "Sctg_single_odeme.aaaa.com_20260814_test"
+        == "test_Sctg_single_odeme.aaaa.com_20260814"
     # www + kök aynı site sayılır → single; farklı alan adları → san
     assert _b(subject="CN=aaaa.com", san="aaaa.com, www.aaaa.com")["kind"] == "single"
+    # birden fazla host adı (alt alan adı da olsa) → san; IP sayılmaz
     assert _b(subject="CN=portal.aaaa.com", san="portal.aaaa.com, api.aaaa.com")["kind"] == "san"
+    assert _b(subject="CN=aaa.ai", san="aaa.ai, 10.1.2.3")["kind"] == "single"
     # yalnız istemci (mTLS) sertifikası
-    assert _b(subject="CN=jumbo-batch", san=None, eku="clientAuth")["name"] == "Dgcrt_client_jumbo-batch_20260814_prod"
-    # ortam boşsa ek yok; ayarda kapalıysa da yok
+    assert _b(subject="CN=jumbo-batch", san=None, eku="clientAuth")["name"] == "prod_Dgcrt_client_jumbo-batch_20260814"
+    # v3.9.42: ortam başta; boşsa ortam parçası yok; ayarda kapalıysa da yok
     assert _b(environment=None)["name"] == "Dgcrt_wildcard_aaaa.com_20260814"
     assert _b(cfg={**CFG, "env_suffix": False})["name"] == "Dgcrt_wildcard_aaaa.com_20260814"
 
@@ -58,9 +60,9 @@ def test_rule_ca_certs_unknown_and_self_signed():
                issuer="CN=DigiCert Global Root G2,O=DigiCert Inc", san=None, environment=None)
     assert inter["name"] == "Dgcrt_intermediate_DigiCertGlobalG2TLSRSASHA2562020CA1_20260814"
     unk = _b(issuer="CN=Example Corp CA", subject="CN=eski.aaaa.com", san="eski.aaaa.com")
-    assert unk["name"].startswith("Diger_single_eski.aaaa.com_") and unk["unknown_ca"]
+    assert unk["name"].startswith("prod_Diger_single_eski.aaaa.com_") and unk["unknown_ca"]
     self_ = _b(issuer="CN=fw.local", subject="CN=fw.local", san="fw.local")
-    assert self_["name"] == "Self_single_fw.local_20260814_prod"
+    assert self_["name"] == "prod_Self_single_fw.local_20260814"
 
 
 def test_rule_date_uses_istanbul_day():
@@ -131,11 +133,11 @@ def test_import_fills_standard_name_and_list_search(client, auth_headers, std_on
     leaf = next(c for c in out if c["cert_type"] == "leaf")
     root = next(c for c in out if c["cert_type"] != "leaf")
     assert leaf["name"] == "*.sn-wild.test"                    # NAME değişmez
-    assert leaf["standard_name"] == f"Dgcrt_wildcard_sn-wild.test_{_ymd(leaf)}_prod"
-    assert root["standard_name"].startswith("Dgcrt_root_DigiCertSNTestCA_")
+    assert leaf["standard_name"] == f"prod_Dgcrt_wildcard_sn-wild.test_{_ymd(leaf)}"
+    assert root["standard_name"].startswith("prod_Dgcrt_root_DigiCertSNTestCA_")
     # listede ve aramada standart ad
     page = client.get("/api/certificates/page", headers=auth_headers,
-                      params={"q": "Dgcrt_wildcard_sn-wild"}).json()
+                      params={"q": "prod_Dgcrt_wildcard_sn-wild"}).json()
     assert [r["cert"]["id"] for r in page["items"]] == [leaf["id"]]
     assert page["items"][0]["cert"]["standard_name"] == leaf["standard_name"]
     single = client.get(f"/api/certificates/{leaf['id']}", headers=auth_headers).json()
@@ -179,7 +181,7 @@ def test_suggest_endpoint_uses_form_environment(client, auth_headers, std_on):
                     json={"id": leaf["id"], "environment": "test"})
     assert r.status_code == 200, r.text
     # kendi adı çakışma sayılmaz; ortam formdaki
-    assert r.json()["standard_name"] == f"Dgcrt_single_oneri.sn.test_{_ymd(leaf)}_test"
+    assert r.json()["standard_name"] == f"test_Dgcrt_single_oneri.sn.test_{_ymd(leaf)}"
     leaf2, _ = _pems("pem.sn.test")
     r = client.post("/api/certificates/standard-name/suggest", headers=auth_headers,
                     json={"pem_certificate": certgen.pem(leaf2), "environment": None})
@@ -245,7 +247,7 @@ def test_bulk_preview_and_apply(client, auth_headers, std_on):
         db.close()
     rows = client.get("/api/certificates/standard-name/bulk", headers=h, params={"only_missing": True}).json()["rows"]
     row = next(r for r in rows if r["id"] == cid)
-    assert row["suggested"].startswith("Dgcrt_single_toplu.sn.test_") and row["standard_name"] is None
+    assert row["suggested"].startswith("prod_Dgcrt_single_toplu.sn.test_") and row["standard_name"] is None
     r = client.post("/api/certificates/standard-name/bulk", headers=h,
                     json={"items": [{"id": cid, "standard_name": row["suggested"]}]})
     assert r.status_code == 200 and r.json()["changed"] == 1
@@ -262,6 +264,38 @@ def test_bulk_preview_and_apply(client, auth_headers, std_on):
     assert r.status_code == 409
 
 
+def test_bulk_requires_environment(client, auth_headers, std_on):
+    """v3.9.42: ortamı boş sertifikaya toplu ad verilirken ortam seçmek zorunlu; ikisi birlikte kaydedilir."""
+    h = auth_headers
+    out, _ = _import(client, h, "ortamsiz.sn.test")
+    cid = next(c for c in out if c["cert_type"] == "leaf")["id"]
+    db = SessionLocal()
+    try:
+        c = db.get(Certificate, cid)
+        c.environment = None
+        c.standard_name = None
+        db.commit()
+    finally:
+        db.close()
+    rows = client.get("/api/certificates/standard-name/bulk", headers=h, params={"only_no_env": True}).json()["rows"]
+    row = next(r for r in rows if r["id"] == cid)
+    assert row["needs_env"] is True and row["suggested"].startswith("Dgcrt_single_ortamsiz.sn.test_")
+    assert all(r["needs_env"] for r in rows)
+    r = client.post("/api/certificates/standard-name/bulk", headers=h,
+                    json={"items": [{"id": cid, "standard_name": row["suggested"]}]})
+    assert r.status_code == 400 and "ortam" in r.json()["detail"].lower()
+    assert client.post("/api/certificates/standard-name/bulk", headers=h,
+                       json={"items": [{"id": cid, "standard_name": "x", "environment": "uat"}]}).status_code == 400
+    sug = client.post("/api/certificates/standard-name/suggest", headers=h,
+                      json={"id": cid, "environment": "test"}).json()["standard_name"]
+    assert sug.startswith("test_Dgcrt_single_ortamsiz.sn.test_")
+    r = client.post("/api/certificates/standard-name/bulk", headers=h,
+                    json={"items": [{"id": cid, "standard_name": sug, "environment": "test"}]})
+    assert r.status_code == 200 and r.json()["changed"] == 1
+    got = client.get(f"/api/certificates/{cid}", headers=h).json()
+    assert got["environment"] == "test" and got["standard_name"] == sug
+
+
 def test_mail_shows_standard_name(client, auth_headers, std_on):
     from app.services import notifier
     out, _ = _import(client, auth_headers, "mail.sn.test")
@@ -271,7 +305,7 @@ def test_mail_shows_standard_name(client, auth_headers, std_on):
         cert = db.get(Certificate, cid)
         rows = dict(notifier._cert_rows(cert))
         assert rows["NAME"] == "mail.sn.test"
-        assert rows["Standart Ad"].startswith("Dgcrt_single_mail.sn.test_")
+        assert rows["Standart Ad"].startswith("prod_Dgcrt_single_mail.sn.test_")
     finally:
         db.close()
 

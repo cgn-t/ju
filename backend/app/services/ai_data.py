@@ -46,7 +46,7 @@ def _audit_filter(user: User) -> list:
 # tablo adı → (model, açıklama, {kolon: açıklama}, varsayılan sıralama (kolon, azalan), link, satır filtresi)
 TABLES: dict[str, tuple] = {
     "sertifikalar": (Certificate, "SSL sertifikaları (envanter)", {
-        "id": "", "name": "Sertifika adı (CN)", "standard_name": "Standart Ad (CA_Tür_alanadı_bitiş_ortam)",
+        "id": "", "name": "Sertifika adı (CN)", "standard_name": "Standart Ad (ortam_CA_Tür_alanadı_bitiş)",
         "cert_type": "leaf | intermediate | root",
         "issuer": "Issuer", "subject": "Subject", "serial_number": "Serial Number", "san": "SAN listesi",
         "valid_from": "ValidFrom", "valid_to": "ValidTo (bitiş)", "is_active": "aktif mi (pasif = false)",

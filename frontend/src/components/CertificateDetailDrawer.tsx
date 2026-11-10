@@ -517,7 +517,7 @@ export default function CertificateDetailDrawer({ certId, onClose, onSelectCert 
                 <Stack spacing={2}>
                   {features.standard_name && (
                     <FormSection icon={<DriveFileRenameOutlineIcon />} title="Standart Ad" columns={1}
-                                 hint="CA_Tür_alanadı_BitişTarihi_ortam (ör. Dgcrt_wildcard_aaaa.com_20260814_prod)">
+                                 hint="ortam_CA_Tür_alanadı_BitişTarihi (ör. prod_Dgcrt_wildcard_aaaa.com_20260814)">
                       <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
                         <TextField size="small" fullWidth label="Standart Ad" value={form.standard_name} slotProps={SHRINK}
                                    disabled={!cert.can_edit_standard_name}

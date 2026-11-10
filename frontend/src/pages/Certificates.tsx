@@ -16,6 +16,7 @@ import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import VisibilityIcon from '@mui/icons-material/VisibilityOutlined'
 import {
+  Alert,
   Box, Button, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   IconButton, Paper, Skeleton, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, ToggleButton, ToggleButtonGroup,
@@ -119,6 +120,7 @@ export default function Certificates() {
   const [importOpen, setImportOpen] = useState(false)
   const [chainCheckOpen, setChainCheckOpen] = useState(false)
   const [namingOpen, setNamingOpen] = useState(false)
+  const [namingNoEnv, setNamingNoEnv] = useState(false)
   const features = useFeatures()
   const [detailId, setDetailId] = useUrlId('cert')
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null)
@@ -483,13 +485,21 @@ export default function Certificates() {
             )}
             {isAdmin && features.standard_name && (
               <Button variant="outlined" color="inherit" sx={{ borderColor: 'divider' }} startIcon={<DriveFileRenameOutlineIcon />}
-                      onClick={() => setNamingOpen(true)}>
+                      onClick={() => { setNamingNoEnv(false); setNamingOpen(true) }}>
                 İsimlendirme Kuralını Uygula
               </Button>
             )}
           </>
         }
       />
+
+      {/* v3.9.42: ortamı seçilmemiş sertifikaları düzeltmeye yönlendir (admin) */}
+      {isAdmin && features.standard_name && (data?.facets?.environment?.none ?? 0) > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}
+               action={<Button color="inherit" size="small" onClick={() => { setNamingNoEnv(true); setNamingOpen(true) }}>Düzelt</Button>}>
+          {data?.facets?.environment?.none} sertifikanın ortamı (Prod/Test) seçilmemiş. Standart Ad için ortam gerekli.
+        </Alert>
+      )}
 
       <ListCard
         busy={isFetching && !isLoading}
@@ -642,7 +652,7 @@ export default function Certificates() {
 
       <CertificateImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <ChainCheckDialog open={chainCheckOpen} onClose={() => setChainCheckOpen(false)} />
-      <StandardNameBulkDialog open={namingOpen} onClose={() => setNamingOpen(false)} />
+      <StandardNameBulkDialog open={namingOpen} onlyNoEnvInitially={namingNoEnv} onClose={() => setNamingOpen(false)} />
       <CertificateDetailDrawer certId={detailId} onClose={() => setDetailId(null)}
                                onSelectCert={(id) => setDetailId(id)} />
 
