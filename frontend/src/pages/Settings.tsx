@@ -1155,7 +1155,7 @@ function NamingTab() {
     <Stack spacing={3}>
       <Alert severity="info">
         Sertifikaların Standart Adı bu kuralla oluşturulur:{' '}
-        <b>CA_Tür_alanadı_BitişTarihi_ortam</b> (ör. <code>Dgcrt_wildcard_aaaa.com_20260814_prod</code>).
+        <b>ortam_CA_Tür_alanadı_BitişTarihi</b> (ör. <code>prod_Dgcrt_wildcard_aaaa.com_20260814</code>).
         CA kısaltması Issuer metninden bulunur: liste <b>yukarıdan aşağı</b> denenir, Issuer'da "Aranan metin"
         geçen ilk satır kullanılır (büyük/küçük harf fark etmez). Kurum içi CA'nızın adını ekleyin (ör. "Firma Issuing CA" → Int).
         Değişiklik yalnız bundan sonra oluşturulan adları etkiler.
@@ -1194,7 +1194,7 @@ function NamingTab() {
       <FormControlLabel
         control={<Switch checked={form.env_suffix !== false}
                          onChange={(e) => setForm((s) => ({ ...s, env_suffix: e.target.checked }))} />}
-        label="Ortam eki ekle (Prod → _prod, Test → _test; ortam boşsa ek yok)" />
+        label="Ortamı adın başına yaz (prod_ / test_; ortam seçilmemişse yazılmaz)" />
       <Box>
         <Button variant="contained" onClick={() => save.mutate()} disabled={save.isPending}>Kaydet</Button>
       </Box>

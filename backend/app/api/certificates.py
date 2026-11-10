@@ -1149,7 +1149,8 @@ def suggest_standard_name(body: dict, db: Session = Depends(get_db),
 
 
 @router.get("/standard-name/bulk")
-def standard_name_bulk_preview(only_missing: bool = False, db: Session = Depends(get_db),
+def standard_name_bulk_preview(only_missing: bool = False, only_no_env: bool = False,
+                               db: Session = Depends(get_db),
                                _: User = Depends(require_role("admin"))):
     """Toplu ekran: her sertifika için bugünkü ad, Standart Ad ve kurala göre önerilen ad.
     Öneriler birbirleriyle de çakışmasın diye sırayla tekilleştirilir (kaydetmez)."""
@@ -1162,6 +1163,9 @@ def standard_name_bulk_preview(only_missing: bool = False, db: Session = Depends
     for c in certs:
         if only_missing and c.standard_name:
             continue
+        needs_env = c.environment not in ("prod", "test")
+        if only_no_env and not needs_env:
+            continue
         mine = (c.standard_name or "").lower()
         out = cert_naming.from_cert(c, cfg)
         others = taken - {mine}
@@ -1172,20 +1176,22 @@ def standard_name_bulk_preview(only_missing: bool = False, db: Session = Depends
                      "same": name == c.standard_name, "collision": name != out["name"],
                      "unknown_ca": out["unknown_ca"], "cert_type": normalize_cert_type(c.cert_type),
                      "issuer": c.issuer, "valid_to": c.valid_to, "environment": c.environment,
-                     "is_active": bool(c.is_active)})
+                     "needs_env": needs_env, "is_active": bool(c.is_active)})
     return {"rows": rows}
 
 
 @router.post("/standard-name/bulk")
 def standard_name_bulk_apply(request: Request, body: dict, db: Session = Depends(get_db),
                              user: User = Depends(require_role("admin"))):
-    """Seçilen sertifikalara önerilen adı yazar. body: {"items": [{"id": 1, "standard_name": "..."}]}
-    (ekranda gösterilen öneri gönderilir; kişi satırda düzelttiyse düzeltilmiş hali)."""
+    """Seçilen sertifikalara önerilen adı yazar. body: {"items": [{"id": 1, "standard_name": "...",
+    "environment": "prod"}]} (ekranda gösterilen öneri; kişi satırda düzelttiyse düzeltilmiş hali).
+    v3.9.42: ortamı boş sertifikaya ad verilecekse ortam da seçilmeli (prod/test) ve birlikte kaydedilir."""
     _require_std_ready()
     items = (body or {}).get("items") or []
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="Uygulanacak sertifika seçilmedi")
     wanted: dict[int, str] = {}
+    envs: dict[int, str] = {}
     for it in items:
         try:
             cid = int(it.get("id"))
@@ -1195,6 +1201,11 @@ def standard_name_bulk_apply(request: Request, body: dict, db: Session = Depends
         if not nm:
             raise HTTPException(status_code=400, detail=f"ID {cid}: Standart Ad boş olamaz")
         wanted[cid] = nm
+        ev = it.get("environment")
+        if ev not in (None, ""):
+            if ev not in ("prod", "test"):
+                raise HTTPException(status_code=400, detail=f"ID {cid}: Ortam Prod veya Test olmalı")
+            envs[cid] = ev
     lowered = [n.lower() for n in wanted.values()]
     dup = next((n for n in wanted.values() if lowered.count(n.lower()) > 1), None)
     if dup:
@@ -1204,6 +1215,9 @@ def standard_name_bulk_apply(request: Request, body: dict, db: Session = Depends
     missing = [i for i in wanted if i not in certs]
     if missing:
         raise HTTPException(status_code=404, detail=f"Sertifika bulunamadı: {missing[0]}")
+    no_env = [certs[i].name for i in wanted if certs[i].environment not in ("prod", "test") and i not in envs]
+    if no_env:
+        raise HTTPException(status_code=400, detail=f"Önce ortamı seçin (Prod/Test): {no_env[0]}")
     # Seçilmeyen sertifikalarda zaten kullanılan adlarla çakışma
     taken = {(n or "").lower(): i for i, n in db.query(Certificate.id, Certificate.standard_name)
              .filter(Certificate.standard_name.isnot(None)).all() if i not in wanted}
@@ -1214,12 +1228,18 @@ def standard_name_bulk_apply(request: Request, body: dict, db: Session = Depends
     changed = 0
     for cid, nm in wanted.items():
         cert = certs[cid]
-        if cert.standard_name == nm:
+        diff = {}
+        if cert.standard_name != nm:
+            diff["standard_name"] = {"old": cert.standard_name, "new": nm}
+        if cid in envs and cert.environment != envs[cid]:
+            diff["environment"] = {"old": cert.environment, "new": envs[cid]}
+        if not diff:
             continue
         log_action(db, user.username, "update", "certificates", cert.id,
-                   {"name": cert.name, "via": "isimlendirme kuralı (toplu)",
-                    "changes": {"standard_name": {"old": cert.standard_name, "new": nm}}}, request)
+                   {"name": cert.name, "via": "isimlendirme kuralı (toplu)", "changes": diff}, request)
         cert.standard_name = nm
+        if "environment" in diff:
+            cert.environment = envs[cid]
         changed += 1
     db.commit()
     return {"changed": changed}
