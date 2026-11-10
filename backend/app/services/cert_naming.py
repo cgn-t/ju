@@ -4,6 +4,7 @@ Biçim: CA_Tür_alanadı_BitişTarihi[_prod|_test]   ör. Dgcrt_wildcard_aaaa.co
   • CA     : Issuer'dan, Ayarlar > İsimlendirme'deki kısaltma listesiyle (ilk eşleşen satır).
              Listede yoksa "Diger"; kendinden imzalı sunucu sertifikasında "Self".
   • Tür    : root | intermediate | client (yalnız mTLS istemci) | wildcard | san | single
+             (san = birden fazla FARKLI ana alan adı; aaa.ai + api.aaa.ai tek sayılır, v3.9.42)
   • Alan adı: CN küçük harf, başındaki "*." atılır; CN yoksa ilk SAN. Root/intermediate'ta
              CA'nın kendi adı (boşluksuz).
   • Tarih  : ValidTo, İstanbul saatine göre yyyyaagg.
@@ -67,6 +68,21 @@ def abbreviation(issuer: str | None, rules: list, unknown: str) -> str:
     return unknown
 
 
+# İkinci düzey "genel" etiketler: aaaa.com.tr, aaaa.co.uk gibi adlarda ana alan adı 3 etikettir.
+_SECOND_LEVEL = {"com", "net", "org", "gov", "edu", "k12", "gen", "bel", "av", "biz", "info", "tsk",
+                 "pol", "web", "tv", "co", "ac", "dr", "bbs", "name", "tel", "nc", "kep", "mil"}
+_IP_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$|:")
+
+
+def base_domain(host: str) -> str:
+    """Ana alan adı: api.aaa.ai → aaa.ai, odeme.aaaa.com.tr → aaaa.com.tr (v3.9.42)."""
+    labels = [x for x in host.strip().lower().lstrip("*.").split(".") if x]
+    if len(labels) <= 2:
+        return ".".join(labels)
+    n = 3 if len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL else 2
+    return ".".join(labels[-n:])
+
+
 def kind_of(cert_type: str | None, cn: str | None, san: str | None, eku: str | None) -> str:
     if cert_type in ("root", "intermediate"):
         return cert_type
@@ -76,12 +92,13 @@ def kind_of(cert_type: str | None, cn: str | None, san: str | None, eku: str | N
     names = _sans(san)
     if (cn or "").strip().startswith("*.") or any(n.startswith("*.") for n in names):
         return "wildcard"
-    base = {n[4:] if n.startswith("www.") else n for n in names
-            if not re.match(r"^\d+\.\d+\.\d+\.\d+$|:", n)}
-    if cn:
-        c = cn.strip().lower()
-        base.add(c[4:] if c.startswith("www.") else c)
-    return "san" if len(base) > 1 else "single"
+    # v3.9.42: aynı ana alan adının alt adları (aaa.ai, www.aaa.ai, api.aaa.ai) tek sayılır;
+    # yalnız FARKLI ana alan adları (aaa.ai + bbb.com) varsa "san". IP adresleri sayılmaz.
+    hosts = [n for n in names if not _IP_RE.search(n)]
+    c = (cn or "").strip().lower()
+    if c and " " not in c and not _IP_RE.search(c):
+        hosts.append(c)
+    return "san" if len({base_domain(h) for h in hosts}) > 1 else "single"
 
 
 def _date(valid_to: datetime | None) -> str | None:

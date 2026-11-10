@@ -45,7 +45,12 @@ def test_rule_kinds_and_suffix():
         == "Sctg_single_odeme.aaaa.com_20260814_test"
     # www + kök aynı site sayılır → single; farklı alan adları → san
     assert _b(subject="CN=aaaa.com", san="aaaa.com, www.aaaa.com")["kind"] == "single"
-    assert _b(subject="CN=portal.aaaa.com", san="portal.aaaa.com, api.aaaa.com")["kind"] == "san"
+    # v3.9.42: aynı ana alan adının alt adları tek sayılır; yalnız farklı ana alan adları → san
+    assert _b(subject="CN=portal.aaaa.com", san="portal.aaaa.com, api.aaaa.com")["kind"] == "single"
+    assert _b(subject="CN=aaa.ai", san="aaa.ai, api.aaa.ai, 10.1.2.3")["kind"] == "single"
+    assert _b(subject="CN=aaaa.com.tr", san="aaaa.com.tr, odeme.aaaa.com.tr")["kind"] == "single"
+    assert _b(subject="CN=aaaa.com.tr", san="aaaa.com.tr, bbbb.com.tr")["kind"] == "san"
+    assert _b(subject="CN=aaa.ai", san="aaa.ai, bbb.com")["kind"] == "san"
     # yalnız istemci (mTLS) sertifikası
     assert _b(subject="CN=jumbo-batch", san=None, eku="clientAuth")["name"] == "Dgcrt_client_jumbo-batch_20260814_prod"
     # ortam boşsa ek yok; ayarda kapalıysa da yok
