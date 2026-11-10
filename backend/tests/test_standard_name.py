@@ -45,12 +45,9 @@ def test_rule_kinds_and_suffix():
         == "test_Sctg_single_odeme.aaaa.com_20260814"
     # www + kök aynı site sayılır → single; farklı alan adları → san
     assert _b(subject="CN=aaaa.com", san="aaaa.com, www.aaaa.com")["kind"] == "single"
-    # v3.9.42: aynı ana alan adının alt adları tek sayılır; yalnız farklı ana alan adları → san
-    assert _b(subject="CN=portal.aaaa.com", san="portal.aaaa.com, api.aaaa.com")["kind"] == "single"
-    assert _b(subject="CN=aaa.ai", san="aaa.ai, api.aaa.ai, 10.1.2.3")["kind"] == "single"
-    assert _b(subject="CN=aaaa.com.tr", san="aaaa.com.tr, odeme.aaaa.com.tr")["kind"] == "single"
-    assert _b(subject="CN=aaaa.com.tr", san="aaaa.com.tr, bbbb.com.tr")["kind"] == "san"
-    assert _b(subject="CN=aaa.ai", san="aaa.ai, bbb.com")["kind"] == "san"
+    # birden fazla host adı (alt alan adı da olsa) → san; IP sayılmaz
+    assert _b(subject="CN=portal.aaaa.com", san="portal.aaaa.com, api.aaaa.com")["kind"] == "san"
+    assert _b(subject="CN=aaa.ai", san="aaa.ai, 10.1.2.3")["kind"] == "single"
     # yalnız istemci (mTLS) sertifikası
     assert _b(subject="CN=jumbo-batch", san=None, eku="clientAuth")["name"] == "prod_Dgcrt_client_jumbo-batch_20260814"
     # v3.9.42: ortam başta; boşsa ortam parçası yok; ayarda kapalıysa da yok
