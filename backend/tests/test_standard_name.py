@@ -65,6 +65,13 @@ def test_rule_ca_certs_unknown_and_self_signed():
     assert self_["name"] == "prod_Self_single_fw.local_20260814"
 
 
+def test_rule_ca_type_spelling_from_old_records():
+    """Prod'daki eski kayıtlarda CertType "Root"/"Intermediate"/"ROOT" yazılı; yine root/intermediate."""
+    for raw, kind in (("Root", "root"), ("ROOT", "root"), ("Intermediate", "intermediate"), (" intermediate ", "intermediate")):
+        out = _b(cert_type=raw, subject="CN=AAAA Issuing CA 01,O=AAAA Bank", issuer="CN=AAAA Root CA,O=AAAA Bank", san=None)
+        assert out["kind"] == kind and f"_{kind}_AAAAIssuingCA01_" in out["name"]
+
+
 def test_rule_date_uses_istanbul_day():
     # 2026-08-14 22:30 UTC = 15 Ağustos 01:30 İstanbul → ekranda görülen gün
     assert _b(valid_to=datetime(2026, 8, 14, 22, 30))["date"] == "20260815"
