@@ -11,8 +11,8 @@ import { CARD_SX, StatusPill, type Tone } from './DetailCards'
 import { EmptyState } from './ListKit'
 
 export const TEAM_HEALTH: Record<TeamHealth, { label: string; tone: Tone; hint: string }> = {
-  critical: { label: 'Acil', tone: 'error', hint: 'Süresi dolmuş sertifika ya da canlıda EŞLEŞMİYOR domain var' },
-  warning: { label: 'Dikkat', tone: 'warning', hint: 'Yakında biten sertifika, bekleyen talep, uyum ihlali ya da ekip maili eksik' },
+  critical: { label: 'Acil', tone: 'error', hint: 'Süresi dolmuş sertifika, manuel bitiş tarihi geçmiş domain ya da canlıda EŞLEŞMİYOR domain var' },
+  warning: { label: 'Dikkat', tone: 'warning', hint: 'Yakında biten sertifika ya da manuel tarihli domain, bekleyen talep, uyum ihlali ya da ekip maili eksik' },
   ok: { label: 'İyi', tone: 'success', hint: 'İşlem bekleyen bir şey yok' },
 }
 
@@ -23,6 +23,10 @@ export function monthLabel(key: string) {
   const [y, m] = key.split('-').map(Number)
   return `${MONTHS[(m || 1) - 1]} ${y}`
 }
+
+/** Kutunun alt satırı: "2 sertifika · 1 domain (manuel tarih)" */
+export const manualSub = (certs: number, domains: number) =>
+  [certs ? `${certs} sertifika` : '', domains ? `${domains} domain (manuel)` : ''].filter(Boolean).join(' · ')
 
 export const dayText = (d?: number | null) => (d === null || d === undefined ? '—' : d === 0 ? 'bugün' : `${d} gün`)
 
@@ -79,7 +83,8 @@ export function TeamSummaryTable({ rows, soonDays, onOpen }: {
   if (!rows.length) return <EmptyState title="Gösterilecek ekip yok" hint="Domaini veya sertifikası olan SY ekibi bulunamadı." />
   // Kısa başlıklar tablo tek ekrana sığsın diye; açıklaması ipucunda
   const head: [string, string][] = [['Ekip', ''], ['Durum', ''], ['Domain', ''], ['Sertifika', 'Aktif sertifika'],
-    ['Dolmuş', 'Süresi dolmuş sertifika'], [`${soonDays} gün`, `${soonDays} gün içinde bitecek sertifika`],
+    ['Dolmuş', 'Süresi dolmuş sertifika ya da manuel bitiş tarihi geçmiş domain'],
+    [`${soonDays} gün`, `${soonDays} gün içinde bitecek sertifika ya da manuel tarihli domain`],
     ['En yakın', 'En yakın bitişe kalan gün'], ['Talep', 'Onay bekleyen değişiklik talebi'],
     ['En eski', 'En eski talebin bekleme süresi'], ['Uyum', 'Uyum ihlali olan sertifika'],
     ['Eşleşmiyor', 'Canlı doğrulamada EŞLEŞMİYOR ya da ara sertifikası eksik domain'],
@@ -107,8 +112,8 @@ export function TeamSummaryTable({ rows, soonDays, onOpen }: {
               </TableCell>
               <TableCell align="right">{r.domains}</TableCell>
               <TableCell align="right">{r.certificates}</TableCell>
-              <TableCell align="right"><Num n={r.expired} tone="error" /></TableCell>
-              <TableCell align="right"><Num n={r.expiring_soon} tone="warning" /></TableCell>
+              <TableCell align="right"><Num n={r.expired + (r.manual_expired ?? 0)} tone="error" /></TableCell>
+              <TableCell align="right"><Num n={r.expiring_soon + (r.manual_expiring_soon ?? 0)} tone="warning" /></TableCell>
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{dayText(r.nearest_days)}</TableCell>
               <TableCell align="right"><Num n={r.pending_proposals} tone="info" /></TableCell>
               <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>{r.oldest_pending_days === null || r.oldest_pending_days === undefined ? '—' : `${r.oldest_pending_days} gündür`}</TableCell>
@@ -134,7 +139,8 @@ export function exportTeamRows(rows: TeamSummaryRow[], soonDays: number, filenam
   exportSheet(filename,
     ['Ekip', 'Durum', 'Domain', 'Aktif sertifika', 'Süresi dolmuş', `${soonDays} gün içinde`, 'En yakın bitiş (gün)',
      'Bekleyen talep', 'En eski talep (gün)', 'Uyum ihlali', 'EŞLEŞMİYOR', 'Eksik bilgi', 'Eksik bilgi ayrıntısı', 'Ekip maili'],
-    rows.map((r) => [r.team, TEAM_HEALTH[r.status].label, r.domains, r.certificates, r.expired, r.expiring_soon,
+    rows.map((r) => [r.team, TEAM_HEALTH[r.status].label, r.domains, r.certificates,
+                     r.expired + (r.manual_expired ?? 0), r.expiring_soon + (r.manual_expiring_soon ?? 0),
                      r.nearest_days ?? '', r.pending_proposals, r.oldest_pending_days ?? '', r.policy_violations,
                      r.live_problems, r.missing_info, missingTip(r), r.email ?? '']))
 }

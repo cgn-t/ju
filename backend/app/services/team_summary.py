@@ -15,6 +15,7 @@ from datetime import timedelta, timezone
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, load_only
 
+from app.core.certtype import normalize_cert_type
 from app.core.timeutil import utcnow
 from app.db.models import (
     AppDependency, Application, ApplicationTrustedCert, AuditLog, Certificate,
@@ -76,11 +77,17 @@ class _Inventory:
                         CertificateDomainMap.mapping_type).all()
         self.cert_domains: dict[int, list[tuple[int, str]]] = {}
         self.domain_certs: dict[int, set[int]] = {}
+        # Aktif LEAF sertifikası Server olarak bağlı domainler. Bunların takibi sertifika
+        # üzerinden yapılır; geri kalan domainlerde manuel "Bitiş Tarihi" (expire_date) takip
+        # edilir — mail motorundaki (notifier: expiring_domains) kuralın aynısı.
+        self.domain_has_server_leaf: set[int] = set()
         for cid, did, mtype in maps:
             if cid not in self.certs:
                 continue
             self.cert_domains.setdefault(cid, []).append((did, mtype))
             self.domain_certs.setdefault(did, set()).add(cid)
+            if mtype == "server" and normalize_cert_type(self.certs[cid].cert_type) == "leaf":
+                self.domain_has_server_leaf.add(did)
         # Sertifika → sahibi ekipler (bağlı domainlerin ekipleri + Oluşturan Ekip)
         self.cert_teams: dict[int, set[int]] = {}
         for cid, cert in self.certs.items():
@@ -105,6 +112,20 @@ class _Inventory:
     def is_soon(self, cid: int) -> bool:
         d = self.days(cid)
         return d is not None and 0 <= d <= self.soon
+
+    def manual_days(self, d: Domain) -> int | None:
+        """Manuel bitiş tarihi takip edilen domainde kalan gün; takip edilmiyorsa None."""
+        if not d.expire_date or d.id in self.domain_has_server_leaf:
+            return None
+        return _days_left(d.expire_date)
+
+    def manual_expired(self, d: Domain) -> bool:
+        x = self.manual_days(d)
+        return x is not None and x < 0
+
+    def manual_soon(self, d: Domain) -> bool:
+        x = self.manual_days(d)
+        return x is not None and 0 <= x <= self.soon
 
     def domain_without_cert(self, d: Domain) -> bool:
         return not self.domain_certs.get(d.id) and not d.expire_date
@@ -137,18 +158,22 @@ def _row(inv: _Inventory, team: Team, members: int, apps: int) -> dict:
     expired = [c for c in certs if inv.is_expired(c)]
     soon = [c for c in certs if inv.is_soon(c)]
     future = [d for c in certs if (d := inv.days(c)) is not None and d >= 0]
+    m_expired = [d for d in domains if inv.manual_expired(d)]
+    m_soon = [d for d in domains if inv.manual_soon(d)]
+    future += [x for d in domains if (x := inv.manual_days(d)) is not None and x >= 0]
     live_problem = [d for d in domains if d.live_check_status in LIVE_PROBLEM]
     no_pem = [c for c in certs if not inv.cert_has_pem[c]]
     no_cert = [d for d in domains if inv.domain_without_cert(d)]
     no_email = not (team.email or "").strip()
     policy = [c for c in certs if c in inv.violations]
-    status = ("critical" if expired or live_problem
-              else "warning" if soon or pending or policy or no_email else "ok")
+    status = ("critical" if expired or m_expired or live_problem
+              else "warning" if soon or m_soon or pending or policy or no_email else "ok")
     return {
         "team_id": team.id, "team": team.name, "email": team.email, "status": status,
         "members": members, "applications": apps,
         "domains": len(domains), "certificates": len(certs),
         "expired": len(expired), "expiring_soon": len(soon),
+        "manual_expired": len(m_expired), "manual_expiring_soon": len(m_soon),
         "nearest_days": min(future) if future else None,
         "pending_proposals": len(pending),
         "oldest_pending_days": _age_days(pending[0].created_at, inv.now) if pending else None,
@@ -196,18 +221,27 @@ def overview(db: Session, scope: set[int] | None) -> dict:
     expired = [c for c in cert_ids if inv.is_expired(c)]
     soon = [c for c in cert_ids if inv.is_soon(c)]
     future = [d for c in cert_ids if (d := inv.days(c)) is not None and d >= 0]
+    m_expired = [d for d in domains if inv.manual_expired(d)]
+    m_soon = [d for d in domains if inv.manual_soon(d)]
+    future += [x for d in domains if (x := inv.manual_days(d)) is not None and x >= 0]
 
-    # Önümüzdeki 90 gün, İstanbul takvim ayına göre
+    # Yenileme takvimi (önümüzdeki 90 gün): sertifikalar + manuel bitiş tarihli domainler
+    upcoming_all = [
+        {"kind": "certificate", "id": cid, "name": inv.certs[cid].name,
+         "valid_to": inv.certs[cid].valid_to, "days_left": inv.days(cid)}
+        for cid in cert_ids if (d := inv.days(cid)) is not None and 0 <= d <= 90
+    ] + [
+        {"kind": "domain", "id": dom.id, "name": dom.domain,
+         "valid_to": dom.expire_date, "days_left": inv.manual_days(dom)}
+        for dom in domains if (d := inv.manual_days(dom)) is not None and 0 <= d <= 90
+    ]
+    upcoming_all.sort(key=lambda x: x["valid_to"])
+    # İstanbul takvim ayına göre
     months: dict[str, int] = {}
-    for cid in cert_ids:
-        d = inv.days(cid)
-        if d is not None and 0 <= d <= 90:
-            local = inv.certs[cid].valid_to.replace(tzinfo=None) + timedelta(hours=3)
-            key = f"{local.year:04d}-{local.month:02d}"
-            months[key] = months.get(key, 0) + 1
-
-    upcoming = sorted((c for c in cert_ids if 0 <= (inv.days(c) if inv.days(c) is not None else -1) <= 90),
-                      key=lambda c: inv.certs[c].valid_to)[:UPCOMING_LIMIT]
+    for x in upcoming_all:
+        local = x["valid_to"].replace(tzinfo=None) + timedelta(hours=3)
+        key = f"{local.year:04d}-{local.month:02d}"
+        months[key] = months.get(key, 0) + 1
 
     missing = {
         "no_pem": sum(1 for c in cert_ids if not inv.cert_has_pem[c]),
@@ -223,6 +257,7 @@ def overview(db: Session, scope: set[int] | None) -> dict:
             "domains": len(domains), "certificates": len(cert_ids),
             "expired": len(expired), "expired_teams": sum(1 for r in rows if r["expired"]),
             "expiring_soon": len(soon), "nearest_days": min(future) if future else None,
+            "manual_expired": len(m_expired), "manual_expiring_soon": len(m_soon),
             "pending_proposals": len(pending),
             "oldest_pending_days": _age_days(pending[0].created_at, inv.now) if pending else None,
             "live_problems": sum(1 for d in domains if d.live_check_status in LIVE_PROBLEM),
@@ -233,8 +268,7 @@ def overview(db: Session, scope: set[int] | None) -> dict:
         },
         "teams": rows,
         "upcoming_months": [{"month": k, "count": v} for k, v in sorted(months.items())],
-        "upcoming_certs": [{"id": cid, "name": inv.certs[cid].name, "valid_to": inv.certs[cid].valid_to,
-                            "days_left": inv.days(cid)} for cid in upcoming],
+        "upcoming_certs": upcoming_all[:UPCOMING_LIMIT],
         "oldest_proposals": [_proposal_out(p, inv) for p in pending[:5]],
     }
 
@@ -280,6 +314,13 @@ def team_detail(db: Session, team_id: int) -> dict | None:
             attention.append({"kind": "live", "domain_id": d.id, "name": d.domain,
                               "detail": "Canlı doğrulamada EŞLEŞMİYOR" if d.live_check_status == "mismatch"
                               else "Ara sertifika sunucuda eksik"})
+    for d in sorted((d for d in domains if inv.manual_expired(d) or inv.manual_soon(d)),
+                    key=lambda d: d.expire_date):
+        x = inv.manual_days(d)
+        attention.append({"kind": "manual_expired" if x < 0 else "manual_soon", "domain_id": d.id, "name": d.domain,
+                          "detail": (f"Manuel bitiş tarihi {-x} gün önce geçti" if x < 0
+                                     else f"Manuel bitiş tarihine {x} gün kaldı" if x else
+                                     "Manuel bitiş tarihi bugün")})
     for d in domains:
         if inv.domain_without_cert(d):
             attention.append({"kind": "no_cert", "domain_id": d.id, "name": d.domain,

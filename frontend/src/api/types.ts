@@ -734,6 +734,9 @@ export interface TeamSummaryRow {
   certificates: number
   expired: number
   expiring_soon: number
+  /** Manuel bitiş tarihi geçmiş / yaklaşan domain (aktif server sertifikası bağlı değil) */
+  manual_expired?: number
+  manual_expiring_soon?: number
   nearest_days?: number | null
   pending_proposals: number
   oldest_pending_days?: number | null
@@ -767,6 +770,8 @@ export interface TeamOverview {
     expired: number
     expired_teams: number
     expiring_soon: number
+    manual_expired?: number
+    manual_expiring_soon?: number
     nearest_days?: number | null
     pending_proposals: number
     oldest_pending_days?: number | null
@@ -778,7 +783,7 @@ export interface TeamOverview {
   }
   teams: TeamSummaryRow[]
   upcoming_months: { month: string; count: number }[]
-  upcoming_certs: { id: number; name: string; valid_to?: string | null; days_left?: number | null }[]
+  upcoming_certs: { kind?: 'certificate' | 'domain'; id: number; name: string; valid_to?: string | null; days_left?: number | null }[]
   oldest_proposals: SummaryProposal[]
 }
 export interface TeamAttentionCert {
@@ -792,7 +797,7 @@ export interface TeamAttentionCert {
   open_proposals: string[]
 }
 export interface TeamAttentionItem {
-  kind: 'live' | 'no_cert' | 'policy' | 'no_pem'
+  kind: 'live' | 'manual_expired' | 'manual_soon' | 'no_cert' | 'policy' | 'no_pem'
   name: string
   detail: string
   domain_id?: number | null

@@ -200,3 +200,45 @@ def test_system_health_admin_only(client, auth_headers):
     assert client.get("/api/system/health", headers=editor).status_code == 403
     viewer = _login_as(client, auth_headers, "ozet_genel_m6", "allviewer")
     assert client.get("/api/system/health", headers=viewer).status_code == 403
+
+
+def test_manual_expire_date_domains_on_my_team(client, auth_headers):
+    """v3.9.45: Aktif server sertifikası bağlı olmayan, manuel Bitiş Tarihi girilmiş domainler
+    Ekibim'de görünür (mail motorundaki kuralın aynısı). Sertifikası olan domainin manuel tarihi
+    yok sayılır (o domain sertifika üzerinden takip edilir)."""
+    a = _sy_team(client, auth_headers, "OzetManuel")
+    tag = "mt"
+    db = SessionLocal()
+    try:
+        now = utcnow()
+        db.add(Domain(domain=f"yakin-{tag}.ornek.local", sy_team_id=a, expire_date=now + timedelta(days=12)))
+        db.add(Domain(domain=f"gecmis-{tag}.ornek.local", sy_team_id=a, expire_date=now - timedelta(days=3)))
+        db.add(Domain(domain=f"uzak-{tag}.ornek.local", sy_team_id=a, expire_date=now + timedelta(days=60)))
+        db.add(Domain(domain=f"cokuzak-{tag}.ornek.local", sy_team_id=a, expire_date=now + timedelta(days=200)))
+        bound = Domain(domain=f"bagli-{tag}.ornek.local", sy_team_id=a, expire_date=now + timedelta(days=5))
+        db.add(bound)
+        db.flush()
+        c = Certificate(name=f"bagli-{tag}", cert_type="leaf", is_active=True, pem_certificate="PEM",
+                        valid_from=now - timedelta(days=30), valid_to=now + timedelta(days=300))
+        db.add(c)
+        db.flush()
+        db.add(CertificateDomainMap(certificate_id=c.id, domain_id=bound.id, mapping_type="server"))
+        db.commit()
+    finally:
+        db.close()
+
+    editor = _editor_in(client, auth_headers, "ozet_ed_mt", a)
+    body = client.get("/api/summary/teams", headers=editor).json()
+    t = body["totals"]
+    assert (t["manual_expired"], t["manual_expiring_soon"]) == (1, 1)
+    assert (t["expired"], t["expiring_soon"]) == (0, 0)   # sertifika sayıları değişmedi
+    assert t["nearest_days"] in (11, 12)
+    row = body["teams"][0]
+    assert row["status"] == "critical" and row["manual_expired"] == 1 and row["manual_expiring_soon"] == 1
+    up = [(u["kind"], u["name"]) for u in body["upcoming_certs"]]
+    assert up == [("domain", f"yakin-{tag}.ornek.local"), ("domain", f"uzak-{tag}.ornek.local")]
+    assert sum(m["count"] for m in body["upcoming_months"]) == 2
+
+    detail = client.get(f"/api/summary/teams/{a}", headers=editor).json()
+    att = [(i["kind"], i["name"]) for i in detail["attention"] if i["kind"].startswith("manual")]
+    assert att == [("manual_expired", f"gecmis-{tag}.ornek.local"), ("manual_soon", f"yakin-{tag}.ornek.local")]
