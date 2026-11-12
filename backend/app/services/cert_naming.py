@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
+from app.core.certtype import normalize_cert_type
 from app.core.timeutil import ISTANBUL
 from app.db.models import Certificate
 from app.services import schema_state
@@ -69,6 +70,9 @@ def abbreviation(issuer: str | None, rules: list, unknown: str) -> str:
 
 
 def kind_of(cert_type: str | None, cn: str | None, san: str | None, eku: str | None) -> str:
+    # v3.9.43: prod'daki eski kayıtlar "Root"/"Intermediate"/"ROOT" yazımıyla tutulur; küçük harfe
+    # indirilmezse CA sertifikaları "single" görünüyordu.
+    cert_type = normalize_cert_type(cert_type)
     if cert_type in ("root", "intermediate"):
         return cert_type
     e = (eku or "").lower()

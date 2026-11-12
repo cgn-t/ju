@@ -1448,11 +1448,160 @@ def send_pending_proposal_notifications(db: Session, *, force: bool = False) -> 
             "message": f"{len(pending)} bekleyen talep; {sent} hatırlatma gönderildi, {skipped} atlandı."}
 
 
+# --- Takip edilemeyen domain bilgilendirmesi (v3.9.44) ----------------------------------------
+# Server (leaf) ya da Trusted olarak bağlı AKTİF sertifikası OLMAYAN ve Manuel Bitiş Tarihi de
+# girilmemiş domainler için hiçbir süre uyarısı gidemez (tarih bilinmiyor). Sahip isteği: bu
+# domainlerin SY ekipleri mail ile bilgilendirilsin. Ekip başına TEK mail, tüm eksik domainleri
+# listeler (değişiklik talebi hatırlatmasıyla aynı desen). Eksik giderilince domain listeden düşer.
+
+UNTRACKED_SUBJECT_NEEDLE = "takip edilemeyen domain"
+
+
+def untracked_domains(db: Session) -> list:
+    """Bitiş tarihi BİLİNMEYEN domainler: aktif Server (leaf) ya da aktif Trusted sertifikası yok
+    ve Manuel Bitiş Tarihi boş. Sıra: SY ekibi, domain adı."""
+    has_active = (CertificateDomainMap.certificate.has(Certificate.is_active == True)  # noqa: E712
+                  & ((CertificateDomainMap.mapping_type == "client")
+                     | ((CertificateDomainMap.mapping_type == "server")
+                        & CertificateDomainMap.certificate.has(
+                            cert_type_filter(Certificate.cert_type, "leaf")))))
+    return (db.query(Domain)
+            .filter(Domain.expire_date.is_(None), ~Domain.certificate_mappings.any(has_active))
+            .order_by(Domain.sy_team_id, Domain.domain).all())
+
+
+def _untracked_missing(dom) -> str:
+    """Domainde neyin eksik olduğu — bağlı ama pasif/ara sertifika varsa bunu da söyler."""
+    maps = list(dom.certificate_mappings or [])
+    if not maps:
+        return "Bağlı sertifika yok, manuel tarih yok"
+    if all(m.certificate is not None and not m.certificate.is_active for m in maps):
+        return "Bağlı sertifikalar pasif, manuel tarih yok"
+    return "Aktif Server (leaf) / Trusted sertifika yok, manuel tarih yok"
+
+
+_UNTRACKED_COLS = ("Domain", "External Address", "UG", "Eksik")
+
+
+def _untracked_row(dom) -> tuple:
+    return (dom.domain, dom.external_address,
+            dom.ug_team.name if dom.ug_team else dom.ug_team_name, _untracked_missing(dom))
+
+
+_UNTRACKED_ACTION = ("Bu domainlerin sertifika bitiş tarihi JUMBO'da bilinmediği için süre uyarısı "
+                     "maili GÖNDERİLEMEZ. Lütfen JUMBO 'Domainler' ekranından her domain için ya "
+                     "kullandığı sertifikayı Server (veya Trusted) olarak bağlayın ya da sertifikası "
+                     "JUMBO'da yoksa 'Manuel Bitiş Tarihi' girin. Eksik giderilen domain bir sonraki "
+                     "bilgilendirmede listede yer almaz.")
+
+
+def _untracked_text(doms: list, cfg: dict, reason: str | None = None) -> str:
+    lines = "".join(f"\n{i}. " + " | ".join(f"{k}: {_fmt(v)}" for k, v in zip(_UNTRACKED_COLS, _untracked_row(d)))
+                    for i, d in enumerate(doms, start=1))
+    body = ((f"{reason}\n\n" if reason else "")
+            + f"JUMBO'da sertifika bitiş tarihi takip edilemeyen {len(doms)} domain var:\n"
+            + lines + "\n\n" + _UNTRACKED_ACTION)
+    return _mail_text_wrap("Merhabalar,", body, doc_links=cfg.get("doc_links") or "")
+
+
+def _render_untracked_html(doms: list, cfg: dict, reason: str | None = None) -> str:
+    th = "".join(f'<th style="{_TD};background:#f2f2f2;text-align:left">{_esc(c)}</th>'
+                 for c in ("#",) + _UNTRACKED_COLS)
+    trs = "".join("<tr>" + f'<td style="{_TD}">{i}</td>'
+                  + "".join(f'<td style="{_TD}">{_cell(v)}</td>' for v in _untracked_row(d)) + "</tr>"
+                  for i, d in enumerate(doms, start=1))
+    parts: list[str] = ([_warn_line(reason)] if reason else []) + [
+        f"<p>JUMBO'da <b>sertifika bitiş tarihi takip edilemeyen {len(doms)} domain</b> var:</p>",
+        _banner(f"{len(doms)} domain için süre uyarısı gönderilemiyor — sertifika bağlayın "
+                "veya manuel bitiş tarihi girin."),
+        _section("Takip Edilemeyen Domainler"),
+        f'<table cellspacing="0" style="border-collapse:collapse;width:100%"><tr>{th}</tr>{trs}</table>',
+        f'<p style="font-size:14px">{_esc(_UNTRACKED_ACTION)}</p>']
+    return _mail_html_wrap("Merhabalar,", "".join(parts), doc_links=cfg.get("doc_links") or "")
+
+
+def send_untracked_domain_notifications(db: Session, *, force: bool = False) -> dict:
+    """Takip edilemeyen domainler (bkz. untracked_domains) için SY ekiplerine bilgilendirme —
+    ekip başına TEK mail. Ekibin e-postası yoksa ya da domainin SY ekibi atanmamışsa yedek adrese
+    gider (sahip kararı, değişiklik talebi hatırlatmasıyla aynı); o da yoksa geçmişte 'Başarısız'.
+    UG ekibine mail gitmez. `force` imza uyumu içindir; tekrar sıklığını zamanlama belirler."""
+    cfg = get_category(db, "smtp", mask_secrets=False)
+    if not cfg.get("enabled") or not cfg.get("host"):
+        return dict(_SMTP_OFF)
+
+    doms = untracked_domains(db)
+    by_team: dict[int | None, list] = {}
+    for d in doms:
+        by_team.setdefault(d.sy_team_id, []).append(d)
+
+    sent = skipped = failed = 0
+    for team_id, items in by_team.items():
+        try:
+            team = db.get(Team, team_id) if team_id is not None else None
+            team_name = team.name if team else ("SY ekibi atanmamış" if team_id is None else f"team_id={team_id}")
+            subject = f"[JUMBO] Bitiş tarihi takip edilemeyen domain bilgilendirmesi ({len(items)} domain)"
+            emails = _team_emails(team) if team else []
+            label, reason = team_name, None
+            if not emails:
+                emails = split_emails(cfg.get("fallback_address"))
+                if team is None:
+                    reason = ("Bu domainlere SY ekibi atanmamış; bilgilendirme yedek adrese iletildi. "
+                              "Lütfen domainlere SY ekibi atayın.")
+                    label = "yedek adres (SY ekibi atanmamış)"
+                else:
+                    reason = (f"Bu bilgilendirme '{team_name}' ekibine gidecekti; ekibin e-posta adresi "
+                              "tanımlı olmadığı için yedek adrese iletildi.")
+                    label = f"yedek adres ({team_name} e-postası yok)"
+                if not emails:
+                    skipped += len(items)
+                    failed += 1
+                    db.add(MailQueue(
+                        to_addresses="(ekip e-postası ve yedek adres tanımlı değil)", subject=subject,
+                        body_text=_untracked_text(items, cfg, reason),
+                        body_html=_render_untracked_html(items, cfg, reason), stakeholder=team_name,
+                        status="failed", attempts=0,
+                        last_error=(f"'{team_name}' için e-posta adresi ve yedek adres tanımlı değil — "
+                                    "bilgilendirme gönderilemedi")[:1000]))
+                    db.commit()
+                    continue
+            body_text = _untracked_text(items, cfg, reason)
+            body_html = _render_untracked_html(items, cfg, reason)
+            ok, note, _mqid = _deliver(db, cfg, emails, subject, body_text, body_html,
+                                       certificate_id=None, stakeholder=label, days_left=None)
+            if ok:
+                db.add(Notification(recipient=", ".join(emails), subject=f"{subject} → {label}",
+                                    days_left=None, channel="email", mail_queue_id=_mqid))
+                db.commit()
+                sent += 1
+            else:
+                skipped += len(items)
+                failed += 1
+                logger.warning("Takip edilemeyen domain bilgilendirmesi gönderilemedi: %s (%s)", label, note)
+                if not cfg.get("queue_enabled"):
+                    db.add(MailQueue(to_addresses=", ".join(emails), subject=subject,
+                                     body_text=body_text, body_html=body_html, stakeholder=label,
+                                     status="failed", last_error=(note or "")[:1000], attempts=1))
+                    db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception("Takip edilemeyen domain bilgilendirmesi işlenemedi (atlanıyor): %s", team_id)
+            skipped += len(items)
+            failed += 1
+            _record_dispatch_error(db, "Takip edilemeyen domain bilgilendirmesi işlenemedi", exc,
+                                   label=str(team_id))
+
+    return {"enabled": True, "checked": len(doms), "sent": sent, "skipped": skipped,
+            "failed": failed, "details": [],
+            "message": f"{len(doms)} takip edilemeyen domain; {sent} bilgilendirme maili gönderildi, "
+                       f"{skipped} domain atlandı."}
+
+
 # Ortak DB kilidi adları (bkz. job_lock): zamanlanmış iş, ekrandaki buton ve dış tetik AYNI
 # adı kullanır → aynı mail taraması aynı anda iki yerde (iki pod / iki cluster) çalışmaz.
 JOB_EXPIRY_MAIL = "expiry-mail"
 JOB_EXPIRED_MAIL = "expired-mail"
 JOB_PROPOSAL_MAIL = "proposal-mail"
+JOB_UNTRACKED_MAIL = "untracked-domain-mail"
 JOB_MAIL_QUEUE = "mail-queue"
 
 
@@ -1487,6 +1636,41 @@ def check_pending_proposals() -> dict:
         return {"status": "error", "error": str(exc)[:300]}
     finally:
         db.close()
+
+
+@audited_job("Takip edilemeyen domain bilgilendirmesi")
+def check_untracked_domains() -> dict:
+    """Zamanlanmış takip edilemeyen domain bilgilendirmesi (her gün, varsayılan 09:30).
+    `smtp.auto_untracked_domain_enabled` KAPALIYSA atlar. Dış API tetiği
+    (/notifications/untracked-run) ve 'Şimdi Gönder' bu bayraktan ETKİLENMEZ."""
+    db: Session = SessionLocal()
+    try:
+        cfg = get_category(db, "smtp", mask_secrets=False)
+        if not cfg.get("auto_untracked_domain_enabled", False):
+            logger.info("Takip edilemeyen domain bilgilendirmesi: otomatik gönderim kapalı — atlandı")
+            return {"status": "skipped"}
+        return job_lock.run_job(
+            JOB_UNTRACKED_MAIL,
+            lambda: _mail_job_summary(send_untracked_domain_notifications(db, force=False),
+                                      "Takip edilemeyen domain bilgilendirmesi"),
+            min_gap_seconds=job_lock.DAILY_GAP_SECONDS)
+    except Exception as exc:
+        logger.exception("Takip edilemeyen domain bilgilendirmesi job'ı başarısız")
+        return {"status": "error", "error": str(exc)[:300]}
+    finally:
+        db.close()
+
+
+def _untracked_schedule() -> dict:
+    """Her gün, smtp ayarındaki saatte (0-23, varsayılan 9) :30'da — sahip kararı 2026-11-12."""
+    db = SessionLocal()
+    try:
+        hour = _hour_setting(get_category(db, "smtp", mask_secrets=False).get("untracked_domain_hour"), 9)
+    except Exception:
+        hour = 9
+    finally:
+        db.close()
+    return {"trigger": "cron", "hour": hour, "minute": 30}
 
 
 @audited_job("Süresi geçmiş hatırlatması")
@@ -1659,6 +1843,7 @@ def _queue_interval() -> int:
 def _schedule_triggers() -> dict[str, dict]:
     return {
         "proposal-reminder": {"trigger": "cron", "hour": _proposal_reminder_hour(), "minute": 0},
+        "untracked-domain-mail": _untracked_schedule(),
         "mail-queue-drain": {"trigger": "interval", "minutes": _queue_interval()},
         "live-check": {"trigger": "cron", "hour": _schedule_hour("live_check", 7), "minute": 0},
         "discovery-scan": {"trigger": "cron", "hour": _discovery_hour(), "minute": 0},
@@ -1668,7 +1853,7 @@ def _schedule_triggers() -> dict[str, dict]:
 
 
 _CATEGORY_JOBS = {
-    "smtp": ("proposal-reminder", "mail-queue-drain"),
+    "smtp": ("proposal-reminder", "untracked-domain-mail", "mail-queue-drain"),
     "live_check": ("live-check",),
     "discovery": ("discovery-scan",),
     "ct": ("ct-scan",),
@@ -1747,6 +1932,11 @@ def start_scheduler() -> None:
         # Devir-onayı hatırlatması — iş içinde 'smtp.auto_proposal_reminder_enabled' kontrol edilir
         scheduler.add_job(check_pending_proposals, "cron", hour=_proposal_reminder_hour(), minute=0,
                           id="proposal-reminder", replace_existing=True)
+        # Takip edilemeyen domain bilgilendirmesi (her gün, vars. 09:30) — iş içinde
+        # 'smtp.auto_untracked_domain_enabled' kontrol edilir
+        _u = {k: v for k, v in _untracked_schedule().items() if k != "trigger"}
+        scheduler.add_job(check_untracked_domains, "cron", **_u,
+                          id="untracked-domain-mail", replace_existing=True)
         # Canlı doğrulama gece taraması — iş içinde 'live_check.enabled' kontrol edilir
         scheduler.add_job(check_all_domains, "cron", hour=_schedule_hour("live_check", 7), minute=0,
                           id="live-check", replace_existing=True)

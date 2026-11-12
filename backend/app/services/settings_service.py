@@ -103,6 +103,12 @@ DEFAULTS: dict[str, dict] = {
         # zamanlanmış gönderim yok; ama dış API tetiği (POST /notifications/proposal-run) yine çalışır.
         "auto_proposal_reminder_enabled": False,
         "proposal_reminder_hour": 9,   # 0-23 (zamanlanmış hatırlatma saati)
+        # --- Takip edilemeyen domain bilgilendirmesi (v3.9.44) ---
+        # Aktif Server/Trusted sertifikası ve Manuel Bitiş Tarihi OLMAYAN domainler için SY ekibine
+        # (ekip başına tek mail) bilgilendirme. Açıksa HER GÜN untracked_domain_hour:30'da gönderilir;
+        # kapalıysa yalnız 'Şimdi Gönder' / dış API (POST /notifications/untracked-run) ile.
+        "auto_untracked_domain_enabled": False,
+        "untracked_domain_hour": 9,
     },
     "vault": {
         "enabled": False,
