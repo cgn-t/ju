@@ -48,6 +48,7 @@ _JOBS = {
     "expiry-run": (notifier.JOB_EXPIRY_MAIL, notifier.send_expiry_notifications),
     "expired-run": (notifier.JOB_EXPIRED_MAIL, notifier.send_expired_notifications),
     "proposal-run": (notifier.JOB_PROPOSAL_MAIL, notifier.send_pending_proposal_notifications),
+    "untracked-run": (notifier.JOB_UNTRACKED_MAIL, notifier.send_untracked_domain_notifications),
 }
 _BUSY = "Bu mail taraması şu anda çalışıyor (bu ya da başka bir sunucuda) — bitince tekrar deneyin"
 _MAIL_OFF = ("E-posta bildirimleri kapalı veya mail sunucusu tanımsız — mail gönderilemez "
@@ -160,6 +161,20 @@ def expired_run_status(actor: str = Depends(_trigger_actor)):
     return _status("expired-run", actor)
 
 
+@router.post("/untracked-run")
+def run_untracked_notifications(request: Request, actor: str = Depends(_trigger_actor),
+                                db: Session = Depends(get_db)):
+    """Aktif Server/Trusted sertifikası ve Manuel Bitiş Tarihi OLMAYAN (bitiş tarihi takip
+    edilemeyen) domainler için SY ekiplerine bilgilendirme maili gönderir (ekip başına tek mail).
+    auto_untracked_domain_enabled bayrağından ETKİLENMEZ."""
+    return _run_scan("untracked-run", request, actor, db)
+
+
+@router.get("/untracked-run/status")
+def untracked_run_status(actor: str = Depends(_trigger_actor)):
+    return _status("untracked-run", actor)
+
+
 @router.get("/proposal-run/status")
 def proposal_run_status(actor: str = Depends(_trigger_actor)):
     """Son değişiklik talebi hatırlatmasının durumu."""
@@ -185,7 +200,7 @@ def list_mail_history(
         limit: int = Query(MAIL_HISTORY_LIMIT, ge=1, le=MAIL_HISTORY_LIMIT),
         channel: str | None = None,          # vars. frontend 'email' gönderir; boş = tüm kanallar
         status: str | None = None,           # sent | pending | failed
-        mail_type: str | None = None,        # expiry | expired | revoked | deactivated | proposal | other
+        mail_type: str | None = None,        # expiry | expired | revoked | deactivated | proposal | untracked | test | other
         q: str | None = None,                # genel arama: alıcı / konu / sertifika / domain
         search: str | None = None,           # (geriye uyum: q ile aynı)
         recipient: str | None = None, subject: str | None = None, record: str | None = None,

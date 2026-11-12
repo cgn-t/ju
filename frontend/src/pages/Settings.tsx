@@ -220,6 +220,11 @@ function SmtpTab() {
     onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.enabled && d.sent > 0 ? 'success' : 'info' }),
     onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
   })
+  const runUntracked = useMutation({
+    mutationFn: async () => (await api.post('/notifications/untracked-run')).data,
+    onSuccess: (d) => enqueueSnackbar(d.message, { variant: d.enabled && d.sent > 0 ? 'success' : 'info' }),
+    onError: (e) => enqueueSnackbar(apiErrorMessage(e), { variant: 'error' }),
+  })
   // Test maili: önce formdaki ayarlar kaydedilir, ardından YALNIZ girilen adrese gönderilir
   // (gerçek paydaşlara uyarı gitmez; kuyruk/yedek adres kullanılmaz, sunucu hatası olduğu gibi döner).
   const [testTo, setTestTo] = useState('')
@@ -309,7 +314,7 @@ function SmtpTab() {
               helper="Maillerin en altına eklenir. Her satıra bir link/metin; http(s) linkleri tıklanabilir olur."
               width={{ xs: 12, sm: 12 }} />
         <Text form={form} setForm={setForm} field="trigger_api_key" label="Dış Tetikleme API Anahtarı"
-              helper='Dış araç: POST /api/notifications/expiry-run (expired-run, proposal-run) + "X-API-Key: <anahtar>" başlığı. Tarama arka planda çalışır (202); durum: GET …/expiry-run/status (gönderilemeyen mail varsa status: error). E-posta kapalıysa 503 döner. Boşsa dış tetikleme kapalı.'
+              helper='Dış araç: POST /api/notifications/expiry-run (expired-run, proposal-run, untracked-run) + "X-API-Key: <anahtar>" başlığı. Tarama arka planda çalışır (202); durum: GET …/expiry-run/status (gönderilemeyen mail varsa status: error). E-posta kapalıysa 503 döner. Boşsa dış tetikleme kapalı.'
               width={{ xs: 12, sm: 12 }} />
       </Grid>
 
@@ -351,6 +356,27 @@ function SmtpTab() {
               width={{ xs: 6, sm: 4 }} />
       </Grid>
 
+      <Alert severity="info" sx={{ mt: 1 }}>
+        <b>Takip Edilemeyen Domain Bilgilendirmesi:</b> Aktif <b>Server</b> veya <b>Trusted</b> sertifikası bağlı
+        olmayan ve <b>Manuel Bitiş Tarihi</b> de girilmemiş domainler için süre uyarısı gidemez. Bu domainlerin
+        SY ekiplerine (ekip başına <b>tek mail</b>, eksik domainlerini listeler) bilgi verilir. SY ekibi ya da
+        ekip e-postası yoksa yedek adrese gider. Açıkken <b>her gün</b> belirtilen saatte; kapalıyken yalnız
+        "Şimdi Bildir" / dış API ile. Eksik giderilen domain listeden düşer.
+      </Alert>
+      <Box>
+        <FormControlLabel
+          control={<Switch checked={form.auto_untracked_domain_enabled === true}
+                           onChange={(e) => setForm((f) => ({ ...f, auto_untracked_domain_enabled: e.target.checked }))} />}
+          label="Günlük Takip Edilemeyen Domain Bilgilendirmesi" />
+        <AutoOffNote show={form.auto_untracked_domain_enabled !== true} trigger="POST /api/notifications/untracked-run" />
+      </Box>
+      <Grid container spacing={2}>
+        <Text form={form} setForm={setForm} field="untracked_domain_hour" label="Gönderim Saati (0-23)" type="number"
+              disabled={form.auto_untracked_domain_enabled !== true}
+              helper="Her gün bu saatin 30. dakikasında gider (varsayılan 09:30)."
+              width={{ xs: 6, sm: 4 }} />
+      </Grid>
+
       <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <TextField size="small" label="Test Maili Alıcısı" value={testTo} sx={{ minWidth: 260 }}
                    onChange={(e) => setTestTo(e.target.value)}
@@ -370,6 +396,9 @@ function SmtpTab() {
         </Button>
         <Button variant="outlined" onClick={() => runProposals.mutate()} disabled={runProposals.isPending}>
           Bekleyen Talepleri Şimdi Hatırlat
+        </Button>
+        <Button variant="outlined" onClick={() => runUntracked.mutate()} disabled={runUntracked.isPending}>
+          Takip Edilemeyen Domainleri Şimdi Bildir
         </Button>
       </Stack>
     </Stack>
