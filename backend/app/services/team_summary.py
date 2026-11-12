@@ -380,6 +380,8 @@ JOBS = [
      "auto_expired_enabled", True),
     ("proposal-reminder", ("Değişiklik talebi hatırlatması",), "Değişiklik talebi hatırlatması", "smtp",
      "auto_proposal_reminder_enabled", False),
+    ("untracked-domain-mail", ("Takip edilemeyen domain bilgilendirmesi",),
+     "Takip edilemeyen domain maili", "smtp", "auto_untracked_domain_enabled", False),
     ("live-check", ("Canlı doğrulama", "Canlı doğrulama (tetiklenen)"), "Canlı doğrulama", "live_check",
      "enabled", False),
     ("discovery-scan", ("Ağ keşfi",), "Keşif taraması", "discovery", "enabled", False),
@@ -391,7 +393,7 @@ JOBS = [
 def _job_summary_text(job_id: str, d: dict) -> str:
     if d.get("status") == "error":
         return f"Hata: {d.get('error') or 'bilinmiyor'}"
-    if job_id in ("expiry-check", "expired-check", "proposal-reminder"):
+    if job_id in ("expiry-check", "expired-check", "proposal-reminder", "untracked-domain-mail"):
         return f"{d.get('checked') or 0} kayıt incelendi, {d.get('sent') or 0} mail gönderildi"
     if job_id == "live-check":
         by = d.get("by_status") or {}

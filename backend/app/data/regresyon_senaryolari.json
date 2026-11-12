@@ -738,6 +738,126 @@
      "sub": "",
      "title": "A23'ü yedek adres doluyken tekrarlayın",
      "expected": "Mail yedek adrese gider, sonuç \"status\": \"ok\", \"failed\": 0"
+    },
+    {
+     "id": "MAIL-A25",
+     "sub": "",
+     "title": "Detay alanı üç satır olan bir domain için süre uyarı maili tetikleyin",
+     "expected": "'Domain Detay Bilgileri' tablosunda Detay satırları alt alta görünür; < > gibi karakterler metin olarak çıkar"
+    },
+    {
+     "id": "MAIL-A26",
+     "sub": "",
+     "title": "Bekleyen değişiklik talebi varken \"Değişiklik talebi hatırlatması\"nı çalıştırın, sonra Mail Gönderim Geçmişi'ni açın",
+     "expected": "Her ekip için bir satır: tür \"Değişiklik talebi hatırlatması\", kayıt \"Değişiklik talepleri\", alıcının altında ekip adı, durum Gönderildi"
+    },
+    {
+     "id": "MAIL-A27",
+     "sub": "",
+     "title": "A26'yı \"Kuyruk\" açıkken tekrarlayın; kuyruk gönderdikten sonra geçmişi yenileyin",
+     "expected": "Önce \"Kuyrukta\", gönderilince aynı satır \"Gönderildi\" olur (kaybolmaz, çift satır olmaz); satıra tıklayınca mail içeriği görünür"
+    },
+    {
+     "id": "MAIL-A28",
+     "sub": "",
+     "title": "Ayarlar → E-posta → \"Test maili gönder\"; bir kez de alıcıyı sunucunun reddedeceği adres yapın",
+     "expected": "Geçmişte tür \"SMTP test maili\": başarılı olan Gönderildi, reddedilen Başarısız ve sunucu hatasıyla görünür"
+    },
+    {
+     "id": "MAIL-A29",
+     "sub": "",
+     "title": "E-posta bildirimleri kapalıyken domaine bağlı bir sertifikayı Pasife Alın",
+     "expected": "Geçmişte \"Pasife alma\" satırı Başarısız ve \"E-posta bildirimleri kapalı — mail gönderilmedi\" yazar (eskiden yanlışlıkla Gönderildi görünüyordu); e-posta açılınca \"Yeniden kuyruğa al\" ile gönderilebilir"
+    },
+    {
+     "id": "MAIL-A30",
+     "sub": "",
+     "title": "E-posta açık ama mail sunucusu erişilemezken bir sertifikayı Pasife Alın",
+     "expected": "Satır Başarısız, hata mesajı detayda; kendiliğinden yeniden gönderilmez"
+    },
+    {
+     "id": "MAIL-A31",
+     "sub": "",
+     "title": "Yedek adres dolu; bir ekibin adresini sunucunun reddedeceği bir adres yapın ve o ekibe mail tetikleyin",
+     "expected": "Mail yedek adrese gider; geçmişte satır Gönderildi, notta turuncu \"birincil başarısız → yedek adrese gönderildi (adres)\"; detayda aynı uyarı ve mail içeriği"
+    },
+    {
+     "id": "MAIL-A32",
+     "sub": "",
+     "title": "A31'i \"Kuyruk\" açıkken tekrarlayın",
+     "expected": "Kuyruk gönderince aynı not görünür; önce hata alıp sonra düzgün giden maillerde eski hata notu kalmaz"
+    },
+    {
+     "id": "MAIL-A33",
+     "sub": "",
+     "title": "E-postası boş bir SY ekibinin onay bekleyen talebi varken hatırlatmayı çalıştırın; yedek adres dolu",
+     "expected": "Hatırlatma yedek adrese gider, mailin başında \"… ekibine gidecekti; e-posta adresi tanımlı olmadığı için yedek adrese iletildi\" yazar; geçmişte alıcı yedek adres, altında \"yedek adres (Ekip e-postası yok)\""
+    },
+    {
+     "id": "MAIL-A34",
+     "sub": "",
+     "title": "A33'ü yedek adres boşken tekrarlayın",
+     "expected": "Mail gitmez; geçmişte Başarısız ve \"ekibin e-posta adresi tanımlı değil ve yedek adres yok\"; dış tetik sonucunda failed ≥ 1"
+    },
+    {
+     "id": "MAIL-A35",
+     "sub": "",
+     "title": "Ekibinin e-postası boş bir domaine bağlı sertifikayı Pasife Alın; yedek adres dolu",
+     "expected": "Bilgilendirme yedek adrese gider (başında neden satırı), geçmişte Gönderildi ve paydaş \"yedek adres\"; ekrandaki mesaj \"yedek adrese bildirildi\""
+    },
+    {
+     "id": "MAIL-A36",
+     "sub": "",
+     "title": "Detay alanında kalın ve renkli satır olan bir domain için süre uyarı maili tetikleyin",
+     "expected": "Mailde aynı satırlar kalın/renkli görünür, etiketler ([b], [renk=…]) görünmez; <script> gibi metin kaçışlı çıkar"
+    },
+    {
+     "id": "MAIL-A37",
+     "sub": "",
+     "title": "Standart Adı dolu bir sertifika için süre uyarı maili tetikleyin",
+     "expected": "Konu ve gövdede Standart Ad yazar; sertifika tablosunda NAME (CN) satırı durur, altında ayrıca \"Standart Ad\" satırı"
+    },
+    {
+     "id": "MAIL-A39",
+     "sub": "",
+     "title": "Bir SY ekibine ait, Server/Trusted sertifikası bağlı olmayan ve Manuel Bitiş Tarihi boş iki domain ekleyin; Ayarlar → E-posta → \"Takip Edilemeyen Domainleri Şimdi Bildir\"",
+     "expected": "Ekibe tek mail gider, konu \"[JUMBO] Bitiş tarihi takip edilemeyen domain bilgilendirmesi (N domain)\"; tabloda iki domain (Domain, External Address, UG, Eksik) ve \"sertifika bağlayın veya Manuel Bitiş Tarihi girin\" açıklaması"
+    },
+    {
+     "id": "MAIL-A40",
+     "sub": "",
+     "title": "Aynı ekipte Server sertifikası bağlı, Trusted sertifikası bağlı ve yalnız Manuel Bitiş Tarihi girilmiş birer domain olsun, A39'u tekrarlayın",
+     "expected": "Bu üç domain mailde yer almaz"
+    },
+    {
+     "id": "MAIL-A41",
+     "sub": "",
+     "title": "A39'daki domainlerden birine Manuel Bitiş Tarihi girin ve tekrar bildirin",
+     "expected": "O domain listeden düşer; ikisi de düzelince ekibe bu mail hiç gitmez"
+    },
+    {
+     "id": "MAIL-A42",
+     "sub": "",
+     "title": "E-postası boş bir SY ekibinin ve SY ekibi atanmamış bir domainin eksik olduğu durumda bildirin; yedek adres dolu",
+     "expected": "İkisi de yedek adrese ayrı mail olarak gider, başında neden satırı (\"… e-posta adresi tanımlı olmadığı için\" / \"SY ekibi atanmamış\"); yedek adres boşsa geçmişte Başarısız"
+    },
+    {
+     "id": "MAIL-A43",
+     "sub": "",
+     "title": "Mail Gönderim Geçmişi'nde tür filtresinden \"Takip edilemeyen domain\"i seçin",
+     "expected": "A39–A42'deki mailler bu türle listelenir; satıra tıklayınca mail içeriği görünür"
+    },
+    {
+     "id": "MAIL-A44",
+     "sub": "",
+     "title": "\"Günlük Takip Edilemeyen Domain Bilgilendirmesi\" açık, Gönderim Saati 9 iken ertesi sabah 09:30'u bekleyin; sonra anahtarı kapatıp bir gün daha bekleyin",
+     "expected": "Açıkken her gün 09:30'da gider; kapalıyken gitmez, düğmeyle ve dış API ile yine gönderilir"
+    },
+    {
+     "id": "MAIL-A45",
+     "sub": "",
+     "title": "Dış araçla POST /api/notifications/untracked-run + X-API-Key çağırın, sonra GET …/untracked-run/status",
+     "expected": "202 döner, mail gider, durum sonucu \"status\": \"ok\"; yanlış anahtarda 401, e-posta kapalıyken 503"
     }
    ]
   },
