@@ -13,12 +13,12 @@ import DomainDetailDrawer from '../components/DomainDetailDrawer'
 import { DaysLeftPill, EmptyState } from '../components/ListKit'
 import PageHeader from '../components/PageHeader'
 import QueryError from '../components/QueryError'
-import { dayText, Panel, ProposalList, SummaryTile, TEAM_HEALTH, TILE_GRID } from '../components/TeamSummaryKit'
+import { dayText, manualSub, Panel, ProposalList, SummaryTile, TEAM_HEALTH, TILE_GRID } from '../components/TeamSummaryKit'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useUrlId } from '../hooks/useUrlState'
 
 const ATTENTION_TONE: Record<TeamAttentionItem['kind'], Tone> = {
-  live: 'error', no_cert: 'warning', policy: 'warning', no_pem: 'default',
+  live: 'error', manual_expired: 'error', manual_soon: 'warning', no_cert: 'warning', policy: 'warning', no_pem: 'default',
 }
 
 /** Tek ekibin özeti: Genel Durum'da satıra tıklayınca ya da Ekibim'den açılır. */
@@ -56,10 +56,13 @@ export default function TeamSummary() {
         <Box sx={{ ...TILE_GRID, gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)', lg: 'repeat(6, 1fr)' } }}>
           <SummaryTile label="Domain" value={data.domains} />
           <SummaryTile label="Aktif sertifika" value={data.certificates} />
-          <SummaryTile label="Süresi dolmuş" value={data.expired} tone={data.expired ? 'error' : 'default'} />
-          <SummaryTile label={`${data.expiring_soon_days} gün içinde`} value={data.expiring_soon}
-                       tone={data.expiring_soon ? 'warning' : 'default'}
-                       sub={data.nearest_days !== null && data.nearest_days !== undefined ? `En yakını ${dayText(data.nearest_days)} sonra` : undefined} />
+          <SummaryTile label="Süresi dolmuş" value={data.expired + (data.manual_expired ?? 0)}
+                       tone={data.expired + (data.manual_expired ?? 0) ? 'error' : 'default'}
+                       sub={data.manual_expired ? manualSub(data.expired, data.manual_expired) : undefined} />
+          <SummaryTile label={`${data.expiring_soon_days} gün içinde`} value={data.expiring_soon + (data.manual_expiring_soon ?? 0)}
+                       tone={data.expiring_soon + (data.manual_expiring_soon ?? 0) ? 'warning' : 'default'}
+                       sub={data.manual_expiring_soon ? manualSub(data.expiring_soon, data.manual_expiring_soon)
+                         : data.nearest_days !== null && data.nearest_days !== undefined ? `En yakını ${dayText(data.nearest_days)} sonra` : undefined} />
           <SummaryTile label="Bekleyen talep" value={data.pending_proposals} tone={data.pending_proposals ? 'info' : 'default'}
                        onClick={() => navigate(`/proposals?sy=${data.team_id}`)} />
           <SummaryTile label="EŞLEŞMİYOR" value={data.live_problems} tone={data.live_problems ? 'error' : 'default'} sub="domain" />

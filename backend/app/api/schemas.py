@@ -1022,6 +1022,8 @@ class TeamSummaryRow(BaseModel):
     certificates: int
     expired: int
     expiring_soon: int
+    manual_expired: int = 0             # manuel bitiş tarihi geçmiş domain (aktif server sertifikası yok)
+    manual_expiring_soon: int = 0       # manuel bitiş tarihi yaklaşan domain
     nearest_days: int | None
     pending_proposals: int
     oldest_pending_days: int | None
@@ -1053,6 +1055,8 @@ class SummaryTotalsOut(BaseModel):
     expired: int
     expired_teams: int
     expiring_soon: int
+    manual_expired: int = 0
+    manual_expiring_soon: int = 0
     nearest_days: int | None
     pending_proposals: int
     oldest_pending_days: int | None
@@ -1069,6 +1073,7 @@ class MonthCount(BaseModel):
 
 
 class UpcomingCert(BaseModel):
+    kind: str = "certificate"           # certificate | domain (manuel bitiş tarihi)
     id: int
     name: str
     valid_to: datetime | None
@@ -1098,7 +1103,7 @@ class TeamAttentionCert(BaseModel):
 
 
 class TeamAttentionItem(BaseModel):
-    kind: str                           # live | no_cert | policy | no_pem
+    kind: str                           # live | manual_expired | manual_soon | no_cert | policy | no_pem
     name: str
     detail: str
     domain_id: int | None = None

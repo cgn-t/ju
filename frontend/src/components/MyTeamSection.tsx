@@ -1,5 +1,5 @@
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
-import { Box, ButtonBase, Skeleton, Typography } from '@mui/material'
+import { Box, ButtonBase, Skeleton, Tooltip, Typography } from '@mui/material'
 import { alpha } from '@mui/material/styles'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -44,6 +44,10 @@ export default function MyTeamSection() {
   const todos = [
     t.expired ? { n: t.expired, tone: 'error' as Tone, text: 'sertifikanın süresi doldu, yenilenmesi gerekiyor', go: go('/certificates?f_valid=expired') } : null,
     t.expiring_soon ? { n: t.expiring_soon, tone: 'warning' as Tone, text: `sertifika ${data.expiring_soon_days} gün içinde bitiyor`, go: go('/certificates?f_valid=expiring') } : null,
+    t.manual_expired ? { n: t.manual_expired, tone: 'error' as Tone,
+      text: 'domainin manuel girilen bitiş tarihi geçti (bağlı aktif sertifika yok)', go: go('/domains') } : null,
+    t.manual_expiring_soon ? { n: t.manual_expiring_soon, tone: 'warning' as Tone,
+      text: `domainin manuel girilen bitiş tarihi ${data.expiring_soon_days} gün içinde`, go: go('/domains') } : null,
     t.pending_proposals ? { n: t.pending_proposals, tone: 'info' as Tone,
       text: `değişiklik talebi onay bekliyor${t.oldest_pending_days ? ` (en eskisi ${t.oldest_pending_days} gündür)` : ''}`,
       go: () => navigate(single ? `/proposals?sy=${single.team_id}` : '/proposals') } : null,
@@ -80,9 +84,9 @@ export default function MyTeamSection() {
       )}
 
       <Panel title="Yenileme takvimi (90 gün)"
-             aside={<Typography variant="caption" color="text.secondary">Ekibimin sertifikaları, bitiş tarihine göre</Typography>}>
+             aside={<Typography variant="caption" color="text.secondary">Ekibimin sertifikaları ve manuel tarihli domainleri, bitiş tarihine göre</Typography>}>
         {byMonth.size === 0 ? (
-          <Typography variant="body2" color="text.secondary">Önümüzdeki 90 günde biten sertifika yok.</Typography>
+          <Typography variant="body2" color="text.secondary">Önümüzdeki 90 günde biten sertifika ya da domain yok.</Typography>
         ) : (
           <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
             {[...byMonth.entries()].map(([key, certs]) => (
@@ -91,13 +95,22 @@ export default function MyTeamSection() {
                   {monthLabel(key)} <Typography component="span" color="text.secondary">· {certs.length}</Typography>
                 </Typography>
                 {certs.map((c) => (
-                  <ButtonBase key={c.id} onClick={() => navigate(`/certificates?cert=${c.id}`)}
+                  <ButtonBase key={`${c.kind ?? 'certificate'}-${c.id}`}
+                              onClick={() => navigate(c.kind === 'domain' ? `/domains?domain=${c.id}` : `/certificates?cert=${c.id}`)}
                               sx={{ width: '100%', justifyContent: 'flex-start', gap: 1, py: 0.75, borderTop: 1, borderColor: 'divider',
                                     textAlign: 'left', '&:hover': { color: 'primary.main' } }}>
                     <Typography variant="body2" sx={{ fontVariantNumeric: 'tabular-nums', color: 'text.secondary', flexShrink: 0 }}>
                       {new Date(c.valid_to!).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' })}
                     </Typography>
-                    <Typography variant="body2" noWrap>{c.name}</Typography>
+                    <Typography variant="body2" noWrap sx={{ minWidth: 0 }}>{c.name}</Typography>
+                    {c.kind === 'domain' && (
+                      <Tooltip title="Bağlı aktif sertifika yok; domainde elle girilen bitiş tarihi">
+                        <Typography component="span" variant="caption"
+                                    sx={{ ml: 'auto', flexShrink: 0, px: 0.75, borderRadius: '6px', bgcolor: 'action.hover', color: 'text.secondary' }}>
+                          manuel tarih
+                        </Typography>
+                      </Tooltip>
+                    )}
                   </ButtonBase>
                 ))}
               </Box>
